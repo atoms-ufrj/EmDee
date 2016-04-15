@@ -109,13 +109,21 @@ void find_pairs( tEmDee *me, double L )
   int maxpairs = (nmax*((2*nbcells + 1)*nmax - 1))/2;
   int *atom = alloca( nmax*(nbcells + 1)*sizeof(int) );
   double *Rc = alloca( nmax*(nbcells + 1)*3*sizeof(double) );
-  int *neighbor = alloca( maxpairs*sizeof(int) );
 
   // Sweep all cells to search for neighbors:
   int npairs = 0;
   for (int icell = 0; icell < me->ncells; icell++) {
     int nlocal = natoms[icell];
     if (nlocal != 0) {
+
+      if (me->maxpairs < npairs + maxpairs) {
+        me->maxpairs = npairs + maxpairs + extraPairs;
+        me->neighbor = realloc( me->neighbor, me->maxpairs*sizeof(int) );
+        if (me->neighbor == NULL) {
+          fprintf(stderr, "ERROR: not enough memory to allocate neighbor list.\n");
+          exit(EXIT_FAILURE);
+        }
+      }
 
       // Build list of atoms in current cell and neighbor cells:
       int ntotal = 0;
@@ -142,10 +150,9 @@ void find_pairs( tEmDee *me, double L )
       }
 
       // Search for neighbors and add them to the list:
-      n = 0;
       for (int k = 0; k < nlocal; k++) {
         int i = atom[k];
-        me->first[i] = npairs + n;
+        me->first[i] = npairs;
         int kx3 = 3*k;
         double Rix = Rc[kx3];
         double Riy = Rc[kx3+1];
@@ -158,12 +165,11 @@ void find_pairs( tEmDee *me, double L )
           dx -= rint(dx);
           dy -= rint(dy);
           dz -= rint(dz);
-          if (dx*dx + dy*dy + dz*dz < RcSq)
-            neighbor[n++] = atom[m];
+          if (dx*dx + dy*dy + dz*dz <= RcSq)
+            me->neighbor[npairs++] = atom[m];
         }
-        me->last[i] = npairs + n - 1;
+        me->last[i] = npairs - 1;
       }
-      npairs += n;
     }
   }
   me->npairs = npairs;
@@ -201,6 +207,10 @@ void md_initialize( tEmDee *me, double rc, double skin, int atoms, int *types )
   me->cell = malloc( 0 );
 
   me->maxpairs = extraPairs;
+
+
+//  me->maxpairs = 4000000;
+
   me->neighbor = malloc( me->maxpairs );
 
   me->builds = 0;
