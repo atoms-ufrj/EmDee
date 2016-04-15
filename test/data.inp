@@ -1,0 +1,25 @@
+[número de partículas]
+10000
+[densidade reduzida]
+0.88
+[distância de corte reduzida e skin para lista de vizinhos]
+2.5 0.3
+[Temperatura reduzida]
+2.0
+[Pressão reduzida]
+2.0
+[Semente do gerador de números aleatórios]
+86245
+[Passo de integração]
+0.002
+[Número de passos de integração]
+1000
+[Intervalo para saída de propriedades]
+50
+[Número de termostatos, número de loops e número de termos Suzuki-Yoshida]
+4 4 7
+[parâmetro de amortecimento do termostato]
+0.5
+[parâmetro de amortecimento do barostato]
+5.0
+
