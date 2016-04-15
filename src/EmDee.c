@@ -7,6 +7,8 @@
 
 #define println printf("%d\n",__LINE__)
 
+#define nbcells 58
+
 /* -------------------------------------------------------------------------------------------------
                                          LOCAL FUNCTIONS
 ------------------------------------------------------------------------------------------------- */
@@ -47,7 +49,7 @@ void make_cells( tEmDee *me, int M )
   }
 
   #define pbc( x ) if (x < 0) x += M; else if (x >= M) x -= M;
-  for (int k = 0; k < 58; k++)
+  for (int k = 0; k < nbcells; k++)
     for (int iz = 0; iz < M; iz++) {
       int jz = (iz + nb[k][2]) % M;
       pbc( jz );
@@ -74,10 +76,10 @@ void find_pairs( tEmDee *me, double L )
   double RcSq = me->xRcSq*invL*invL;
 
   // Distribute atoms over cells and save scaled coordinates:
-  int natoms[me->ncells];
-  int head[me->ncells];
-  int next[me->natoms];
-  double R[me->nx3];
+  int *natoms = alloca( me->ncells*sizeof(int) );
+  int *head = alloca( me->ncells*sizeof(int) );
+  int *next = alloca( me->natoms*sizeof(int) );
+  double *R = alloca( me->nx3*sizeof(double) );
   for (int icell = 0; icell < me->ncells; icell++) {
     head[icell] = -1;
     natoms[icell] = 0;
@@ -99,13 +101,15 @@ void find_pairs( tEmDee *me, double L )
     natoms[icell]++;
   }
 
+  // Safely allocate local arrays:
   int nmax = natoms[0];
   for (int icell = 1; icell < me->ncells; icell++)
     if (natoms[icell] > nmax)
       nmax = natoms[icell];
-
-  int *atom = alloca( nmax*59*sizeof(int) );
-  double *Rc = alloca( nmax*177*sizeof(double) );
+  int maxpairs = (nmax*((2*nbcells + 1)*nmax - 1))/2;
+  int *atom = alloca( nmax*(nbcells + 1)*sizeof(int) );
+  double *Rc = alloca( nmax*(nbcells + 1)*3*sizeof(double) );
+  int *neighbor = alloca( maxpairs*sizeof(int) );
 
   // Sweep all cells to search for neighbors:
   int npairs = 0;
@@ -115,46 +119,33 @@ void find_pairs( tEmDee *me, double L )
 
       // Build list of atoms in current cell and neighbor cells:
       int ntotal = 0;
-      int nos = 0;
+      int n = 0;
       int j = head[icell];
-
       while (j != -1) {
         atom[ntotal++] = j;
-        int jos = 3*j;
-        Rc[nos++] = R[jos++];
-        Rc[nos++] = R[jos++];
-        Rc[nos++] = R[jos];
+        int jx3 = 3*j;
+        Rc[n++] = R[jx3];
+        Rc[n++] = R[jx3+1];
+        Rc[n++] = R[jx3+2];
         j = next[j];
       }
-      for (int k = 0; k < 58; k++) {
+      for (int k = 0; k < nbcells; k++) {
         j = head[me->cell[icell].neighbor[k]];
         while (j != -1) {
           atom[ntotal++] = j;
-          int jos = 3*j;
-          Rc[nos++] = R[jos++];
-          Rc[nos++] = R[jos++];
-          Rc[nos++] = R[jos];
+          int jx3 = 3*j;
+          Rc[n++] = R[jx3];
+          Rc[n++] = R[jx3+1];
+          Rc[n++] = R[jx3+2];
           j = next[j];
         }
       }
 
-      // Reallocate neighbor array if necessary:
-/*      int maxpairs = npairs + (cell->natoms*(2*cell->ntotal - cell->natoms - 1))/2;*/
-/*      if (maxpairs > me->maxpairs) {*/
-/*        me->maxpairs = maxpairs + extraPairs;*/
-/*        memcpy( me->neighbor, neighbor, npairs*sizeof(int) );*/
-/*        free( neighbor );*/
-/*        neighbor = */
-/*        int *aux = malloc( me->maxpairs*sizeof(int) );*/
-/*        memcpy( aux, me->neighbor, npairs*sizeof(int) );*/
-/*        free( me->neighbor );*/
-/*        me->neighbor = aux;*/
-/*      }*/
-
       // Search for neighbors and add them to the list:
+      n = 0;
       for (int k = 0; k < nlocal; k++) {
         int i = atom[k];
-        me->first[i] = npairs;
+        me->first[i] = npairs + n;
         int kx3 = 3*k;
         double Rix = Rc[kx3];
         double Riy = Rc[kx3+1];
@@ -167,12 +158,12 @@ void find_pairs( tEmDee *me, double L )
           dx -= rint(dx);
           dy -= rint(dy);
           dz -= rint(dz);
-          if (dx*dx + dy*dy + dz*dz <= RcSq)
-            npairs++;
-//            me->neighbor[npairs++] = j + 1;   // THIS IS FOR FORTRAN
+          if (dx*dx + dy*dy + dz*dz < RcSq)
+            neighbor[n++] = atom[m];
         }
-        me->last[i] = npairs-1;
+        me->last[i] = npairs + n - 1;
       }
+      npairs += n;
     }
   }
   me->npairs = npairs;
@@ -209,8 +200,7 @@ void md_initialize( tEmDee *me, double rc, double skin, int atoms, int *types )
   me->mcells = me->ncells = me->maxcells = 0;
   me->cell = malloc( 0 );
 
-//  me->maxpairs = extraPairs;
-  me->maxpairs = 400000;
+  me->maxpairs = extraPairs;
   me->neighbor = malloc( me->maxpairs );
 
   me->builds = 0;
