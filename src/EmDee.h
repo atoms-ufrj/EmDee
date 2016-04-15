@@ -1,12 +1,5 @@
 typedef struct {
-  int head;
   int neighbor[58];
-  int natoms;
-  int ntotal;
-  double rc[3];
-  double xc;
-  double yc;
-  double zc;
 } tCell;
 
 typedef struct {

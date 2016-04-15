@@ -46,19 +46,6 @@ void make_cells( tEmDee *me, int M )
     me->maxcells = me->ncells;
   }
 
-  for (int iz = 0; iz < M; iz++) {
-    double zc = (iz + 0.5)/M;
-    for (int iy = 0; iy < M; iy++) {
-      double yc = (iy + 0.5)/M;
-      for (int ix = 0; ix < M; ix++) {
-        tCell *cell = &me->cell[ix + iy*M + iz*MM];
-        cell->xc = (ix + 0.5)/M;
-        cell->yc = yc;
-        cell->zc = zc;
-      }
-    }
-  }
-
   #define pbc( x ) if (x < 0) x += M; else if (x >= M) x -= M;
   for (int k = 0; k < 58; k++)
     for (int iz = 0; iz < M; iz++) {
@@ -98,15 +85,15 @@ void find_pairs( tEmDee *me, double L )
   int offset = 0;
   for (int i = 0; i < me->natoms; i++) {
     double x = me->R[offset++]*invL;
+    x -= floor(x);
     R[offset] = x;
     double y = me->R[offset++]*invL;
+    y -= floor(y);
     R[offset] = y;
     double z = me->R[offset++]*invL;
+    z -= floor(z);
     R[offset] = z;
-    int ix = M*(x - floor(x));
-    int iy = M*(y - floor(y));
-    int iz = M*(z - floor(z));
-    int icell = ix + iy*M + iz*MM;
+    int icell = (int)(M*x) + M*(int)(M*y) + MM*(int)(M*z);
     next[i] = head[icell];
     head[icell] = i;
     natoms[icell]++;
@@ -117,22 +104,22 @@ void find_pairs( tEmDee *me, double L )
     if (natoms[icell] > nmax)
       nmax = natoms[icell];
 
-  int *atom = alloca( nmax*sizeof(int) );
-  double *Rc = alloca( nmax*3*sizeof(double) );
+  int *atom = alloca( nmax*59*sizeof(int) );
+  double *Rc = alloca( nmax*177*sizeof(double) );
 
   // Sweep all cells to search for neighbors:
   int npairs = 0;
   for (int icell = 0; icell < me->ncells; icell++) {
-    tCell *cell = &me->cell[icell];
-    if (cell->natoms != 0) {
+    int nlocal = natoms[icell];
+    if (nlocal != 0) {
 
       // Build list of atoms in current cell and neighbor cells:
-      int n = 0;
+      int ntotal = 0;
       int nos = 0;
       int j = head[icell];
 
       while (j != -1) {
-        atom[n++] = j;
+        atom[ntotal++] = j;
         int jos = 3*j;
         Rc[nos++] = R[jos++];
         Rc[nos++] = R[jos++];
@@ -140,9 +127,9 @@ void find_pairs( tEmDee *me, double L )
         j = next[j];
       }
       for (int k = 0; k < 58; k++) {
-        j = head[cell->neighbor[k]];
+        j = head[me->cell[icell].neighbor[k]];
         while (j != -1) {
-          atom[n++] = j;
+          atom[ntotal++] = j;
           int jos = 3*j;
           Rc[nos++] = R[jos++];
           Rc[nos++] = R[jos++];
@@ -165,14 +152,14 @@ void find_pairs( tEmDee *me, double L )
 /*      }*/
 
       // Search for neighbors and add them to the list:
-      for (int k = 0; k < cell->natoms; k++) {
+      for (int k = 0; k < nlocal; k++) {
         int i = atom[k];
         me->first[i] = npairs;
         int kx3 = 3*k;
         double Rix = Rc[kx3];
         double Riy = Rc[kx3+1];
         double Riz = Rc[kx3+2];
-        for (int m = k+1; m < cell->ntotal; m++) {
+        for (int m = k+1; m < ntotal; m++) {
           int mx3 = 3*m;
           double dx = Rix - Rc[mx3];
           double dy = Riy - Rc[mx3+1];

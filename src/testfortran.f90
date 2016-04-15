@@ -27,7 +27,7 @@ call md_upload( c_loc(md), c_loc(R), c_loc(V) )
 
 call cpu_time( ti )
 print*, L, Rc, Rs
-do i = 1, 10000
+do i = 1, 500
 !  call md_upload( c_loc(md), c_loc(R), c_loc(V) )
 !  call md_change_coordinates( c_loc(md), 1.01_rb, 0.01_rb )
   call md_handle_neighbor_list( c_loc(md), L )
