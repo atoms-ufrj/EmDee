@@ -20,19 +20,19 @@ real(8) :: ti, tf
 
 call read_data
 call create_configuration
-
 call md_initialize( c_loc(md), Rc, Rs, N, c_null_ptr )
+
+call md_set_shifted_force_lj( c_loc(md), 1, 1, 1.0_rb, 1.0_rb )
+call md_set_lj( c_loc(md), 1, 1, 1.0_rb, 1.0_rb )
+
 call md_upload( c_loc(md), c_loc(R), c_loc(V) )
-
-
 call cpu_time( ti )
-print*, L, Rc, Rs
-do i = 1, 500
-!  call md_upload( c_loc(md), c_loc(R), c_loc(V) )
-!  call md_change_coordinates( c_loc(md), 1.01_rb, 0.01_rb )
-  call md_handle_neighbor_list( c_loc(md), L )
+do i = 1, 50
+  call md_compute_forces( c_loc(md), L )
+!  call md_handle_neighbor_list( c_loc(md), L )
 end do
 call cpu_time( tf )
+print*, "npairs = ", md%npairs
 print*, "execution time = ", tf - ti, " s."
 
 !print*, md%natoms
@@ -76,12 +76,9 @@ end subroutine read_data
 subroutine create_configuration
   integer :: Nd, m, ind, i, j, k
   real(8) :: Vcm(3)
-  integer, allocatable :: seq(:)
   Nd = ceiling(real(N,8)**(1.0_8/3.0_8))
-  allocate( seq(Nd**3) )
-  seq = random % sequence( Nd**3 )
   do ind = 1, N
-    m = seq(ind) - 1
+    m = ind - 1
     k = m/(Nd*Nd)
     j = (m - k*Nd*Nd)/Nd
     i = m - j*Nd - k*Nd*Nd

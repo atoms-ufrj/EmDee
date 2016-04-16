@@ -3,11 +3,13 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
-#include "cblas.h"
+#ifdef mkl
+  #include "mkl_cblas.h"
+#else
+  #include "cblas.h"
+#endif
 
 #define println printf("%d\n",__LINE__)
-
-#define nbcells 58
 
 /* -------------------------------------------------------------------------------------------------
                                          LOCAL FUNCTIONS
@@ -72,6 +74,7 @@ void find_pairs( tEmDee *me, double L )
 {
   int M = me->mcells;
   int MM = M*M;
+  int ntypes = me->ntypes;
   double invL = 1.0/L;
   double RcSq = me->xRcSq*invL*invL;
 
@@ -108,7 +111,6 @@ void find_pairs( tEmDee *me, double L )
       nmax = natoms[icell];
   int maxpairs = (nmax*((2*nbcells + 1)*nmax - 1))/2;
   int *atom = alloca( nmax*(nbcells + 1)*sizeof(int) );
-  double *Rc = alloca( nmax*(nbcells + 1)*3*sizeof(double) );
 
   // Sweep all cells to search for neighbors:
   int npairs = 0;
@@ -117,7 +119,7 @@ void find_pairs( tEmDee *me, double L )
     if (nlocal != 0) {
 
       if (me->maxpairs < npairs + maxpairs) {
-        me->maxpairs = npairs + maxpairs + extraPairs;
+        me->maxpairs = npairs + maxpairs;
         me->neighbor = realloc( me->neighbor, me->maxpairs*sizeof(int) );
         if (me->neighbor == NULL) {
           fprintf(stderr, "ERROR: not enough memory to allocate neighbor list.\n");
@@ -127,24 +129,15 @@ void find_pairs( tEmDee *me, double L )
 
       // Build list of atoms in current cell and neighbor cells:
       int ntotal = 0;
-      int n = 0;
       int j = head[icell];
       while (j != -1) {
         atom[ntotal++] = j;
-        int jx3 = 3*j;
-        Rc[n++] = R[jx3];
-        Rc[n++] = R[jx3+1];
-        Rc[n++] = R[jx3+2];
         j = next[j];
       }
       for (int k = 0; k < nbcells; k++) {
         j = head[me->cell[icell].neighbor[k]];
         while (j != -1) {
           atom[ntotal++] = j;
-          int jx3 = 3*j;
-          Rc[n++] = R[jx3];
-          Rc[n++] = R[jx3+1];
-          Rc[n++] = R[jx3+2];
           j = next[j];
         }
       }
@@ -152,21 +145,24 @@ void find_pairs( tEmDee *me, double L )
       // Search for neighbors and add them to the list:
       for (int k = 0; k < nlocal; k++) {
         int i = atom[k];
+        int itype = me->type[i];
         me->first[i] = npairs;
-        int kx3 = 3*k;
-        double Rix = Rc[kx3];
-        double Riy = Rc[kx3+1];
-        double Riz = Rc[kx3+2];
+        int ix3 = 3*i;
+        double Rix = R[ix3];
+        double Riy = R[++ix3];
+        double Riz = R[++ix3];
         for (int m = k+1; m < ntotal; m++) {
-          int mx3 = 3*m;
-          double dx = Rix - Rc[mx3];
-          double dy = Riy - Rc[mx3+1];
-          double dz = Riz - Rc[mx3+2];
-          dx -= rint(dx);
-          dy -= rint(dy);
-          dz -= rint(dz);
-          if (dx*dx + dy*dy + dz*dz <= RcSq)
-            me->neighbor[npairs++] = atom[m];
+          int j = atom[m];
+          int jx3 = 3*j;
+          double dx = Rix - R[jx3];
+          double dy = Riy - R[++jx3];
+          double dz = Riz - R[++jx3];
+          dx -= round(dx);
+          dy -= round(dy);
+          dz -= round(dz);
+          if (dx*dx + dy*dy + dz*dz < RcSq)
+            if (me->pairType[itype + ntypes*me->type[j]].model != NONE)
+              me->neighbor[npairs++] = j;
         }
         me->last[i] = npairs - 1;
       }
@@ -175,13 +171,84 @@ void find_pairs( tEmDee *me, double L )
   me->npairs = npairs;
 }
 
+// -------------------------------------------------------------------------------------------------
+
+void handle_neighbor_list( tEmDee *me, double L )
+{
+  if (max_appoach_sq( me->natoms, me->R, me->R0 ) > me->skinSq) {
+    int M = (int)floor(2*L/me->xRc);
+    if (M < 5) {
+      fprintf(stderr, "ERROR: simulation box is too small.\n");
+      exit(EXIT_FAILURE);
+    }
+    if (M != me->mcells) make_cells( me, M );
+    find_pairs( me, L );
+    cblas_dcopy( me->nx3, me->R, 1, me->R0, 1 );
+//    memcpy( me->R0, me->R, me->nx3*sizeof(double) );
+    me->builds++;
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+
+void configure_atom_types( tEmDee *me, int *types )
+{
+  int min, max;
+  if (types) {
+    me->type = malloc( me->natoms*sizeof(int) );
+    min = max = types[0];
+    for (int i = 0; i < me->natoms; i++) {
+      int itype = types[i];
+      if (itype < min) min = itype;
+      if (itype > max) max = itype;
+      me->type[i] = itype-1;
+    }
+  }
+  else {
+    min = max = 1;
+    me->type = calloc( me->natoms, sizeof(int) );
+  }
+
+  if (min != 1) {
+    fprintf(stderr, "ERROR: type identifiers must be positive integers.\n");
+    exit(EXIT_FAILURE);
+  }
+  me->ntypes = max;
+  me->pairType = malloc( max*max*sizeof(tPairType) );
+  for (int i = 0; i < max*max; i++)
+    me->pairType[i].model = NONE;
+}
+
+// -------------------------------------------------------------------------------------------------
+
+inline tModelOutput lennard_jones( double invR2, double sigma, double eps4 )
+{
+  double invR6 = sigma*invR2*invR2*invR2;
+  double invR12 = invR6*invR6;
+  tModelOutput lj;
+  lj.Eij = eps4*(invR12 - invR6);
+  lj.Wij = 6.0*(eps4*invR12 + lj.Eij);
+  return lj;
+}
+
+// -------------------------------------------------------------------------------------------------
+
+inline tModelOutput force_shifting( tModelOutput model, double r2, double rc, double Ec, double Fs )
+{
+  double r = sqrt(r2);
+  tModelOutput result;
+  result.Wij = model.Wij - Fs*r;
+  result.Eij = model.Eij - Ec + Fs*(r - rc);
+  return result;
+}
+
 /* -------------------------------------------------------------------------------------------------
                                          LIBRARY FUNCTIONS
 ------------------------------------------------------------------------------------------------- */
 
 void md_initialize( tEmDee *me, double rc, double skin, int atoms, int *types )
 {
-  me->RcSq = rc*rc;
+  me->Rc = rc;
   me->xRc = rc + skin;
   me->xRcSq = me->xRc * me->xRc;
   me->skinSq = skin*skin;
@@ -194,26 +261,40 @@ void md_initialize( tEmDee *me, double rc, double skin, int atoms, int *types )
   me->last = malloc( atoms*sizeof(int) );
   me->R = malloc( me->nx3*sizeof(double) );
   me->P = malloc( me->nx3*sizeof(double) );
+  me->F = malloc( me->nx3*sizeof(double) );
   me->R0 = calloc( me->nx3, sizeof(double) );
-  if (types) {
-    me->type = malloc( atoms*sizeof(int) );
-    for (int i = 0; i < atoms; i++)
-      me->type[i] = types[i]-1;
-  }
-  else
-    me->type = calloc( atoms, sizeof(int) );
 
-  me->mcells = me->ncells = me->maxcells = 0;
+  configure_atom_types( me, types );
+
+  me->mcells = me->ncells = me->maxcells = me->maxpairs = me->builds = 0;
   me->cell = malloc( 0 );
+  me->neighbor = malloc( 0 );
+}
 
-  me->maxpairs = extraPairs;
+//--------------------------------------------------------------------------------------------------
 
+void md_set_lj( tEmDee *me, int i, int j, double sigma, double epsilon )
+{
+  tPairType *a = &me->pairType[i-1 + me->ntypes*(j-1)];
+  tPairType *b = &me->pairType[j-1 + me->ntypes*(i-1)];
+  a->model = b->model = LJ;
+  a->p1 = b->p1 = pow(sigma,6);
+  a->p2 = b->p2 = 4.0*epsilon;
+}
 
-//  me->maxpairs = 4000000;
+//--------------------------------------------------------------------------------------------------
 
-  me->neighbor = malloc( me->maxpairs );
-
-  me->builds = 0;
+void md_set_shifted_force_lj( tEmDee *me, int i, int j, double sigma, double epsilon )
+{
+  tPairType *a = &me->pairType[i-1 + me->ntypes*(j-1)];
+  tPairType *b = &me->pairType[j-1 + me->ntypes*(i-1)];
+  a->model = b->model = SHIFTED_FORCE_LJ;
+  double eps4 = 4.0*epsilon;
+  double sigbyr6 = pow(sigma/me->Rc,6);
+  a->p1 = b->p1 = pow(sigma,6);
+  a->p2 = b->p2 = eps4;
+  a->p3 = b->p3 = eps4*sigbyr6*(sigbyr6 - 1.0);
+  a->p4 = b->p4 = 6.0*eps4*sigbyr6*(2.0*sigbyr6 - 1.0)/me->Rc;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -254,24 +335,6 @@ void md_change_momenta( tEmDee *me, double a, double b )
 
 // -------------------------------------------------------------------------------------------------
 
-void md_handle_neighbor_list( tEmDee *me, double L )
-{
-//  if (max_appoach_sq( me->natoms, me->R, me->R0 ) > me->skinSq) {
-    int M = (int)floor(2*L/me->xRc);
-//    if (M < 5) {
-//      fprintf(stderr, "ERROR: simulation box is too small.\n");
-//      exit(EXIT_FAILURE);
-//    }
-    if (M != me->mcells) make_cells( me, M );
-    find_pairs( me, L );
-//    memcpy( me->R0, me->R, me->nx3*sizeof(double) );
-//    cblas_dcopy( me->nx3, me->R, 1, me->R0, 1 );
-//    me->builds++;
-//  }
-}
-
-// -------------------------------------------------------------------------------------------------
-
 double md_kinetic_energy( tEmDee *me, double *mass )
 {
   double ke;
@@ -287,152 +350,82 @@ double md_kinetic_energy( tEmDee *me, double *mass )
 
 // -------------------------------------------------------------------------------------------------
 
-int count_pairs_directly( tEmDee *me, double L )
+void md_compute_forces( tEmDee *me, double L )
 {
-  // Scale coordinates and squared cut-off distance:
-  double invL = 1.0/L;
-  double R[3*me->natoms];
-  for (int i = 0; i < 3*me->natoms; i++)
-    R[i] = me->R[i]*invL;
-  double RcSq = me->xRcSq*invL*invL;
-
-  // Check all possible pairs:
-  int npairs = 0;
-  for (int i = 0; i < me->natoms-1; i++) {
-    int offset = 3*i;
-    double Rix = R[offset];
-    double Riy = R[offset+1];
-    double Riz = R[offset+2];
-    for (int j = i+1; j < me->natoms; j++) {
-      offset = 3*j;
-      double dx = Rix - R[offset];
-      double dy = Riy - R[offset+1];
-      double dz = Riz - R[offset+2];
-      dx -= round(dx);
-      dy -= round(dy);
-      dz -= round(dz);
-      if (dx*dx + dy*dy + dz*dz <= RcSq)
-        npairs++;
-    }
-  }
-  return npairs;
-}
-
-// -------------------------------------------------------------------------------------------------
-
-void compute_lennard_jones( tEmDee *me, double L )
-{
-/*  integer :: i, j, k*/
-/*  real(8) :: r2, Rij(3), Ri(3), InvR2, InvR12, InvR6, Fij(3), Eij, Wij, InvL!, S*/
+  double *R = alloca( me->nx3*sizeof(double) );
+  double *F = alloca( me->nx3*sizeof(double) );
   double Epot = 0.0;
   double Virial = 0.0;
+  double invL = 1.0/L;
+  double L2 = L*L;
+  double RcSq = me->Rc*invL;
+  RcSq *= RcSq;
+  cblas_dscal( me->nx3, invL, R, 1 );
   memset( me->F, 0, me->nx3*sizeof(double) );
-  md_handle_neighbor_list( me, L );
+  handle_neighbor_list( me, L );
+  int ntypes = me->ntypes;
   for (int i = 0; i < me->natoms; i++) {
     int ix = 3*i;
     int iy = ix + 1;
     int iz = iy + 1;
-    double Rix = me->R[ix];
-    double Riy = me->R[iy];
-    double Riz = me->R[iz];
+    int itype = me->type[i];
+    double Rix = R[ix];
+    double Riy = R[iy];
+    double Riz = R[iz];
     double Fix = 0.0;
     double Fiy = 0.0;
     double Fiz = 0.0;
-    for (int k = me->first[i]; k < me->last[i]; k++) {
+    for (int k = me->first[i]; k <= me->last[i]; k++) {
       int j = me->neighbor[k];
       int jx = 3*j;
       int jy = jx + 1;
       int jz = jy + 1;
-      double dx = Rix - me->R[jx];
-      double dy = Riy - me->R[jy];
-      double dz = Riz - me->R[jz];
+      double dx = Rix - R[jx];
+      double dy = Riy - R[jy];
+      double dz = Riz - R[jz];
       dx -= round(dx);
       dy -= round(dy);
       dz -= round(dz);
       double r2 = dx*dx + dy*dy + dz*dz;
-      if (r2 <= me->RcSq) {
-        double invR2 = 1.0/r2;
-        double invR6 = invR2*invR2*invR2;
-        double invR12 = invR6*invR6;
-        double Eij = invR12 - invR6;
-        double Wij = invR12 + Eij;
-        Epot += Eij;
-        Virial += Wij;
-        double Fa = Wij*invR2;
+      if (r2 <= RcSq) {
+        tPairType *pair = &me->pairType[itype + ntypes*me->type[j]];
+        double invR2 = L2/r2;
+        tModelOutput result;
+
+        switch (pair->model) {
+
+          case LJ:
+
+            result = lennard_jones( invR2, pair->p1, pair->p2 );
+            break;
+
+          case SHIFTED_FORCE_LJ:
+
+            result = lennard_jones( invR2, pair->p1, pair->p2 );
+            result = force_shifting( result, r2, me->Rc, pair->p3, pair->p4 );
+            break;
+
+        }
+        Epot += result.Eij;
+        Virial += result.Wij;
+        double Fa = result.Wij*invR2;
         double Fijx = Fa*dx;
         double Fijy = Fa*dy;
         double Fijz = Fa*dz;
         Fix += Fijx;
         Fiy += Fijy;
         Fiz += Fijz;
-        me->F[jx] -= Fijx;
-        me->F[jy] -= Fijy;
-        me->F[jz] -= Fijz;
+        F[jx] -= Fijx;
+        F[jy] -= Fijy;
+        F[jz] -= Fijz;
       }
-      me->F[ix] += Fix;
-      me->F[iy] += Fiy;
-      me->F[iz] += Fiz;
     }
+    F[ix] += Fix;
+    F[iy] += Fiy;
+    F[iz] += Fiz;
   }
   Epot *= 4.0;
   Virial *= 8.0;
-  cblas_dscal( me->nx3, 24.0, me->F, 1 );
-}
-
-// -------------------------------------------------------------------------------------------------
-
-void md_scale_momenta( tEmDee *me, double scaling )
-{
-  for (int i = 0; i < 3*me->natoms; i++)
-    me->P[i] *= scaling;
-}
-
-// -------------------------------------------------------------------------------------------------
-
-void md_translate_momenta( tEmDee *me, double force_factor )
-{
-  for (int i = 0; i < 3*me->natoms; i++)
-    me->P[i] += force_factor*me->F[i];
-}
-
-// -------------------------------------------------------------------------------------------------
-
-void md_scale_coords( tEmDee *me, double scaling )
-{
-  for (int i = 0; i < 3*me->natoms; i++)
-    me->R[i] *= scaling;
-}
-
-// -------------------------------------------------------------------------------------------------
-
-void md_translate_coords( tEmDee *me, double momentum_factor )
-{
-  for (int i = 0; i < 3*me->natoms; i++)
-    me->R[i] += momentum_factor*me->P[i];
-}
-
-/* -------------------------------------------------------------------------------------------------
-                               F O R T R A N    B I N D I N G S
-------------------------------------------------------------------------------------------------- */
-
-void md_allocate( void **me )
-{
-  *me = malloc(sizeof(tEmDee));
-}
-
-// -------------------------------------------------------------------------------------------------
-
-void md_capture_first_and_last( tEmDee *me, void **first, void **last )
-{
-  *first = me->first;
-  *last = me->last;
-}
-
-// -------------------------------------------------------------------------------------------------
-
-int md_capture_neighbor( tEmDee *me, void **neighbor )
-{
-  *neighbor = me->neighbor;
-  return me->npairs;
+  cblas_dscal( me->nx3, 24.0, F, 1 );
 }
 

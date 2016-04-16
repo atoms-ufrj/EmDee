@@ -21,7 +21,7 @@ type, bind(C) :: tEmDee
   integer(c_int) :: ncells    ! Total number of cells
   integer(c_int) :: maxcells  ! Maximum number of cells
 
-  real(c_double) :: RcSq      ! Cut-off distance squared
+  real(c_double) :: Rc        ! Cut-off distance
   real(c_double) :: xRc       ! Extended cutoff distance (including skin)
   real(c_double) :: xRcSq     ! Extended cutoff distance squared
   real(c_double) :: skinSq    ! Square of the neighbor list skin width
@@ -34,6 +34,9 @@ type, bind(C) :: tEmDee
   type(c_ptr)    :: R         ! Pointer to dynamic atom positions
   type(c_ptr)    :: P         ! Pointer to dynamic atom momenta
   type(c_ptr)    :: F
+
+  integer(c_int) :: ntypes
+  type(c_ptr)    :: pairType
 
   real(c_double) :: Energy
   real(c_double) :: Virial
@@ -49,6 +52,20 @@ interface
     integer(c_int), value :: atoms
     type(c_ptr),    value :: types
   end subroutine md_initialize
+
+  subroutine md_set_lj( me, i, j, sigma, epsilon ) bind(C)
+    import :: c_ptr, c_int, c_double
+    type(c_ptr),    value :: me
+    integer(c_int), value :: i, j
+    real(c_double), value :: sigma, epsilon
+  end subroutine md_set_lj
+
+  subroutine md_set_shifted_force_lj( me, i, j, sigma, epsilon ) bind(C)
+    import :: c_ptr, c_int, c_double
+    type(c_ptr),    value :: me
+    integer(c_int), value :: i, j
+    real(c_double), value :: sigma, epsilon
+  end subroutine md_set_shifted_force_lj
 
   subroutine md_upload( me, coords, momenta ) bind(C)
     import :: c_ptr
@@ -72,70 +89,11 @@ interface
     real(c_double), value :: a, b
   end subroutine md_change_momenta
 
-  subroutine md_handle_neighbor_list( me, L ) bind(C)
+  subroutine md_compute_forces( me, L ) bind(C)
     import :: c_ptr, c_double
     type(c_ptr),    value :: me
     real(c_double), value :: L
-  end subroutine md_handle_neighbor_list
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  subroutine md_allocate( me ) bind(C)
-    import :: c_ptr, c_int, c_double
-    type(c_ptr) :: me
-  end subroutine md_allocate
-
-  subroutine md_capture_first_and_last( me, first, last ) bind(C)
-    import :: c_ptr
-    type(c_ptr) :: me, first, last
-  end subroutine md_capture_first_and_last
-
-  function md_capture_neighbor( me, neighbor ) result( npairs ) bind(C)
-    import :: c_ptr, c_int
-    type(c_ptr)    :: me, neighbor
-    integer(c_int) :: npairs
-  end function md_capture_neighbor
-
-
-
-
-  subroutine md_scale_momenta( me, scaling ) bind(C)
-    import :: c_ptr, c_double
-    type(c_ptr)           :: me
-    real(c_double), value :: scaling
-  end subroutine md_scale_momenta
-
-  subroutine md_translate_momenta( me, force_factor ) bind(C)
-    import :: c_ptr, c_double
-    type(c_ptr)           :: me
-    real(c_double), value :: force_factor
-  end subroutine md_translate_momenta
-
-  subroutine md_scale_coords( me, scaling ) bind(C)
-    import :: c_ptr, c_double
-    type(c_ptr)           :: me
-    real(c_double), value :: scaling
-  end subroutine md_scale_coords
-
-  subroutine md_translate_coords( me, momentum_factor ) bind(C)
-    import :: c_ptr, c_double
-    type(c_ptr)           :: me
-    real(c_double), value :: momentum_factor
-  end subroutine md_translate_coords
+  end subroutine md_compute_forces
 
 end interface
 

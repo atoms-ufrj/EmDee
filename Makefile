@@ -1,6 +1,7 @@
 FORT = gfortran
 CC = gcc
-OPTS = -O3 -march=native -ffast-math -funroll-loops -fstrict-aliasing -cpp -Wunused
+#OPTS = -O3 -ffast-math -funroll-loops -fstrict-aliasing -cpp -Wunused
+OPTS = -O3 -march=native -ffast-math -fstrict-aliasing -cpp -Wunused
 
 #BLASINC = -I/opt/OpenBLAS/include
 #BLASLIB = -L/opt/OpenBLAS/lib/ -lopenblas
@@ -9,7 +10,7 @@ OPTS = -O3 -march=native -ffast-math -funroll-loops -fstrict-aliasing -cpp -Wunu
 #BLASLIB = -L/usr/lib/atlas-base/ -lcblas
 
 MKLROOT = /opt/intel/mkl
-BLASINC = -m64 -I${MKLROOT}/include
+BLASINC = -m64 -I${MKLROOT}/include -Dmkl
 BLASLIB = -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a \
           ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_sequential.a \
           -Wl,--end-group -lpthread -lm -ldl
