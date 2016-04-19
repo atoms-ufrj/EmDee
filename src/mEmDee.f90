@@ -22,6 +22,7 @@ type, bind(C) :: tEmDee
   integer(c_int) :: maxcells  ! Maximum number of cells
 
   real(c_double) :: Rc        ! Cut-off distance
+  real(c_double) :: RcSq      ! Cut-off distance squared
   real(c_double) :: xRc       ! Extended cutoff distance (including skin)
   real(c_double) :: xRcSq     ! Extended cutoff distance squared
   real(c_double) :: skinSq    ! Square of the neighbor list skin width

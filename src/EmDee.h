@@ -1,5 +1,5 @@
 typedef enum {
-  NONE,
+  NONE = 0,
   LJ,
   SHIFTED_FORCE_LJ
 } tModel;
@@ -17,7 +17,21 @@ typedef struct {
   double Wij;
 } tModelOutput;
 
-#define nbcells 58
+#define ndiv 2
+#define nbcells 62
+static const int nb[nbcells][3] = { { 1, 0, 0}, { 2, 0, 0}, {-2, 1, 0}, {-1, 1, 0}, { 0, 1, 0},
+                                    { 1, 1, 0}, { 2, 1, 0}, {-2, 2, 0}, {-1, 2, 0}, { 0, 2, 0},
+                                    { 1, 2, 0}, { 2, 2, 0}, {-2,-2, 1}, {-1,-2, 1}, { 0,-2, 1},
+                                    { 1,-2, 1}, { 2,-2, 1}, {-2,-1, 1}, {-1,-1, 1}, { 0,-1, 1},
+                                    { 1,-1, 1}, { 2,-1, 1}, {-2, 0, 1}, {-1, 0, 1}, { 0, 0, 1},
+                                    { 1, 0, 1}, { 2, 0, 1}, {-2, 1, 1}, {-1, 1, 1}, { 0, 1, 1},
+                                    { 1, 1, 1}, { 2, 1, 1}, {-2, 2, 1}, {-1, 2, 1}, { 0, 2, 1},
+                                    { 1, 2, 1}, { 2, 2, 1}, {-2,-2, 2}, {-1,-2, 2}, { 0,-2, 2},
+                                    { 1,-2, 2}, { 2,-2, 2}, {-2,-1, 2}, {-1,-1, 2}, { 0,-1, 2},
+                                    { 1,-1, 2}, { 2,-1, 2}, {-2, 0, 2}, {-1, 0, 2}, { 0, 0, 2},
+                                    { 1, 0, 2}, { 2, 0, 2}, {-2, 1, 2}, {-1, 1, 2}, { 0, 1, 2},
+                                    { 1, 1, 2}, { 2, 1, 2}, {-2, 2, 2}, {-1, 2, 2}, { 0, 2, 2},
+                                    { 1, 2, 2}, { 2, 2, 2} };
 
 typedef struct {
   int neighbor[nbcells];
@@ -40,6 +54,7 @@ typedef struct {
   int maxcells;      // Maximum number of cells
 
   double Rc;         // Cut-off distance
+  double RcSq;       // Cut-off distance squared
   double xRc;        // Extended cutoff distance (including skin)
   double xRcSq;      // Extended cutoff distance squared
   double skinSq;     // Square of the neighbor list skin width
@@ -59,19 +74,6 @@ typedef struct {
   double Energy;
   double Virial;
 } tEmDee;
-
-static const int nb[nbcells][3] = { { 0, 0,-1}, { 0,-1, 0}, {-1, 0, 0}, { 0,-1,-1}, {-1, 0,-1},
-                                    { 0, 1,-1}, { 1, 0,-1}, { 1,-1, 0}, {-1,-1, 0}, {-1,-1,-1},
-                                    {-1, 1,-1}, { 1, 1,-1}, { 1,-1,-1}, { 0, 0,-2}, { 0,-2, 0},
-                                    {-2, 0, 0}, { 1, 0,-2}, { 2,-1, 0}, { 0, 2,-1}, { 0,-1,-2},
-                                    {-1, 0,-2}, { 0, 1,-2}, { 0,-2,-1}, {-2, 0,-1}, { 2, 0,-1},
-                                    {-1,-2, 0}, { 1,-2, 0}, {-2,-1, 0}, {-1,-1,-2}, {-1, 1,-2},
-                                    { 1, 1,-2}, {-1,-2,-1}, { 1,-2,-1}, {-2,-1,-1}, { 2,-1,-1},
-                                    { 1,-1,-2}, {-2, 1,-1}, { 2, 1,-1}, { 1, 2,-1}, {-1, 2,-1},
-                                    { 0,-2,-2}, {-2, 0,-2}, {-2,-2, 0}, { 2,-2, 0}, { 0, 2,-2},
-                                    {-1,-2,-2}, { 1,-2,-2}, {-2,-1,-2}, { 2,-1,-2}, { 2, 0,-2},
-                                    {-2, 1,-2}, { 2, 1,-2}, {-1, 2,-2}, { 1, 2,-2}, {-2,-2,-1},
-                                    { 2,-2,-1}, {-2, 2,-1}, { 2, 2,-1} };
 
 void md_initialize( tEmDee *me, double rc, double skin, int atoms, int *types );
 void md_set_lj( tEmDee *me, int i, int j, double sigma, double epsilon );

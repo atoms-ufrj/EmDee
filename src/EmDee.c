@@ -24,9 +24,12 @@ double max_appoach_sq( int N, double *R, double *R0 )
   double next;
   int offset = 3;
   for (int i = 1; i < N; i++) {
-    dx = R[offset] - R0[offset++];
-    dy = R[offset] - R0[offset++];
+    dx = R[offset] - R0[offset];
+    offset++;
+    dy = R[offset] - R0[offset];
+    offset++;
     dz = R[offset] - R0[offset++];
+    offset++;
     double value = dx*dx + dy*dy + dz*dz;
     if (value > maximum) {
       next = maximum;
@@ -51,20 +54,24 @@ void make_cells( tEmDee *me, int M )
   }
 
   #define pbc( x ) if (x < 0) x += M; else if (x >= M) x -= M;
-  for (int k = 0; k < nbcells; k++)
+  for (int k = 0; k < nbcells; k++) {
+    int kx = nb[k][0];
+    int ky = nb[k][1];
+    int kz = nb[k][2];
     for (int iz = 0; iz < M; iz++) {
-      int jz = (iz + nb[k][2]) % M;
+      int jz = iz + kx;
       pbc( jz );
       for (int iy = 0; iy < M; iy++) {
-        int jy = (iy + nb[k][1]) % M;
+        int jy = iy + ky;
         pbc( jy );
         for (int ix = 0; ix < M; ix++) {
-          int jx = ix + nb[k][0];
+          int jx = ix + kz;
           pbc( jx );
           me->cell[ix + iy*M + iz*MM].neighbor[k] = jx + jy*M + jz*MM;
         }
       }
     }
+  }
   #undef pbc
 }
 
@@ -76,28 +83,28 @@ void find_pairs( tEmDee *me, double L )
   int MM = M*M;
   int ntypes = me->ntypes;
   double invL = 1.0/L;
-  double RcSq = me->xRcSq*invL*invL;
+  double xRcSq = me->xRcSq*invL*invL;
 
   // Distribute atoms over cells and save scaled coordinates:
+  double *R = alloca( me->nx3*sizeof(double) );
+  int *next = alloca( me->natoms*sizeof(int) );
   int *natoms = alloca( me->ncells*sizeof(int) );
   int *head = alloca( me->ncells*sizeof(int) );
-  int *next = alloca( me->natoms*sizeof(int) );
-  double *R = alloca( me->nx3*sizeof(double) );
   for (int icell = 0; icell < me->ncells; icell++) {
     head[icell] = -1;
     natoms[icell] = 0;
   }
   int offset = 0;
   for (int i = 0; i < me->natoms; i++) {
-    double x = me->R[offset++]*invL;
+    double x = me->R[offset]*invL;
     x -= floor(x);
-    R[offset] = x;
-    double y = me->R[offset++]*invL;
+    R[offset++] = x;
+    double y = me->R[offset]*invL;
     y -= floor(y);
-    R[offset] = y;
-    double z = me->R[offset++]*invL;
+    R[offset++] = y;
+    double z = me->R[offset]*invL;
     z -= floor(z);
-    R[offset] = z;
+    R[offset++] = z;
     int icell = (int)(M*x) + M*(int)(M*y) + MM*(int)(M*z);
     next[i] = head[icell];
     head[icell] = i;
@@ -145,24 +152,25 @@ void find_pairs( tEmDee *me, double L )
       // Search for neighbors and add them to the list:
       for (int k = 0; k < nlocal; k++) {
         int i = atom[k];
-        int itype = me->type[i];
         me->first[i] = npairs;
         int ix3 = 3*i;
         double Rix = R[ix3];
         double Riy = R[++ix3];
         double Riz = R[++ix3];
+        int nxitype = ntypes*me->type[i];
         for (int m = k+1; m < ntotal; m++) {
           int j = atom[m];
-          int jx3 = 3*j;
-          double dx = Rix - R[jx3];
-          double dy = Riy - R[++jx3];
-          double dz = Riz - R[++jx3];
-          dx -= round(dx);
-          dy -= round(dy);
-          dz -= round(dz);
-          if (dx*dx + dy*dy + dz*dz < RcSq)
-            if (me->pairType[itype + ntypes*me->type[j]].model != NONE)
-              me->neighbor[npairs++] = j;
+          if (me->pairType[nxitype + me->type[j]].model) {
+            int jx3 = 3*j;
+            double dx = Rix - R[jx3];
+            double dy = Riy - R[++jx3];
+            double dz = Riz - R[++jx3];
+            dx -= round(dx);
+            dy -= round(dy);
+            dz -= round(dz);
+            if (dx*dx + dy*dy + dz*dz <= xRcSq)
+                me->neighbor[npairs++] = j;
+          }
         }
         me->last[i] = npairs - 1;
       }
@@ -173,10 +181,58 @@ void find_pairs( tEmDee *me, double L )
 
 // -------------------------------------------------------------------------------------------------
 
+void find_pairs_brute_force( tEmDee *me, double L )
+{
+  int ntypes = me->ntypes;
+  double invL = 1.0/L;
+  double xRcSq = me->xRcSq*invL*invL;
+
+  // Distribute atoms over cells and save scaled coordinates:
+  int offset = 0;
+  double *R = alloca( me->nx3*sizeof(double) );
+  for (int i = 0; i < me->natoms; i++) {
+    double x = me->R[offset]*invL;
+    R[offset++] = x;
+    double y = me->R[offset]*invL;
+    R[offset++] = y;
+    double z = me->R[offset]*invL;
+    R[offset++] = z;
+  }
+
+  int npairs = 0;
+
+  // Search for neighbors and add them to the list:
+  for (int i = 0; i < me->natoms-1; i++) {
+    me->first[i] = npairs;
+    int ix3 = 3*i;
+    double Rix = R[ix3];
+    double Riy = R[++ix3];
+    double Riz = R[++ix3];
+    int nxitype = ntypes*me->type[i];
+    for (int j = i+1; j < me->natoms; j++)
+      if (me->pairType[nxitype + me->type[j]].model) {
+        int jx3 = 3*j;
+        double dx = Rix - R[jx3];
+        double dy = Riy - R[++jx3];
+        double dz = Riz - R[++jx3];
+        dx -= round(dx);
+        dy -= round(dy);
+        dz -= round(dz);
+        if (dx*dx + dy*dy + dz*dz <= xRcSq)
+npairs++;
+//            me->neighbor[npairs++] = j;
+      }
+    me->last[i] = npairs - 1;
+  }
+  me->npairs = npairs;
+}
+
+// -------------------------------------------------------------------------------------------------
+
 void handle_neighbor_list( tEmDee *me, double L )
 {
   if (max_appoach_sq( me->natoms, me->R, me->R0 ) > me->skinSq) {
-    int M = (int)floor(2*L/me->xRc);
+    int M = floor(ndiv*L/me->xRc);
     if (M < 5) {
       fprintf(stderr, "ERROR: simulation box is too small.\n");
       exit(EXIT_FAILURE);
@@ -249,8 +305,9 @@ inline tModelOutput force_shifting( tModelOutput model, double r2, double rc, do
 void md_initialize( tEmDee *me, double rc, double skin, int atoms, int *types )
 {
   me->Rc = rc;
+  me->RcSq = rc*rc;
   me->xRc = rc + skin;
-  me->xRcSq = me->xRc * me->xRc;
+  me->xRcSq = (rc + skin)*(rc + skin);
   me->skinSq = skin*skin;
 
   me->natoms = atoms;
@@ -352,17 +409,24 @@ double md_kinetic_energy( tEmDee *me, double *mass )
 
 void md_compute_forces( tEmDee *me, double L )
 {
-  double *R = alloca( me->nx3*sizeof(double) );
-  double *F = alloca( me->nx3*sizeof(double) );
+  make_cells( me, (int)floor(ndiv*L/me->xRc) );
+  find_pairs( me, L );
+  return;
+
+
+  handle_neighbor_list( me, L );
+//  static void *label[] = { NULL, &&LJ, &&SHIFTED_FORCE_LJ };
+//  double *F = alloca( me->nx3*sizeof(double) );
+  double *F = me->F;
   double Epot = 0.0;
   double Virial = 0.0;
   double invL = 1.0/L;
-  double L2 = L*L;
-  double RcSq = me->Rc*invL;
-  RcSq *= RcSq;
+  double invL2 = invL*invL;
+  double RcSq = me->RcSq*invL2;
+  double *R = alloca( me->nx3*sizeof(double) );
+  cblas_dcopy( me->nx3, me->R, 1, R, 1 );
   cblas_dscal( me->nx3, invL, R, 1 );
   memset( me->F, 0, me->nx3*sizeof(double) );
-  handle_neighbor_list( me, L );
   int ntypes = me->ntypes;
   for (int i = 0; i < me->natoms; i++) {
     int ix = 3*i;
@@ -389,23 +453,25 @@ void md_compute_forces( tEmDee *me, double L )
       double r2 = dx*dx + dy*dy + dz*dz;
       if (r2 <= RcSq) {
         tPairType *pair = &me->pairType[itype + ntypes*me->type[j]];
-        double invR2 = L2/r2;
+        double invR2 = invL2/r2;
         tModelOutput result;
-
         switch (pair->model) {
-
           case LJ:
-
             result = lennard_jones( invR2, pair->p1, pair->p2 );
             break;
-
           case SHIFTED_FORCE_LJ:
-
             result = lennard_jones( invR2, pair->p1, pair->p2 );
             result = force_shifting( result, r2, me->Rc, pair->p3, pair->p4 );
             break;
-
         }
+//        goto *label[pair->model];
+//        LJ:
+//          result = lennard_jones( invR2, pair->p1, pair->p2 );
+//          goto END;
+//        SHIFTED_FORCE_LJ:
+//          result = lennard_jones( invR2, pair->p1, pair->p2 );
+//          result = force_shifting( result, r2, me->Rc, pair->p3, pair->p4 );
+//        END:
         Epot += result.Eij;
         Virial += result.Wij;
         double Fa = result.Wij*invR2;
@@ -424,8 +490,7 @@ void md_compute_forces( tEmDee *me, double L )
     F[iy] += Fiy;
     F[iz] += Fiz;
   }
-  Epot *= 4.0;
-  Virial *= 8.0;
-  cblas_dscal( me->nx3, 24.0, F, 1 );
+  me->Energy = Epot;
+  me->Virial = Virial;
 }
 
