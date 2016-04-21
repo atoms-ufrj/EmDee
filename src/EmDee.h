@@ -64,18 +64,20 @@ typedef struct {
 
   int *type;         // Atom types
   double *R0;        // Atom positions at list building
-  double *R;         // Pointer to dynamic atom positions
-  double *P;         // Pointer to dynamic atom momenta
-  double *F;
+  double *restrict R;         // Pointer to dynamic atom positions
+  double *restrict P;         // Pointer to dynamic atom momenta
+  double *restrict F;
 
   int ntypes;
   tPairType *pairType;
+  double *invmass;
 
   double Energy;
   double Virial;
 } tEmDee;
 
-void md_initialize( tEmDee *me, double rc, double skin, int atoms, int *types );
+void md_initialize( tEmDee *me, double rc, double skin, int atoms, int types,
+                    int *type_index, double *mass );
 void md_set_lj( tEmDee *me, int i, int j, double sigma, double epsilon );
 void md_set_shifted_force_lj( tEmDee *me, int i, int j, double sigma, double epsilon );
 void md_upload( tEmDee *me, double *coords, double *momenta );

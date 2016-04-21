@@ -38,6 +38,7 @@ type, bind(C) :: tEmDee
 
   integer(c_int) :: ntypes
   type(c_ptr)    :: pairType
+  type(c_ptr)    :: invmass
 
   real(c_double) :: Energy
   real(c_double) :: Virial
@@ -46,12 +47,12 @@ end type tEmDee
 
 interface
 
-  subroutine md_initialize( me, rc, skin, atoms, types ) bind(C)
+  subroutine md_initialize( me, rc, skin, atoms, types, type_index, mass ) bind(C)
     import :: c_ptr, c_int, c_double
     type(c_ptr),    value :: me
     real(c_double), value :: rc, skin
-    integer(c_int), value :: atoms
-    type(c_ptr),    value :: types
+    integer(c_int), value :: atoms, types
+    type(c_ptr),    value :: type_index, mass
   end subroutine md_initialize
 
   subroutine md_set_lj( me, i, j, sigma, epsilon ) bind(C)
@@ -97,5 +98,18 @@ interface
   end subroutine md_compute_forces
 
 end interface
+
+contains
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine fmd_initialize( me, rc, skin, atoms, types, type_index, mass ) bind(C)
+    type(c_ptr),    value :: me
+    real(c_double), value :: rc, skin
+    integer(c_int), value :: atoms, types
+    type(c_ptr),    value :: type_index, mass
+  end subroutine fmd_initialize
+
+!---------------------------------------------------------------------------------------------------
 
 end module mEmDee
