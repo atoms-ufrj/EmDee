@@ -2,7 +2,7 @@ FORT = gfortran
 CC = gcc
 #OPTS = -O3 -ffast-math -funroll-loops -fstrict-aliasing -cpp -Wunused
 #OPTS = -O3 -march=native -ffast-math -fstrict-aliasing -cpp -Wunused
-OPTS = -march=native -ffast-math -funroll-loops -fstrict-aliasing -O3 -Wunused -cpp -fPIC
+OPTS = -march=native -ffast-math -fstrict-aliasing -g -Ofast -Wunused -cpp -fPIC -static-libgfortran -fopenmp
 
 #BLASINC = -I/opt/OpenBLAS/include
 #BLASLIB = -L/opt/OpenBLAS/lib/ -lopenblas
@@ -25,16 +25,20 @@ LIBFILE = $(LIBDIR)/libemdee.a
 
 OBJ = $(OBJDIR)/EmDee.o $(OBJDIR)/mEmDee.o
 
-.PHONY: all test lib
+.PHONY: all test lib testc testfortran
 
 all: test
 
 clean:
 	rm -rf $(OBJDIR)
 	rm -rf $(LIBDIR)
-	rm -f $(BINDIR)/testfortran
+	rm -f $(BINDIR)/testfortran $(BINDIR)/testc
 
-test: $(BINDIR)/testfortran $(BINDIR)/testc
+test: testfortran testc
+
+testc: $(BINDIR)/testc
+
+testfortran: $(BINDIR)/testfortran
 
 lib: $(LIBFILE)
 
@@ -47,7 +51,7 @@ $(OBJDIR)/testfortran.o: $(SRCDIR)/testfortran.f90 $(OBJDIR)/mRandom.o $(LIBFILE
 
 $(BINDIR)/testc: $(OBJDIR)/testc.o
 	mkdir -p $(BINDIR)
-	$(CC) $(OPTS) -o $@ $< -L$(LIBDIR) -lemdee $(BLASLIB)
+	$(CC) $(OPTS) -fwhole-program -o $@ $< -L$(LIBDIR) -lemdee $(BLASLIB) -lgfortran
 
 $(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(LIBFILE)
 	$(CC) $(OPTS) -c -o $@ $<
@@ -58,11 +62,11 @@ $(LIBFILE): $(OBJ)
 $(OBJDIR)/mRandom.o: $(SRCDIR)/mRandom.f90
 	mkdir -p $(OBJDIR)
 	mkdir -p $(LIBDIR)
-	$(FORT) $(FLAGS) -c -o $@ $< -J$(LIBDIR)
+	$(FORT) $(OPTS) -c -o $@ $< -J$(LIBDIR)
 
 $(OBJDIR)/mEmDee.o: $(SRCDIR)/mEmDee.f90
 	mkdir -p $(LIBDIR)
-	$(FORT) $(FLAGS) -c -o $@ $< -J$(LIBDIR)
+	$(FORT) $(OPTS) -c -o $@ $< -J$(LIBDIR)
 
 $(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.c $(SRCDIR)/EmDee.h
 	mkdir -p $(OBJDIR)

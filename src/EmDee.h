@@ -43,7 +43,8 @@ typedef struct {
   int *last;         // Last neighbor of each atom 
   int *neighbor;     // List of neighbors
 
-  double time, checktime; // APAGAR DEPOIS DE TESTAR
+  double neighbor_time;
+  double pair_time;
 
   int natoms;        // Number of atoms
   int nx3;           // Three times the number of atoms
@@ -60,7 +61,6 @@ typedef struct {
   double skinSq;     // Square of the neighbor list skin width
 
   tCell *cell;
-  int *next;         // Next atom in a linked list of atoms
 
   int *type;         // Atom types
   double *R0;        // Atom positions at list building
@@ -74,6 +74,7 @@ typedef struct {
 
   double Energy;
   double Virial;
+
 } tEmDee;
 
 void md_initialize( tEmDee *me, double rc, double skin, int atoms, int types,

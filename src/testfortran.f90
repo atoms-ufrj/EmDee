@@ -11,12 +11,11 @@ integer, parameter :: ib = c_int, &
 
 integer(ib) :: N, seed, passo, Npassos, Nprop
 real(rb)    :: rho, L, Rc, Rs, Rc2, Temp, Press, Dt, InvL, Ws, SixWs, Ec, Dt_2
-real(rb), pointer :: R(:,:), V(:,:), F(:,:)
+real(rb), pointer :: R(:,:), V(:,:), F(:,:), R0(:,:)
 real(rb), target :: mass
 type(shr3) :: random
 type(tEmDee), target :: md
 
-integer :: i
 real(8) :: ti, tf
 type(c_ptr) :: mdp
 
@@ -32,6 +31,7 @@ print*, md%Energy, md%Virial
 print*, md%npairs
 print*, "L = ", L
 call cpu_time( ti )
+allocate(R0(3,N))
 do passo = 1, Npassos
   if (mod(passo,Nprop) == 0) print*, passo, md%Energy
   call md_change_momenta( mdp, 1.0_rb, Dt_2 )
@@ -42,6 +42,9 @@ end do
 call cpu_time( tf )
 print*, "npairs = ", md%npairs
 print*, "execution time = ", tf - ti, " s."
+print*, "neighbor time = ", md%neighbor_time, " s."
+print*, "pair time = ", md%pair_time, " s."
+
 contains
 !---------------------------------------------------------------------------------------------------
 subroutine read_data

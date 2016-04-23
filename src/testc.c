@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
+#include <time.h>
 
 typedef struct {
   int N, seed, Npassos, Nprop;
@@ -112,6 +113,7 @@ int main()
   md_upload( &md, par.R, par.V );
   md_compute_forces( &md, par.L );
   printf("energy = %f   npairs = %d\n",md.Energy,md.npairs);
+  clock_t start = clock();
   for (int passo = 1; passo < par.Npassos; passo++) {
     if ((passo+1)%par.Nprop == 0) printf("%d %f\n", passo+1, md.Energy);
     md_change_momenta( &md, 1.0, par.Dt_2 );
@@ -119,6 +121,9 @@ int main()
     md_compute_forces( &md, par.L );
     md_change_momenta( &md, 1.0, par.Dt_2 );
   }
+  clock_t diff = clock() - start;
+  int msec = diff * 1000 / CLOCKS_PER_SEC;
+  printf("Time taken: %f seconds.\n", msec/1000.0);
   return EXIT_SUCCESS;
 }
 
