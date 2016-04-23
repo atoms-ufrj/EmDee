@@ -36,20 +36,18 @@ void read_data( simpar *par )
       printf("ERROR: could not read data."); \
       exit(0); \
     }
-  int nchain, nloop, nsy;
-  double InvRc2, InvRc6, InvRc12, tdamp;
+  double InvRc2, InvRc6, InvRc12;
   char line[256];
   readline; sscanf( line, "%d", &par->N );
-  readline; sscanf( line, "%lf", &par->rho );
-  readline; sscanf( line, "%lf %lf", &par->Rc, &par->Rs );
-  readline; sscanf( line, "%lf", &par->Temp );
-  readline; sscanf( line, "%lf", &par->Press );
+  readline; sscanf( line, "%lf", &par->Rc );
+  readline; sscanf( line, "%lf", &par->Rs );
   readline; sscanf( line, "%d",  &par->seed );
   readline; sscanf( line, "%lf", &par->Dt );
   readline; sscanf( line, "%d",  &par->Npassos );
   readline; sscanf( line, "%d",  &par->Nprop );
-  readline; sscanf( line, "%d %d %d", &nchain, &nloop, &nsy );
-  readline; sscanf( line, "%lf", &tdamp );
+  readline; sscanf( line, "%lf", &par->rho );
+  readline; sscanf( line, "%lf", &par->Temp );
+  readline; sscanf( line, "%lf", &par->Press );
   #undef readline
   par->Rc2 = par->Rc*par->Rc;
   par->L = pow(par->N/par->rho,1.0/3.0);

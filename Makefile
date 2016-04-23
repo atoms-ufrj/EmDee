@@ -44,25 +44,20 @@ lib: $(LIBFILE)
 
 $(BINDIR)/testfortran: $(OBJDIR)/testfortran.o
 	mkdir -p $(BINDIR)
-	$(FORT) $(OPTS) -o $@ -J$(LIBDIR) $< $(OBJDIR)/mRandom.o -L$(LIBDIR) -lemdee $(BLASLIB)
+	$(FORT) $(OPTS) -o $@ -J$(LIBDIR) $< -L$(LIBDIR) -lemdee $(BLASLIB)
 
-$(OBJDIR)/testfortran.o: $(SRCDIR)/testfortran.f90 $(OBJDIR)/mRandom.o $(LIBFILE)
+$(OBJDIR)/testfortran.o: $(SRCDIR)/testfortran.f90 $(LIBFILE)
 	$(FORT) $(OPTS) -c -o $@ -J$(LIBDIR) $<
 
 $(BINDIR)/testc: $(OBJDIR)/testc.o
 	mkdir -p $(BINDIR)
-	$(CC) $(OPTS) -fwhole-program -o $@ $< -L$(LIBDIR) -lemdee $(BLASLIB) -lgfortran
+	$(CC) $(OPTS) -o $@ $< -L$(LIBDIR) -lemdee $(BLASLIB) -lgfortran
 
 $(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(LIBFILE)
 	$(CC) $(OPTS) -c -o $@ $<
 
 $(LIBFILE): $(OBJ)
 	ar -cr $(LIBFILE) $(OBJ)
-
-$(OBJDIR)/mRandom.o: $(SRCDIR)/mRandom.f90
-	mkdir -p $(OBJDIR)
-	mkdir -p $(LIBDIR)
-	$(FORT) $(OPTS) -c -o $@ $< -J$(LIBDIR)
 
 $(OBJDIR)/mEmDee.o: $(SRCDIR)/mEmDee.f90
 	mkdir -p $(LIBDIR)
