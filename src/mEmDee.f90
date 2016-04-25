@@ -7,9 +7,9 @@ implicit none
 integer, parameter, private :: ib = c_int
 integer, parameter, private :: rb = c_double
 
-integer(ib), parameter, private :: NONE             = 0, &
-                                   LJ               = 1, &
-                                   SHIFTED_FORCE_LJ = 2
+integer(ib), parameter, private :: NONE  = 0, &
+                                   LJ    = 1, &
+                                   SF_LJ = 2
 
 integer(ib), parameter, private :: ndiv = 2
 
@@ -51,8 +51,7 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: last      ! Last neighbor of each atom 
   type(c_ptr) :: neighbor  ! List of neighbors
 
-  real(rb)    :: neighbor_time
-  real(rb)    :: pair_time
+  real(rb)    :: time
 
   integer(ib) :: natoms    ! Number of atoms
   integer(ib) :: nx3       ! Three times the number of atoms
@@ -99,7 +98,6 @@ contains
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%cell, cell, [me%maxcells] )
-
     MM = M*M
     Mm1 = M - 1
     me%mcells = M
@@ -113,7 +111,6 @@ contains
     forall ( k = 1:nbcells, ix = 0:Mm1, iy = 0:Mm1, iz = 0:Mm1 )
       cell(1+ix+iy*M+iz*MM)%neighbor(k) = 1+pbc(ix+nb(1,k))+pbc(iy+nb(2,k))*M+pbc(iz+nb(3,k))*MM
     end forall
-
     nullify( me, cell )
 
     contains
@@ -131,22 +128,25 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs( md, L ) bind(C)
+  subroutine find_pairs_and_compute_forces( md, L ) bind(C)
     type(c_ptr), value :: md
     real(rb),    value :: L
 
     integer(ib) :: M, MM, ntypes, i, j, k, icell, nmax, maxpairs, npairs, nlocal, ntotal, itype
-    real(rb)    :: invL, invL2, xRcSq, Ri(3), Rij(3)
+    real(rb)    :: invL, invL2, xRcSq, RcSq
+    real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3), Epot, Virial, r2, invR2, Eij, Wij
+    type(tPairType), pointer :: ij
     type(tEmDee),    pointer :: me
     type(tCell),     pointer :: cell(:)
     integer(ib),     pointer :: first(:), last(:), neighbor(:), type(:)
-    real(rb),        pointer :: R(:,:)
+    real(rb),        pointer :: R(:,:), F(:,:)
     type(tPairType), pointer :: pairType(:,:)
     integer(ib), allocatable :: next(:), natoms(:), head(:), atom(:), iaux(:)
-    real(rb),    allocatable :: Rs(:,:)
+    real(rb),    allocatable :: Rs(:,:), Fs(:,:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%R, R, [3,me%natoms] )
+    call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%first, first, [me%natoms] )
     call c_f_pointer( me%last, last, [me%natoms] )
@@ -160,6 +160,7 @@ contains
     invL = 1.0_rb/L
     invL2 = invL*invL
     xRcSq = me%xRcSq*invL2
+    RcSq = me%RcSq*invL2
 
     ! Distribute atoms over cells and save scaled coordinates:
     allocate( Rs(3,me%natoms), next(me%natoms), natoms(me%ncells), head(me%ncells) )
@@ -180,6 +181,10 @@ contains
     allocate( atom(nmax*(nbcells + 1)) )
 
     ! Sweep all cells to search for neighbors:
+    allocate( Fs(3,me%natoms) )
+    Fs = 0.0_rb
+    Epot = 0.0_rb
+    Virial = 0.0_rb
     npairs = 0
     do icell = 1, me%ncells
       nlocal = natoms(icell)
@@ -219,66 +224,47 @@ contains
           first(i) = npairs + 1
           itype = type(i)
           Ri = Rs(:,i)
+          Fi = 0.0_rb
           do m = k+1, ntotal
             j = atom(m)
-            if (pairType(itype,type(j))%model /= NONE) then
+            ij => pairType(itype,type(j))
+            if (ij%model /= NONE) then
               Rij = Ri - Rs(:,j)
               Rij = Rij - nint(Rij)
-              if (sum(Rij*Rij) <= xRcSq) then
+              r2 = sum(Rij*Rij)
+              if (r2 < xRcSq) then
                 npairs = npairs + 1
                 neighbor(npairs) = j
+                if (r2 < RcSq) then
+                  invR2 = invL2/r2
+                  select case (ij%model)
+                    case (LJ)
+                      call lennard_jones( Eij, Wij, invR2*ij%p1, ij%p2 )
+                    case (SF_LJ)
+                      call lennard_jones_sf( Eij, Wij, invR2*ij%p1, ij%p2, sqrt(r2)*ij%p3, ij%p4 )
+                  end select
+                  Epot = Epot + Eij
+                  Virial = Virial + Wij
+                  Fij = Wij*invR2*Rij
+                  Fi = Fi + Fij
+                  Fs(:,j) = Fs(:,j) - Fij
+                end if
               end if
             end if
           end do
+          Fs(:,i) = Fs(:,i) + Fi
           last(i) = npairs
         end do
       end if
     end do
     me%npairs = npairs
-
-    nullify( me, R, cell, first, last, neighbor, type, pairType )
-
-  end subroutine find_pairs
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine handle_neighbor_list( md, L ) bind(C)
-    type(c_ptr), value :: md
-    real(rb),    value :: L
-    integer :: i, M
-    real(rb) :: maximum, next, deltaSq
-    real(rb),     pointer :: R(:,:), R0(:,:)
-    type(tEmDee), pointer :: me
-
-    call c_f_pointer( md, me )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%R0, R0, [3,me%natoms] )
-
-    maximum = sum((R(:,1) - R0(:,1))**2)
-    next = maximum
-    do i = 2, me%natoms
-      deltaSq = sum((R(:,i) - R0(:,i))**2)
-      if (deltaSq > maximum) then
-        next = maximum
-        maximum = deltaSq
-      end if
-    end do
-
-    if (maximum + 2.0_rb*sqrt(maximum*next) + next > me%skinSq) then
-      M = floor(ndiv*L/me%xRc)
-      if (M < 5) then
-        write(0,'("ERROR: simulation box is too small.")')
-        stop
-      end if
-      if (M /= me%mcells) call make_cells( md, M )
-      call find_pairs( md, L )
-      R0 = R
-      me%builds = me%builds + 1
-    end if
-
-    nullify( me, R, R0 )
-
-  end subroutine handle_neighbor_list
+    me%Energy = Epot
+    me%Virial = Virial/3.0_rb
+    F = L*Fs
+    nullify( me, R, F, cell, first, last, neighbor, type, pairType )
+    contains
+      include "pair_potentials.f90"
+  end subroutine find_pairs_and_compute_forces
 
 !---------------------------------------------------------------------------------------------------
 
@@ -323,6 +309,21 @@ contains
     T = F
     nullify( T, F )
   end subroutine copy_real
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine set_pair_type( md, i, j, model, p1, p2, p3, p4 )
+    type(c_ptr), value      :: md
+    integer(ib), intent(in) :: i, j, model
+    real(rb),    intent(in) :: p1, p2, p3, p4
+    type(tEmDee),    pointer :: me
+    type(tPairType), pointer :: pairType(:,:)
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    pairType(i,j) = tPairType( model, p1, p2, p3, p4 )
+    pairType(j,i) = tPairType( model, p1, p2, p3, p4 )
+    nullify( me, pairType )
+  end subroutine set_pair_type
 
 !---------------------------------------------------------------------------------------------------
 
@@ -383,8 +384,7 @@ contains
     me%maxpairs = extraPairs
     me%neighbor = malloc_int( me%maxpairs )
 
-    me%neighbor_time = 0.0_rb
-    me%pair_time = 0.0_rb
+    me%time = 0.0_rb
 
     nullify( me )
   end subroutine md_initialize
@@ -412,21 +412,6 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine set_pair_type( md, i, j, model, p1, p2, p3, p4 )
-    type(c_ptr), value      :: md
-    integer(ib), intent(in) :: i, j, model
-    real(rb),    intent(in) :: p1, p2, p3, p4
-    type(tEmDee),    pointer :: me
-    type(tPairType), pointer :: pairType(:,:)
-    call c_f_pointer( md, me )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
-    pairType(i,j) = tPairType( model, p1, p2, p3, p4 )
-    pairType(j,i) = tPairType( model, p1, p2, p3, p4 )
-    nullify( me, pairType )
-  end subroutine set_pair_type
-
-!---------------------------------------------------------------------------------------------------
-
   subroutine md_set_lj( md, i, j, sigma, epsilon ) bind(C)
     type(c_ptr), value :: md
     integer(ib), value :: i, j
@@ -436,18 +421,20 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_set_shifted_force_lj( md, i, j, sigma, epsilon ) bind(C)
+  subroutine md_set_sf_lj( md, i, j, sigma, epsilon ) bind(C)
     type(c_ptr), value :: md
     integer(ib), value :: i, j
     real(rb),    value :: sigma, epsilon
-    real(rb) :: sr6, eps4
+    real(rb) :: sr6, sr12, eps4, Ec, Fc
     type(tEmDee), pointer :: me
     call c_f_pointer( md, me )
     sr6 = (sigma/me%Rc)**6
+    sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
-    call set_pair_type( md, i, j, SHIFTED_FORCE_LJ, sigma**2, &
-                        eps4, sr6*(sr6 - 1.0_rb), 6.0_rb*eps4*sr6*(2.0*sr6 - 1.0)/me%Rc )
-  end subroutine md_set_shifted_force_lj
+    Ec = eps4*(sr12 - sr6)
+    Fc = 6.0_rb*(eps4*sr12 + Ec)/me%Rc
+    call set_pair_type( md, i, j, SF_LJ, sigma**2, eps4, Fc, -(Ec + Fc*me%Rc) )
+  end subroutine md_set_sf_lj
 
 !---------------------------------------------------------------------------------------------------
 
@@ -491,100 +478,92 @@ contains
     type(c_ptr), value :: md
     real(rb),    value :: L
 
-    integer  :: i, j, k, itype
+    integer  :: i, j, k, M, itype
     real(rb) :: invL, invL2, Rc2, Epot, Virial
-    real(rb) :: r2, invR2, Rij(3), Ri(3), Fi(3), Fij(3), Eij, Wij
-    real(rb) :: ti, tm, tf
-    type(tPairType), pointer :: pair
+    real(rb) :: maximum, next, deltaSq
+    real(rb) :: r2, invR2, Rij(3), Ri(3), Fi(3), Fij(3), Eij, Wij, ti, tf
+    real(rb), allocatable :: Rs(:,:), Fs(:,:)
+    type(tPairType), pointer :: ij
     type(tEmDee),    pointer :: me
     integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
-    real(rb),        pointer :: R(:,:), F(:,:)
+    real(rb),        pointer :: R(:,:), R0(:,:), F(:,:)
     type(tPairType), pointer :: pairType(:,:)
-    real(rb), allocatable :: Rs(:,:), Fs(:,:)
 
     call cpu_time( ti )
-    call handle_neighbor_list( md, L )
-    call cpu_time( tm )
-
     call c_f_pointer( md, me )
-    call c_f_pointer( me%type, type, [me%natoms] )
-    call c_f_pointer( me%first, first, [me%natoms] )
-    call c_f_pointer( me%last, last, [me%natoms] )
-    call c_f_pointer( me%neighbor, neighbor, [me%npairs] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
-
-    Epot = 0.0_8
-    Virial = 0.0_8
-    Fs = 0.0_8
-    invL = 1.0_rb/L
-    invL2 = invL*invL
-    Rs = R*invL
-    Rc2 = me%RcSq*invL2
-
-    do i = 1, me%natoms
-      itype = type(i)
-      Ri = Rs(:,i)
-      Fi = 0.0_rb
-      do k = first(i), last(i)
-        j = neighbor(k)
-        Rij = Ri - Rs(:,j)
-        Rij = Rij - nint(Rij)
-        r2 = sum(Rij*Rij)
-        if (r2 < Rc2) then
-          invR2 = invL2/r2
-          pair => pairType(itype,type(j))
-          select case (pair%model)
-            case (LJ)
-              call lennard_jones( Eij, Wij, pair%p1*invR2, pair%p2 )
-            case (SHIFTED_FORCE_LJ)
-              call lennard_jones_sf( Eij, Wij, sqrt(r2), pair%p1*invR2, pair%p2, pair%p3, pair%p4, me%Rc )
-          end select
-          Epot = Epot + Eij
-          Virial = Virial + Wij
-          Fij = Wij*invR2*Rij
-          Fi = Fi + Fij
-          Fs(:,j) = Fs(:,j) - Fij
-        end if
-      end do
-      Fs(:,i) = Fs(:,i) + Fi
+    call c_f_pointer( me%R0, R0, [3,me%natoms] )
+    maximum = sum((R(:,1) - R0(:,1))**2)
+    next = maximum
+    do i = 2, me%natoms
+      deltaSq = sum((R(:,i) - R0(:,i))**2)
+      if (deltaSq > maximum) then
+        next = maximum
+        maximum = deltaSq
+      end if
     end do
-    me%Energy = Epot
-    me%Virial = Virial/3.0_rb
-    F = L*Fs
-
+    if (maximum + 2.0_rb*sqrt(maximum*next) + next > me%skinSq) then
+      M = floor(ndiv*L/me%xRc)
+      if (M < 5) then
+        write(0,'("ERROR: simulation box is too small.")')
+        stop
+      end if
+      if (M /= me%mcells) call make_cells( md, M )
+      call find_pairs_and_compute_forces( md, L )
+      R0 = R
+      me%builds = me%builds + 1
+    else
+      call c_f_pointer( me%type, type, [me%natoms] )
+      call c_f_pointer( me%first, first, [me%natoms] )
+      call c_f_pointer( me%last, last, [me%natoms] )
+      call c_f_pointer( me%neighbor, neighbor, [me%npairs] )
+      call c_f_pointer( me%F, F, [3,me%natoms] )
+      call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+      allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
+      Epot = 0.0_8
+      Virial = 0.0_8
+      Fs = 0.0_8
+      invL = 1.0_rb/L
+      invL2 = invL*invL
+      Rs = R*invL
+      Rc2 = me%RcSq*invL2
+      do i = 1, me%natoms
+        itype = type(i)
+        Ri = Rs(:,i)
+        Fi = 0.0_rb
+        do k = first(i), last(i)
+          j = neighbor(k)
+          Rij = Ri - Rs(:,j)
+          Rij = Rij - nint(Rij)
+          r2 = sum(Rij*Rij)
+          if (r2 < Rc2) then
+            invR2 = invL2/r2
+            ij => pairType(itype,type(j))
+            select case (ij%model)
+              case (LJ)
+                call lennard_jones( Eij, Wij, invR2*ij%p1, ij%p2 )
+              case (SF_LJ)
+                call lennard_jones_sf( Eij, Wij, invR2*ij%p1, ij%p2, sqrt(r2)*ij%p3, ij%p4 )
+            end select
+            Epot = Epot + Eij
+            Virial = Virial + Wij
+            Fij = Wij*invR2*Rij
+            Fi = Fi + Fij
+            Fs(:,j) = Fs(:,j) - Fij
+          end if
+        end do
+        Fs(:,i) = Fs(:,i) + Fi
+      end do
+      me%Energy = Epot
+      me%Virial = Virial/3.0_rb
+      F = L*Fs
+      nullify( type, first, last, neighbor, R, F )
+    end if
     call cpu_time( tf )
-
-    me%neighbor_time = me%neighbor_time + (tm - ti)
-    me%pair_time = me%pair_time + (tf - tm)
-
-    nullify( me, type, first, last, neighbor, R, F )
-
+    me%time = me%time + (tf - ti)
+    nullify( me, R, R0 )
     contains
-
-      subroutine lennard_jones( E, W, sr2, eps4 )
-        real(rb), intent(out) :: E, W
-        real(rb), intent(in)  :: sr2, eps4
-        real(rb) :: sr6, sr12
-        sr6 = sr2*sr2*sr2
-        sr12 = sr6*sr6
-        E = eps4*(sr12 - sr6)
-        W = 6.0_rb*(eps4*sr12 + E)
-      end subroutine lennard_jones
-
-      subroutine lennard_jones_sf( E, W, r, sr2, eps4, Ec, Fs, Rc )
-        real(rb), intent(out) :: E, W
-        real(rb), intent(in)  :: r, sr2, eps4, Ec, Fs, Rc
-        real(rb) :: sr6, sr12
-        sr6 = sr2*sr2*sr2
-        sr12 = sr6*sr6
-        E = eps4*(sr12 - sr6)
-        W = 6.0_rb*(eps4*sr12 + E) - Fs*r  ! TO DO: receive Fs*r instead of r (change set_pair)
-        E = E - Ec + Fs*(r - rc)
-      end subroutine lennard_jones_sf
-
+      include "pair_potentials.f90"
   end subroutine md_compute_forces
 
 !---------------------------------------------------------------------------------------------------

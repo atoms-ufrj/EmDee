@@ -43,8 +43,7 @@ typedef struct {
   int *last;         // Last neighbor of each atom 
   int *neighbor;     // List of neighbors
 
-  double neighbor_time;
-  double pair_time;
+  double time;
 
   int natoms;        // Number of atoms
   int nx3;           // Three times the number of atoms

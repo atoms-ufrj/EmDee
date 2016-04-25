@@ -24,21 +24,11 @@ mass = 1.0_rb
 call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(mass) )
 call md_set_lj( mdp, 1, 1, 1.0_rb, 1.0_rb )
 call md_upload( mdp, c_loc(R), c_loc(V) )
-
-!call make_cells( mdp, floor(2*L/md%xRc) )
-!do step = 1, 200
-!  call find_pairs( mdp, L )
-!end do
-!call cpu_time( tf )
-!print*, "time = ", tf - ti
-!stop
-
 call md_compute_forces( mdp, L )
-print*, md%Energy, md%Virial
-print*, md%npairs
+print*, 0, md%Energy, md%Virial
 call cpu_time( ti )
 do step = 1, Nsteps
-  if (mod(step,Nprop) == 0) print*, step, md%Energy
+  if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
   call md_change_momenta( mdp, 1.0_rb, Dt_2 )
   call md_change_coordinates( mdp, 1.0_rb, Dt )
   call md_compute_forces( mdp, L )
@@ -46,9 +36,8 @@ do step = 1, Nsteps
 end do
 call cpu_time( tf )
 print*, "neighbor list builds = ", md%builds
+print*, "pair time = ", md%time, " s."
 print*, "execution time = ", tf - ti, " s."
-print*, "neighbor time = ", md%neighbor_time, " s."
-print*, "pair time = ", md%pair_time, " s."
 
 contains
 !---------------------------------------------------------------------------------------------------

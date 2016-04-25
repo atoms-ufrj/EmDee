@@ -110,10 +110,10 @@ int main()
   md_set_lj( &md, 1, 1, 1.0, 1.0 );
   md_upload( &md, par.R, par.V );
   md_compute_forces( &md, par.L );
-  printf("energy = %f   npairs = %d\n",md.Energy,md.npairs);
+  printf("%d %lf %lf\n", 0, md.Energy, md.Virial);
   clock_t start = clock();
-  for (int passo = 1; passo < par.Npassos; passo++) {
-    if ((passo+1)%par.Nprop == 0) printf("%d %f\n", passo+1, md.Energy);
+  for (int passo = 1; passo <= par.Npassos; passo++) {
+    if (passo % par.Nprop == 0) printf("%d %lf %lf\n", passo, md.Energy, md.Virial);
     md_change_momenta( &md, 1.0, par.Dt_2 );
     md_change_coordinates( &md, 1.0, par.Dt );
     md_compute_forces( &md, par.L );
@@ -121,7 +121,9 @@ int main()
   }
   clock_t diff = clock() - start;
   int msec = diff * 1000 / CLOCKS_PER_SEC;
-  printf("Time taken: %f seconds.\n", msec/1000.0);
+  printf("neighbor list builds = %d\n", md.builds);
+  printf("pair time = %f s.\n", md.time);
+  printf("excecution time = %f s.\n", msec/1000.0);
   return EXIT_SUCCESS;
 }
 

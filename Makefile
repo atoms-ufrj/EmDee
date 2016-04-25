@@ -1,20 +1,6 @@
 FORT = gfortran
-CC = gcc
-#OPTS = -O3 -ffast-math -funroll-loops -fstrict-aliasing -cpp -Wunused
-#OPTS = -O3 -march=native -ffast-math -fstrict-aliasing -cpp -Wunused
-OPTS = -march=native -ffast-math -fstrict-aliasing -g -Ofast -Wunused -cpp -fPIC -static-libgfortran -fopenmp
-
-#BLASINC = -I/opt/OpenBLAS/include
-#BLASLIB = -L/opt/OpenBLAS/lib/ -lopenblas
-
-#BLASINC = -I/usr/include/atlas/
-#BLASLIB = -L/usr/lib/atlas-base/ -lcblas
-
-MKLROOT = /opt/intel/mkl
-BLASINC = -m64 -I${MKLROOT}/include -Dmkl
-BLASLIB = -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a \
-          ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_sequential.a \
-          -Wl,--end-group -lpthread -lm -ldl
+CC   = gcc
+OPTS = -march=native -ffast-math -fstrict-aliasing -Ofast -fPIC -Wunused -cpp
 
 SRCDIR = ./src
 OBJDIR = $(SRCDIR)/obj
@@ -23,7 +9,9 @@ LIBDIR = ./lib
 
 LIBFILE = $(LIBDIR)/libemdee.a
 
-OBJ = $(OBJDIR)/EmDee.o $(OBJDIR)/mEmDee.o
+LIBS = -L$(LIBDIR) -lemdee -lgfortran -lm
+
+OBJ = $(OBJDIR)/mEmDee.o
 
 .PHONY: all test lib testc testfortran
 
@@ -43,27 +31,22 @@ testfortran: $(BINDIR)/testfortran
 lib: $(LIBFILE)
 
 $(BINDIR)/testfortran: $(OBJDIR)/testfortran.o
-	mkdir -p $(BINDIR)
-	$(FORT) $(OPTS) -o $@ -J$(LIBDIR) $< -L$(LIBDIR) -lemdee $(BLASLIB)
+	$(FORT) $(OPTS) -o $@ -J$(LIBDIR) $< $(LIBS)
 
 $(OBJDIR)/testfortran.o: $(SRCDIR)/testfortran.f90 $(LIBFILE)
 	$(FORT) $(OPTS) -c -o $@ -J$(LIBDIR) $<
 
 $(BINDIR)/testc: $(OBJDIR)/testc.o
-	mkdir -p $(BINDIR)
-	$(CC) $(OPTS) -o $@ $< -L$(LIBDIR) -lemdee $(BLASLIB) -lgfortran
+	$(CC) $(OPTS) -o $@ $< $(LIBS)
 
-$(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(LIBFILE)
+$(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(SRCDIR)/EmDee.h $(LIBFILE)
 	$(CC) $(OPTS) -c -o $@ $<
 
 $(LIBFILE): $(OBJ)
 	ar -cr $(LIBFILE) $(OBJ)
 
-$(OBJDIR)/mEmDee.o: $(SRCDIR)/mEmDee.f90
-	mkdir -p $(LIBDIR)
-	$(FORT) $(OPTS) -c -o $@ $< -J$(LIBDIR)
-
-$(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.c $(SRCDIR)/EmDee.h
+$(OBJDIR)/mEmDee.o: $(SRCDIR)/mEmDee.f90 $(SRCDIR)/pair_potentials.f90
 	mkdir -p $(OBJDIR)
-	$(CC) $(OPTS) -c -o $@ $< $(BLASINC)
+	mkdir -p $(LIBDIR)
+	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<
 
