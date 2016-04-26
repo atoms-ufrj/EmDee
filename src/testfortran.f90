@@ -1,6 +1,6 @@
 program testfortran
 
-use mEmDee
+use EmDee
 use iso_c_binding
 
 implicit none
