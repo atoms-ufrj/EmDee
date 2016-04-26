@@ -1,21 +1,10 @@
-typedef enum {
-  NONE = 0,
-  LJ,
-  SHIFTED_FORCE_LJ
-} tModel;
-
 typedef struct {
-  tModel model;
+  int model;
   double p1;
   double p2;
   double p3;
   double p4;
 } tPairType;
-
-typedef struct {
-  double Eij;
-  double Wij;
-} tModelOutput;
 
 #define ndiv 2
 #define nbcells 62
@@ -78,8 +67,14 @@ typedef struct {
 
 void md_initialize( tEmDee *me, double rc, double skin, int atoms, int types,
                     int *type_index, double *mass );
+void md_set_pair( tEmDee *me, int i, int j, tPairType model );
+tPairType lennard_jones( double sigma, double epsilon );
+
 void md_set_lj( tEmDee *me, int i, int j, double sigma, double epsilon );
 void md_set_shifted_force_lj( tEmDee *me, int i, int j, double sigma, double epsilon );
+
+
+
 void md_upload( tEmDee *me, double *coords, double *momenta );
 void md_download( tEmDee *me, double *coords, double *momenta, double *forces );
 void md_change_coordinates( tEmDee *me, double a, double b );

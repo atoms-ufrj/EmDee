@@ -22,7 +22,7 @@ call create_configuration
 mdp = c_loc(md)
 mass = 1.0_rb
 call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(mass) )
-call md_set_lj( mdp, 1, 1, 1.0_rb, 1.0_rb )
+call md_set_pair( mdp, 1, 1, lennard_jones( 1.0_rb, 1.0_rb ) )
 call md_upload( mdp, c_loc(R), c_loc(V) )
 call md_compute_forces( mdp, L )
 print*, 0, md%Energy, md%Virial

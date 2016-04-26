@@ -107,7 +107,7 @@ int main()
   tEmDee md;
   double mass = 1.0;
   md_initialize( &md, par.Rc, par.Rs, par.N, 1, NULL, &mass );
-  md_set_lj( &md, 1, 1, 1.0, 1.0 );
+  md_set_pair( &md, 1, 1, lennard_jones( 1.0, 1.0 ) );
   md_upload( &md, par.R, par.V );
   md_compute_forces( &md, par.L );
   printf("%d %lf %lf\n", 0, md.Energy, md.Virial);

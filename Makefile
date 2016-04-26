@@ -11,7 +11,7 @@ LIBFILE = $(LIBDIR)/libemdee.a
 
 LIBS = -L$(LIBDIR) -lemdee -lgfortran -lm
 
-OBJ = $(OBJDIR)/EmDee.o
+OBJ = $(OBJDIR)/EmDee.o $(OBJDIR)/c_binding_extra.o
 
 .PHONY: all test lib testc testfortran
 
@@ -45,7 +45,11 @@ $(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(SRCDIR)/EmDee.h $(LIBFILE)
 $(LIBFILE): $(OBJ)
 	ar -cr $(LIBFILE) $(OBJ)
 
-$(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.f90 $(SRCDIR)/pair_potentials.f90
+$(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.f90 $(OBJDIR)/c_binding_extra.o \
+                   $(SRCDIR)/pair_compute.f90 $(SRCDIR)/pair_setup.f90
+	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<
+
+$(OBJDIR)/c_binding_extra.o: $(SRCDIR)/c_binding_extra.f90
 	mkdir -p $(OBJDIR)
 	mkdir -p $(LIBDIR)
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<

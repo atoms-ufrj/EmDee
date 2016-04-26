@@ -1,7 +1,5 @@
+!---------------------------------------------------------------------------------------------------
 subroutine compute_pair
-  Rij = Ri - Rs(:,j)
-  Rij = Rij - nint(Rij)
-  r2 = sum(Rij*Rij)
   if (r2 < Rc2) then
     invR2 = invL2/r2
     ij => pairType(itype,type(j))
@@ -18,7 +16,7 @@ subroutine compute_pair
     Fs(:,j) = Fs(:,j) - Fij
   end if
 end subroutine compute_pair
-
+!---------------------------------------------------------------------------------------------------
 subroutine lennard_jones( E, W, sr2, eps4 )
   real(rb), intent(out) :: E, W
   real(rb), intent(in)  :: sr2, eps4
@@ -39,4 +37,5 @@ subroutine lennard_jones_sf( E, W, sr2, eps4, rFc, shift )
   W = 6.0_rb*(eps4*sr12 + E) - rFc
   E = E + rFc + shift
 end subroutine lennard_jones_sf
+!---------------------------------------------------------------------------------------------------
 

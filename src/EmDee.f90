@@ -1,6 +1,9 @@
+! TO DO: Employ and debug subroutine distribute_atoms
+
 module EmDee
 
 use, intrinsic :: iso_c_binding
+use c_binding_extra
 
 implicit none
 
@@ -83,15 +86,13 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine make_cells( md, M ) bind(C)
-    type(c_ptr), value :: md
-    integer(ib), value :: M
+  subroutine make_cells( me, M ) bind(C)
+    type(tEmDee), intent(inout) :: me
+    integer(ib),  intent(in)    :: M
 
     integer(ib) :: MM, Mm1, k, ix, iy, iz
-    type(tEmDee), pointer :: me
     type(tCell),  pointer :: cell(:)
 
-    call c_f_pointer( md, me )
     call c_f_pointer( me%cell, cell, [me%maxcells] )
     MM = M*M
     Mm1 = M - 1
@@ -106,7 +107,7 @@ contains
     forall ( k = 1:nbcells, ix = 0:Mm1, iy = 0:Mm1, iz = 0:Mm1 )
       cell(1+ix+iy*M+iz*MM)%neighbor(k) = 1+pbc(ix+nb(1,k))+pbc(iy+nb(2,k))*M+pbc(iz+nb(3,k))*MM
     end forall
-    nullify( me, cell )
+    nullify( cell )
 
     contains
       pure integer(ib) function pbc( x )
@@ -123,20 +124,50 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
+  subroutine distribute( M, N, R, atom, ncells, previous, natoms )
+    integer(ib), intent(in)  :: M, N, ncells
+    real(rb),    intent(in)  :: R(3,N)
+    integer(ib), intent(out) :: atom(N), previous(ncells), natoms(ncells)
+    integer(ib) :: i, j, icell, ntotal, MM
+    integer(ib) :: next(N), head(ncells)
+    head = 0
+    natoms = 0
+    MM = M*M
+    do i = 1, N
+      icell = 1 + int(M*R(1,i),ib) + M*int(M*R(2,i),ib) + MM*int(M*R(3,i),ib)
+      next(i) = head(icell)
+      head(icell) = i
+      natoms(icell) = natoms(icell) + 1
+    end do
+    ntotal = 0
+    do icell = 1, ncells
+      previous(icell) = ntotal
+      j = head(icell)
+      do while (j /= 0)
+        ntotal = ntotal + 1
+        atom(ntotal) = j
+        j = next(j)
+      end do
+    end do
+  end subroutine distribute
+
+!---------------------------------------------------------------------------------------------------
+
   subroutine find_pairs_and_compute( me, L )
     type(tEmDee), intent(inout) :: me
     real(rb),     intent(in)    :: L
 
-    integer(ib) :: M, MM, ntypes, i, j, k, icell, nmax, maxpairs, npairs, nlocal, ntotal, itype
+    integer(ib) :: i, j, k, m, icell, jcell, nmax, maxpairs, npairs, nlocal, ntotal, itype, nprev
     real(rb)    :: invL, invL2, xRc2, Rc2
     real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3), Epot, Virial, r2, invR2, Eij, Wij
+    integer(ib) :: natoms(me%ncells), previous(me%ncells), cell_atom(me%natoms)
+    real(rb)    :: Rs(3,me%natoms), Fs(3,me%natoms)
     type(tPairType), pointer :: ij
     type(tCell),     pointer :: cell(:)
     integer(ib),     pointer :: first(:), last(:), neighbor(:), type(:)
     real(rb),        pointer :: R(:,:), F(:,:)
     type(tPairType), pointer :: pairType(:,:)
-    integer(ib), allocatable :: next(:), natoms(:), head(:), atom(:), iaux(:)
-    real(rb),    allocatable :: Rs(:,:), Fs(:,:)
+    integer(ib), allocatable :: atom(:)
 
     call c_f_pointer( me%R, R, [3,me%natoms] )
     call c_f_pointer( me%F, F, [3,me%natoms] )
@@ -147,34 +178,21 @@ contains
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
-    M = me%mcells
-    MM = M*M
-    ntypes = me%ntypes
     invL = 1.0_rb/L
     invL2 = invL*invL
     xRc2 = me%xRcSq*invL2
     Rc2 = me%RcSq*invL2
 
     ! Distribute atoms over cells and save scaled coordinates:
-    allocate( Rs(3,me%natoms), next(me%natoms), natoms(me%ncells), head(me%ncells) )
     Rs = R*invL
-    Rs = Rs - floor(Rs)
-    head = 0
-    natoms = 0
-    do i = 1, me%natoms
-      icell = 1 + int(M*Rs(1,i),ib) + M*int(M*Rs(2,i),ib) + MM*int(M*Rs(3,i),ib)
-      next(i) = head(icell)
-      head(icell) = i
-      natoms(icell) = natoms(icell) + 1
-    end do
+    call distribute( me%mcells, me%natoms, Rs - floor(Rs), cell_atom, me%ncells, previous, natoms )
 
-    ! Safely allocate local arrays:
+    ! Safely allocate local array:
     nmax = maxval(natoms)
     maxpairs = (nmax*((2*nbcells + 1)*nmax - 1))/2
     allocate( atom(nmax*(nbcells + 1)) )
 
     ! Sweep all cells to search for neighbors:
-    allocate( Fs(3,me%natoms) )
     Fs = 0.0_rb
     Epot = 0.0_rb
     Virial = 0.0_rb
@@ -184,30 +202,22 @@ contains
       if (nlocal /= 0) then
 
         if (me%maxpairs < npairs + maxpairs) then
-          allocate( iaux(me%maxpairs) )
-          iaux = neighbor
-          deallocate( neighbor )
-          me%maxpairs = npairs + maxpairs + extraPairs
-          allocate( neighbor(me%maxpairs) )
-          neighbor(1:size(iaux)) = iaux
-          deallocate( iaux )
-          me%neighbor = c_loc(neighbor)
+          call realloc_int( me%neighbor, me%maxpairs, npairs + maxpairs + extraPairs )
+          call c_f_pointer( me%neighbor, neighbor, [me%maxpairs] )
         end if
 
-        ! Build list of atoms in current cell and neighbor cells:
         ntotal = 0
-        j = head(icell)
-        do while (j /= 0)
+        nprev = previous(icell)
+        do j = 1, nlocal
           ntotal = ntotal + 1
-          atom(ntotal) = j
-          j = next(j)
+          atom(ntotal) = cell_atom(nprev+j)
         end do
         do k = 1, nbcells
-          j = head(cell(icell)%neighbor(k))
-          do while (j /= 0)
+          jcell = cell(icell)%neighbor(k)
+          nprev = previous(jcell)
+          do j = 1, natoms(jcell)
             ntotal = ntotal + 1
-            atom(ntotal) = j
-            j = next(j)
+            atom(ntotal) = cell_atom(nprev+j)
           end do
         end do
 
@@ -235,6 +245,7 @@ contains
           Fs(:,i) = Fs(:,i) + Fi
           last(i) = npairs
         end do
+
       end if
     end do
     me%npairs = npairs
@@ -243,7 +254,7 @@ contains
     F = L*Fs
     nullify( R, F, cell, first, last, neighbor, type, pairType )
     contains
-      include "pair_potentials.f90"
+      include "pair_compute.f90"
   end subroutine find_pairs_and_compute
 
 !---------------------------------------------------------------------------------------------------
@@ -255,7 +266,7 @@ contains
     integer  :: i, j, k, itype
     real(rb) :: invL, invL2, Rc2, Epot, Virial
     real(rb) :: r2, invR2, Rij(3), Ri(3), Fi(3), Fij(3), Eij, Wij
-    real(rb), allocatable :: Rs(:,:), Fs(:,:)
+    real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms)
     type(tPairType), pointer :: ij
     integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
     real(rb),        pointer :: R(:,:), F(:,:)
@@ -269,7 +280,6 @@ contains
     call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
     Epot = 0.0_8
     Virial = 0.0_8
     Fs = 0.0_8
@@ -283,6 +293,9 @@ contains
       Fi = 0.0_rb
       do k = first(i), last(i)
         j = neighbor(k)
+        Rij = Ri - Rs(:,j)
+        Rij = Rij - nint(Rij)
+        r2 = sum(Rij*Rij)
         call compute_pair
       end do
       Fs(:,i) = Fs(:,i) + Fi
@@ -293,67 +306,8 @@ contains
 
     nullify( type, first, last, neighbor, R, F, pairType )
     contains
-      include "pair_potentials.f90"
+      include "pair_compute.f90"
   end subroutine compute
-
-!---------------------------------------------------------------------------------------------------
-
-  type(c_ptr) function malloc_int( n, value, array )
-    integer(ib), intent(in)           :: n
-    integer(ib), intent(in), optional :: value, array(:)
-    integer(ib), pointer :: ptr(:)
-    allocate( ptr(n) )
-    malloc_int = c_loc(ptr)
-    if (present(array)) then
-      ptr = array
-    else if (present(value)) then
-      ptr = value
-    end if
-    nullify( ptr )
-  end function malloc_int
-
-!---------------------------------------------------------------------------------------------------
-
-  type(c_ptr) function malloc_real( n, value, array )
-    integer(ib), intent(in)           :: n
-    real(rb),    intent(in), optional :: value, array(:)
-    real(rb), pointer :: ptr(:)
-    allocate( ptr(n) )
-    malloc_real = c_loc(ptr)
-    if (present(array)) then
-      ptr = array
-    else if (present(value)) then
-      ptr = value
-    end if
-    nullify( ptr )
-  end function malloc_real
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine copy_real( from, to, n )
-    type(c_ptr), intent(in) :: from, to
-    integer,     intent(in) :: n
-    real(rb), pointer :: F(:), T(:)
-    call c_f_pointer( from, F, [n] )
-    call c_f_pointer( to, T, [n] )
-    T = F
-    nullify( T, F )
-  end subroutine copy_real
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine set_pair_type( md, i, j, model, p1, p2, p3, p4 )
-    type(c_ptr), value      :: md
-    integer(ib), intent(in) :: i, j, model
-    real(rb),    intent(in) :: p1, p2, p3, p4
-    type(tEmDee),    pointer :: me
-    type(tPairType), pointer :: pairType(:,:)
-    call c_f_pointer( md, me )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
-    pairType(i,j) = tPairType( model, p1, p2, p3, p4 )
-    pairType(j,i) = tPairType( model, p1, p2, p3, p4 )
-    nullify( me, pairType )
-  end subroutine set_pair_type
 
 !---------------------------------------------------------------------------------------------------
 
@@ -442,29 +396,22 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_set_lj( md, i, j, sigma, epsilon ) bind(C)
-    type(c_ptr), value :: md
-    integer(ib), value :: i, j
-    real(rb),    value :: sigma, epsilon
-    call set_pair_type( md, i, j, LJ, sigma**2, 4.0_rb*epsilon, 0.0_rb, 0.0_rb )
-  end subroutine md_set_lj
+  subroutine md_set_pair( md, i, j, model ) bind(C)
+    type(c_ptr),     value :: md
+    integer(ib),     value :: i, j
+    type(tPairType), value :: model
+    type(tEmDee),    pointer :: me
+    type(tPairType), pointer :: pairType(:,:)
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    pairType(i,j) = model
+    pairType(j,i) = model
+    nullify( me, pairType )
+  end subroutine md_set_pair
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_set_sf_lj( md, i, j, sigma, epsilon ) bind(C)
-    type(c_ptr), value :: md
-    integer(ib), value :: i, j
-    real(rb),    value :: sigma, epsilon
-    real(rb) :: sr6, sr12, eps4, Ec, Fc
-    type(tEmDee), pointer :: me
-    call c_f_pointer( md, me )
-    sr6 = (sigma/me%Rc)**6
-    sr12 = sr6*sr6
-    eps4 = 4.0_rb*epsilon
-    Ec = eps4*(sr12 - sr6)
-    Fc = 6.0_rb*(eps4*sr12 + Ec)/me%Rc
-    call set_pair_type( md, i, j, SF_LJ, sigma**2, eps4, Fc, -(Ec + Fc*me%Rc) )
-  end subroutine md_set_sf_lj
+  include "pair_setup.f90"
 
 !---------------------------------------------------------------------------------------------------
 
@@ -534,7 +481,7 @@ contains
         write(0,'("ERROR: simulation box is too small.")')
         stop
       end if
-      if (M /= me%mcells) call make_cells( md, M )
+      if (M /= me%mcells) call make_cells( me, M )
       call find_pairs_and_compute( me, L )
       R0 = R
       me%builds = me%builds + 1
