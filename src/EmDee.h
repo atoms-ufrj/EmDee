@@ -59,7 +59,6 @@ typedef struct {
   int *type;         // Atom types
   double *R0;        // Atom positions at list building
   double *R;         // Pointer to dynamic atom positions
-  double *P;         // Pointer to dynamic atom momenta
   double *F;
 
   int ntypes;
