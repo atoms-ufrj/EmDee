@@ -82,7 +82,7 @@ type, bind(C) :: tEmDee
 
 end type tEmDee
 
-private :: reallocate_list, make_cells, distribute_atoms, find_pairs, compute
+private :: reallocate_list, make_cells, distribute_atoms, find_pairs_and_compute, compute
 
 contains
 
@@ -242,11 +242,12 @@ contains
         stop
       end if
       if (M /= me%mcells) call make_cells( me, M )
-      call find_pairs( me, L )
+      call find_pairs_and_compute( me, L )
       R0 = R
       me%builds = me%builds + 1
     else
-      call compute( me, L )
+!      call compute( me, L )
+      call compute_parallel( me, L )
     end if
     call cpu_time( tf )
     me%time = me%time + (tf - ti)
@@ -305,7 +306,7 @@ contains
     nullify( cell )
 
     contains
-
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       pure integer(ib) function pbc( x )
         integer(ib), intent(in) :: x
         if (x < 0) then
@@ -316,7 +317,7 @@ contains
           pbc = x
         end if
       end function pbc
-
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine make_cells
 
 !---------------------------------------------------------------------------------------------------
@@ -353,11 +354,11 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs( me, L )
+  subroutine find_pairs_and_compute( me, L )
     type(tEmDee), intent(inout) :: me
     real(rb),     intent(in)    :: L
 
-    integer(ib) :: i, j, k, m, nc, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype
+    integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype
     real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Epot, Virial, Eij, Wij
     logical     :: include
 
@@ -395,8 +396,8 @@ contains
     call distribute_atoms( me%mcells, me%natoms, Rs, atom, me%ncells, previous, natoms )
 
     ! Safely allocate local array:
-    nc = maxval(natoms)
-    maxpairs = (nc*((2*nbcells + 1)*nc - 1))/2
+    n = maxval(natoms)
+    maxpairs = (n*((2*nbcells + 1)*n - 1))/2
 
     ! Sweep all cells to search for neighbors:
     Epot = 0.0_8
@@ -423,8 +424,8 @@ contains
           j = atom(kprev + m)
           call check_pair()
         end do
-        do nc = 1, nbcells
-          jcell = cell(icell)%neighbor(nc)
+        do n = 1, nbcells
+          jcell = cell(icell)%neighbor(n)
           mprev = previous(jcell)
           do m = 1, natoms(jcell)
             j = atom(mprev + m)
@@ -458,7 +459,15 @@ contains
             if (include) then
               npairs = npairs + 1
               neighbor(npairs) = j
-              call compute_pair
+              if (r2 < Rc2) then
+                invR2 = invL2/r2
+                call compute_pair
+                Epot = Epot + Eij
+                Virial = Virial + Wij
+                Fij = Wij*invR2*Rij
+                Fi = Fi + Fij
+                Fs(:,j) = Fs(:,j) - Fij
+              end if
             end if
           end if
         end if
@@ -466,7 +475,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "pair_compute.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine find_pairs
+  end subroutine find_pairs_and_compute
 
 !---------------------------------------------------------------------------------------------------
 
@@ -507,7 +516,16 @@ contains
         Rij = Ri - Rs(:,j)
         Rij = Rij - nint(Rij)
         r2 = sum(Rij*Rij)
-        call compute_pair
+        if (r2 < Rc2) then
+          invR2 = invL2/r2
+          ij => pairType(itype,type(j))
+          call compute_pair
+          Epot = Epot + Eij
+          Virial = Virial + Wij
+          Fij = Wij*invR2*Rij
+          Fi = Fi + Fij
+          Fs(:,j) = Fs(:,j) - Fij
+        end if
       end do
       Fs(:,i) = Fs(:,i) + Fi
     end do
@@ -517,8 +535,93 @@ contains
 
     nullify( type, first, last, neighbor, R, F, pairType )
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "pair_compute.f90"
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine compute_parallel( me, L )
+    type(tEmDee), intent(inout) :: me
+    real(rb),     intent(in)    :: L
+
+    integer  :: i, j, k, itype
+    real(rb) :: invL, invL2, Rc2, Epot, Virial
+    real(rb) :: r2, invR2, Rij(3), Ri(3), Fi(3), Eij, Wij, E(me%natoms), W(me%natoms), Ei, Wi
+    real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms)
+    type(tPairType), pointer :: ij
+    integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
+    real(rb),        pointer :: R(:,:), F(:,:)
+    type(tPairType), pointer :: pairType(:,:)
+
+    real(rb), allocatable :: Fij(:,:)
+
+    call c_f_pointer( me%type, type, [me%natoms] )
+    call c_f_pointer( me%neighbor%first, first, [me%natoms] )
+    call c_f_pointer( me%neighbor%last, last, [me%natoms] )
+    call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%count] )
+    call c_f_pointer( me%R, R, [3,me%natoms] )
+    call c_f_pointer( me%F, F, [3,me%natoms] )
+    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+
+    invL = 1.0_rb/L
+    invL2 = invL*invL
+    Rs = R*invL
+    Rc2 = me%RcSq*invL2
+    allocate( Fij(3,me%neighbor%count) )
+    !$omp parallel do private(i,itype,Ri,Ei,Wi,k,j,Rij,r2,invR2,ij,Eij,Wij)
+    do i = 1, me%natoms
+      itype = type(i)
+      Ri = Rs(:,i)
+      Ei = 0.0_rb
+      Wi = 0.0_rb
+      do k = first(i), last(i)
+        j = neighbor(k)
+        Rij = Ri - Rs(:,j)
+        Rij = Rij - nint(Rij)
+        r2 = sum(Rij*Rij)
+        if (r2 < Rc2) then
+          invR2 = invL2/r2
+          ij => pairType(itype,type(j))
+  select case (ij%model)
+    case (LJ)
+      call lennard_jones_compute( Eij, Wij, invR2*ij%p1, ij%p2 )
+    case (SF_LJ)
+      call lennard_jones_sf_compute( Eij, Wij, invR2*ij%p1, ij%p2, ij%p3/sqrt(invR2), ij%p4 )
+  end select
+          Fij(:,k) = Wij*invR2*Rij
+          Ei = Ei + Eij
+          Wi = Wi + Wij
+        else
+          Fij(:,k) = 0.0_rb
+        end if
+      end do
+      E(i) = Ei
+      W(i) = Wi
+    end do
+    !$omp end parallel do
+    Epot = 0.0_rb
+    Virial = 0.0_rb
+    Fs = 0.0_rb
+    do i = 1, me%natoms
+      do k = first(i), last(i)
+        j = neighbor(k)
+        Fs(:,i) = Fs(:,i) + Fij(:,k)
+        Fs(:,j) = Fs(:,j) - Fij(:,k)
+      end do
+    end do
+    deallocate( Fij )
+    me%Energy = sum(E)
+    me%Virial = sum(W)/3.0_rb
+    F = L*Fs
+
+    nullify( type, first, last, neighbor, R, F, pairType )
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      include "pair_compute.f90"
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_parallel
 
 !---------------------------------------------------------------------------------------------------
 

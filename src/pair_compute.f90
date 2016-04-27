@@ -1,23 +1,14 @@
 !---------------------------------------------------------------------------------------------------
 subroutine compute_pair
-  if (r2 < Rc2) then
-    invR2 = invL2/r2
-    ij => pairType(itype,type(j))
-    select case (ij%model)
-      case (LJ)
-        call lennard_jones_compute( Eij, Wij, invR2*ij%p1, ij%p2 )
-      case (SF_LJ)
-        call lennard_jones_sf_compute( Eij, Wij, invR2*ij%p1, ij%p2, sqrt(r2)*ij%p3, ij%p4 )
-    end select
-    Epot = Epot + Eij
-    Virial = Virial + Wij
-    Fij = Wij*invR2*Rij
-    Fi = Fi + Fij
-    Fs(:,j) = Fs(:,j) - Fij
-  end if
+  select case (ij%model)
+    case (LJ)
+      call lennard_jones_compute( Eij, Wij, invR2*ij%p1, ij%p2 )
+    case (SF_LJ)
+      call lennard_jones_sf_compute( Eij, Wij, invR2*ij%p1, ij%p2, ij%p3/sqrt(invR2), ij%p4 )
+  end select
 end subroutine compute_pair
 !---------------------------------------------------------------------------------------------------
-subroutine lennard_jones_compute( E, W, sr2, eps4 )
+pure subroutine lennard_jones_compute( E, W, sr2, eps4 )
   real(rb), intent(out) :: E, W
   real(rb), intent(in)  :: sr2, eps4
   real(rb) :: sr6, sr12
@@ -27,7 +18,7 @@ subroutine lennard_jones_compute( E, W, sr2, eps4 )
   W = 6.0_rb*(eps4*sr12 + E)
 end subroutine lennard_jones_compute
 !---------------------------------------------------------------------------------------------------
-subroutine lennard_jones_sf_compute( E, W, sr2, eps4, rFc, shift )
+pure subroutine lennard_jones_sf_compute( E, W, sr2, eps4, rFc, shift )
   real(rb), intent(out) :: E, W
   real(rb), intent(in)  :: sr2, eps4, rFc, shift
   real(rb) :: sr6, sr12
