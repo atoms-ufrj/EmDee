@@ -27,17 +27,23 @@ typedef struct {
 } tCell;
 
 typedef struct {
+  int nitems;
+  int count;
+  int *first;
+  int *last;
+  int *item;
+} tList;
+
+typedef struct {
   int builds;        // Number of neighbor-list builds
-  int *first;        // First neighbor of each atom
-  int *last;         // Last neighbor of each atom 
-  int *neighbor;     // List of neighbors
+
+  tList neighbor;
+  tList exclude;
 
   double time;
 
   int natoms;        // Number of atoms
   int nx3;           // Three times the number of atoms
-  int npairs;        // Number of neighbor pairs
-  int maxpairs;      // Maximum number of neighbor pairs
   int mcells;        // Number of cells at each dimension
   int ncells;        // Total number of cells
   int maxcells;      // Maximum number of cells
@@ -52,13 +58,12 @@ typedef struct {
 
   int *type;         // Atom types
   double *R0;        // Atom positions at list building
-  double *restrict R;         // Pointer to dynamic atom positions
-  double *restrict P;         // Pointer to dynamic atom momenta
-  double *restrict F;
+  double *R;         // Pointer to dynamic atom positions
+  double *P;         // Pointer to dynamic atom momenta
+  double *F;
 
   int ntypes;
   tPairType *pairType;
-  double *invmass;
 
   double Energy;
   double Virial;
@@ -66,18 +71,11 @@ typedef struct {
 } tEmDee;
 
 void md_initialize( tEmDee *me, double rc, double skin, int atoms, int types,
-                    int *type_index, double *mass );
+                    int *type_index, double *coords, double *forces );
 void md_set_pair( tEmDee *me, int i, int j, tPairType model );
-tPairType lennard_jones( double sigma, double epsilon );
-
-void md_set_lj( tEmDee *me, int i, int j, double sigma, double epsilon );
-void md_set_shifted_force_lj( tEmDee *me, int i, int j, double sigma, double epsilon );
-
-
-
-void md_upload( tEmDee *me, double *coords, double *momenta );
-void md_download( tEmDee *me, double *coords, double *momenta, double *forces );
-void md_change_coordinates( tEmDee *me, double a, double b );
-void md_change_momenta( tEmDee *me, double a, double b );
 void md_compute_forces( tEmDee *me, double L );
+
+
+tPairType lennard_jones( double sigma, double epsilon );
+tPairType shifted_force_lennard_jones( double sigma, double epsilon, double rc );
 

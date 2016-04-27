@@ -1,5 +1,3 @@
-! TO DO: Employ and debug subroutine distribute_atoms
-
 module EmDee
 
 use, intrinsic :: iso_c_binding
@@ -28,11 +26,19 @@ integer(ib), parameter, private :: nb(3,nbcells) = reshape( [ &
   -1, 0, 2,    0, 0, 2,    1, 0, 2,    2, 0, 2,   -2, 1, 2,   -1, 1, 2,    0, 1, 2,    1, 1, 2,  &
    2, 1, 2,   -2, 2, 2,   -1, 2, 2,    0, 2, 2,    1, 2, 2,    2, 2, 2 ], [3,nbcells] )
 
-integer(ib), private :: extraPairs = 2000
+integer(ib), private :: extra = 2000
 
 type, bind(C) :: tCell
   integer(ib) :: neighbor(nbcells)
 end type tCell
+
+type, bind(C) :: tList
+  integer(c_int) :: nitems
+  integer(c_int) :: count
+  type(c_ptr)    :: first
+  type(c_ptr)    :: last
+  type(c_ptr)    :: item
+end type tList
 
 type, bind(C) :: tPairType
   integer(ib) :: model
@@ -45,16 +51,14 @@ end type tPairType
 type, bind(C) :: tEmDee
 
   integer(ib) :: builds    ! Number of neighbor-list builds
-  type(c_ptr) :: first     ! First neighbor of each atom
-  type(c_ptr) :: last      ! Last neighbor of each atom 
-  type(c_ptr) :: neighbor  ! List of neighbors
+
+  type(tList) :: neighbor
+  type(tList) :: excluded
 
   real(rb)    :: time
 
   integer(ib) :: natoms    ! Number of atoms
   integer(ib) :: nx3       ! Three times the number of atoms
-  integer(ib) :: npairs    ! Number of neighbor pairs
-  integer(ib) :: maxpairs  ! Maximum number of neighbor pairs
   integer(ib) :: mcells    ! Number of cells at each dimension
   integer(ib) :: ncells    ! Total number of cells
   integer(ib) :: maxcells  ! Maximum number of cells
@@ -75,18 +79,38 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: ntypes
   type(c_ptr) :: pairType
-  type(c_ptr) :: invmass
 
   real(rb)    :: Energy
   real(rb)    :: Virial
 
 end type tEmDee
 
+private :: make_cells, distribute, find_pairs, compute
+
 contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine make_cells( me, M ) bind(C)
+  subroutine reallocate_list( me, size )
+    type(tList),    intent(inout) :: me
+    integer(c_int), intent(in)    :: size
+
+    integer(c_int) :: n
+    integer(c_int), pointer :: old(:), new(:)
+
+    call c_f_pointer( me%item, old, [me%nitems] )
+    allocate( new(size) )
+    n = min(me%nitems,size)
+    new(1:n) = old(1:n)
+    deallocate( old )
+    me%item = c_loc(new)
+    me%nitems = size
+
+  end subroutine reallocate_list
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine make_cells( me, M )
     type(tEmDee), intent(inout) :: me
     integer(ib),  intent(in)    :: M
 
@@ -110,6 +134,7 @@ contains
     nullify( cell )
 
     contains
+
       pure integer(ib) function pbc( x )
         integer(ib), intent(in) :: x
         if (x < 0) then
@@ -120,6 +145,7 @@ contains
           pbc = x
         end if
       end function pbc
+
   end subroutine make_cells
 
 !---------------------------------------------------------------------------------------------------
@@ -130,6 +156,7 @@ contains
     integer(ib), intent(out) :: atom(N), previous(ncells), natoms(ncells)
     integer(ib) :: i, j, icell, ntotal, MM
     integer(ib) :: next(N), head(ncells)
+
     head = 0
     natoms = 0
     MM = M*M
@@ -139,6 +166,7 @@ contains
       head(icell) = i
       natoms(icell) = natoms(icell) + 1
     end do
+
     ntotal = 0
     do icell = 1, ncells
       previous(icell) = ntotal
@@ -149,113 +177,127 @@ contains
         j = next(j)
       end do
     end do
+
   end subroutine distribute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs_and_compute( me, L )
+  subroutine find_pairs( me, L )
     type(tEmDee), intent(inout) :: me
     real(rb),     intent(in)    :: L
 
-    integer(ib) :: i, j, k, m, icell, jcell, nmax, maxpairs, npairs, nlocal, ntotal, itype, nprev
-    real(rb)    :: invL, invL2, xRc2, Rc2
-    real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3), Epot, Virial, r2, invR2, Eij, Wij
-    integer(ib) :: natoms(me%ncells), previous(me%ncells), cell_atom(me%natoms)
-    real(rb)    :: Rs(3,me%natoms), Fs(3,me%natoms)
-    type(tPairType), pointer :: ij
+    integer(ib) :: i, j, k, m, nc, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype
+    real(rb)    :: invL, invL2, xRc2
+    real(rb)    :: Rs(3,me%natoms), Ri(3), Rij(3)
+    integer(ib) :: natoms(me%ncells), previous(me%ncells), atom(me%natoms)
+
     type(tCell),     pointer :: cell(:)
     integer(ib),     pointer :: first(:), last(:), neighbor(:), type(:)
-    real(rb),        pointer :: R(:,:), F(:,:)
-    type(tPairType), pointer :: pairType(:,:)
-    integer(ib), allocatable :: atom(:)
+    integer(ib),     pointer :: xfirst(:), xlast(:), excluded(:)
+    real(rb),        pointer :: R(:,:)
+    type(tPairType), pointer :: pair(:,:)
+
+    integer(ib), allocatable :: ilist(:)
+    logical :: include
 
     call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%cell, cell, [me%ncells] )
-    call c_f_pointer( me%first, first, [me%natoms] )
-    call c_f_pointer( me%last, last, [me%natoms] )
-    call c_f_pointer( me%neighbor, neighbor, [me%maxpairs] )
+    call c_f_pointer( me%neighbor%first, first, [me%natoms] )
+    call c_f_pointer( me%neighbor%last, last, [me%natoms] )
+    call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%nitems] )
+    call c_f_pointer( me%excluded%first, xfirst, [me%natoms] )
+    call c_f_pointer( me%excluded%last, xlast, [me%natoms] )
+    call c_f_pointer( me%excluded%item, excluded, [me%excluded%nitems] )
     call c_f_pointer( me%type, type, [me%natoms] )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairType, pair, [me%ntypes,me%ntypes] )
 
     invL = 1.0_rb/L
     invL2 = invL*invL
     xRc2 = me%xRcSq*invL2
-    Rc2 = me%RcSq*invL2
 
     ! Distribute atoms over cells and save scaled coordinates:
     Rs = R*invL
-    call distribute( me%mcells, me%natoms, Rs - floor(Rs), cell_atom, me%ncells, previous, natoms )
+    Rs = Rs - floor(Rs)
+    call distribute( me%mcells, me%natoms, Rs, atom, me%ncells, previous, natoms )
 
     ! Safely allocate local array:
-    nmax = maxval(natoms)
-    maxpairs = (nmax*((2*nbcells + 1)*nmax - 1))/2
-    allocate( atom(nmax*(nbcells + 1)) )
+    nc = maxval(natoms)
+    maxpairs = (nc*((2*nbcells + 1)*nc - 1))/2
 
     ! Sweep all cells to search for neighbors:
-    Fs = 0.0_rb
-    Epot = 0.0_rb
-    Virial = 0.0_rb
     npairs = 0
     do icell = 1, me%ncells
-      nlocal = natoms(icell)
-      if (nlocal /= 0) then
 
-        if (me%maxpairs < npairs + maxpairs) then
-          call realloc_int( me%neighbor, me%maxpairs, npairs + maxpairs + extraPairs )
-          call c_f_pointer( me%neighbor, neighbor, [me%maxpairs] )
-        end if
-
-        ntotal = 0
-        nprev = previous(icell)
-        do j = 1, nlocal
-          ntotal = ntotal + 1
-          atom(ntotal) = cell_atom(nprev+j)
-        end do
-        do k = 1, nbcells
-          jcell = cell(icell)%neighbor(k)
-          nprev = previous(jcell)
-          do j = 1, natoms(jcell)
-            ntotal = ntotal + 1
-            atom(ntotal) = cell_atom(nprev+j)
-          end do
-        end do
-
-        ! Search for neighbors and add them to the list:
-        do k = 1, nlocal
-          i = atom(k)
-          first(i) = npairs + 1
-          itype = type(i)
-          Ri = Rs(:,i)
-          Fi = 0.0_rb
-          do m = k+1, ntotal
-            j = atom(m)
-            ij => pairType(itype,type(j))
-            if (ij%model /= NONE) then
-              Rij = Ri - Rs(:,j)
-              Rij = Rij - nint(Rij)
-              r2 = sum(Rij*Rij)
-              if (r2 < xRc2) then
-                npairs = npairs + 1
-                neighbor(npairs) = j
-                call compute_pair
-              end if
-            end if
-          end do
-          Fs(:,i) = Fs(:,i) + Fi
-          last(i) = npairs
-        end do
-
+      if (me%neighbor%nitems < npairs + maxpairs) then
+        call reallocate_list( me%neighbor, npairs + maxpairs + extra )
+        call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%nitems] )
       end if
+
+      nlocal = natoms(icell)
+      kprev = previous(icell)
+      do k = 1, nlocal
+        i = atom(kprev + k)
+        first(i) = npairs + 1
+        itype = type(i)
+        Ri = Rs(:,i)
+        ilist = excluded(xfirst(i):xlast(i))
+        do m = k + 1, nlocal
+          j = atom(kprev + m)
+          call check_pair()
+        end do
+        do nc = 1, nbcells
+          jcell = cell(icell)%neighbor(nc)
+          mprev = previous(jcell)
+          do m = 1, natoms(jcell)
+            j = atom(mprev + m)
+            call check_pair()
+          end do
+        end do
+        last(i) = npairs
+      end do
+
     end do
-    me%npairs = npairs
-    me%Energy = Epot
-    me%Virial = Virial/3.0_rb
-    F = L*Fs
-    nullify( R, F, cell, first, last, neighbor, type, pairType )
+    me%neighbor%count = npairs
+    nullify( R, cell, first, last, neighbor, type, pair )
     contains
-      include "pair_compute.f90"
-  end subroutine find_pairs_and_compute
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine check_pair()
+        if (pair(itype,type(j))%model /= NONE) then
+          Rij = Ri - Rs(:,j)
+          Rij = Rij - nint(Rij)
+          if (sum(Rij*Rij) < xRc2) then
+            if (i < j) then
+              include = all(ilist /= j)
+            else
+              include = all(excluded(xfirst(j):xlast(j)) /= i)
+            end if
+            if (include) then
+              npairs = npairs + 1
+              neighbor(npairs) = j
+            end if
+          end if
+        end if
+      end subroutine check_pair
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine check_pair_alternative()
+        if (pair(itype,type(j))%model /= NONE) then
+          if (i < j) then
+            include = all(ilist /= j)
+          else
+            include = all(excluded(xfirst(j):xlast(j)) /= i)
+          end if
+          if (include) then
+            Rij = Ri - Rs(:,j)
+            Rij = Rij - nint(Rij)
+            if (sum(Rij*Rij) < xRc2) then
+              npairs = npairs + 1
+              neighbor(npairs) = j
+            end if
+          end if
+        end if
+      end subroutine check_pair_alternative
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine find_pairs
 
 !---------------------------------------------------------------------------------------------------
 
@@ -273,9 +315,9 @@ contains
     type(tPairType), pointer :: pairType(:,:)
 
     call c_f_pointer( me%type, type, [me%natoms] )
-    call c_f_pointer( me%first, first, [me%natoms] )
-    call c_f_pointer( me%last, last, [me%natoms] )
-    call c_f_pointer( me%neighbor, neighbor, [me%npairs] )
+    call c_f_pointer( me%neighbor%first, first, [me%natoms] )
+    call c_f_pointer( me%neighbor%last, last, [me%natoms] )
+    call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%count] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
     call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
@@ -296,7 +338,15 @@ contains
         Rij = Ri - Rs(:,j)
         Rij = Rij - nint(Rij)
         r2 = sum(Rij*Rij)
-        call compute_pair
+        if (r2 < Rc2) then
+          invR2 = invL2/r2
+          call compute_pair
+          Epot = Epot + Eij
+          Virial = Virial + Wij
+          Fij = Wij*invR2*Rij
+          Fi = Fi + Fij
+          Fs(:,j) = Fs(:,j) - Fij
+        end if
       end do
       Fs(:,i) = Fs(:,i) + Fi
     end do
@@ -311,15 +361,47 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_initialize( md, rc, skin, atoms, types, type_index, mass ) bind(C)
+  function match( a, b ) result( c )
+    integer(ib), intent(in) :: a(:), b(:)
+    logical                 :: c(size(a))
+    ! Array "a" has unique entries in arbitrary order
+    ! Array "b" has unique entries in increasing order
+    ! Array "c" is such that c(i) is true iff a(i) is found in b
+    integer :: n, i, value, mid, lb, ub
+    integer :: p(size(b))
+    n = size(b)
+    p = b
+    do i = 1, size(a)
+      value = a(i)
+      lb = 1
+      ub = n
+      mid = (lb + ub)/2
+      do while( (p(mid) /= value) .and. (ub > lb) )
+        if (value > p(mid)) then
+          lb = mid + 1
+        else
+          ub = mid - 1
+        end if
+        mid = (lb + ub)/2
+      end do
+      c(i) = p(mid) == value
+      if (c(i)) then
+        n = n - 1
+        p(mid:n) = p(mid+1:n+1)
+      end if
+    end do
+  end function match
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine md_initialize( md, rc, skin, atoms, types, type_index, coords, forces ) bind(C)
     type(c_ptr), value :: md
     real(rb),    value :: rc, skin
     integer(ib), value :: atoms, types
-    type(c_ptr), value :: type_index, mass
+    type(c_ptr), value :: type_index, coords, forces
 
     type(tEmDee),    pointer :: me
     integer(ib),     pointer :: type_ptr(:)
-    real(rb),        pointer :: mass_ptr(:)
     type(tPairType), pointer :: pairType(:,:)
 
     call c_f_pointer( md, me )
@@ -333,25 +415,20 @@ contains
     me%natoms = atoms
     me%nx3 = 3*atoms
 
-    me%first = malloc_int( atoms )
-    me%last  = malloc_int( atoms )
-    me%R  = malloc_real( me%nx3 )
+    me%R = coords
+    me%F = forces
+
     me%P  = malloc_real( me%nx3 )
-    me%F  = malloc_real( me%nx3 )
     me%R0 = malloc_real( me%nx3, value = 0.0_rb )
 
     me%ntypes = types
-    call c_f_pointer( mass, mass_ptr, [types] )
     if (c_associated(type_index)) then
       call c_f_pointer( type_index, type_ptr, [atoms] )
       me%type = malloc_int( atoms, array = type_ptr )
-      me%invmass = malloc_real( atoms, array = 1.0_rb/mass_ptr(type_ptr) )
       nullify( type_ptr )
     else
       me%type = malloc_int( atoms, value = 1 )
-      me%invmass = malloc_real( atoms, value = 1.0_rb/mass_ptr(1) )
     end if
-    nullify( mass_ptr )
 
     allocate( pairType(types,types) )
     me%pairType = c_loc(pairType)
@@ -365,34 +442,22 @@ contains
 
     me%cell = malloc_int( 0 )
 
-    me%maxpairs = extraPairs
-    me%neighbor = malloc_int( me%maxpairs )
+    me%neighbor%nitems = extra
+    me%neighbor%count  = 0
+    me%neighbor%item   = malloc_int( me%neighbor%nitems )
+    me%neighbor%first  = malloc_int( atoms )
+    me%neighbor%last   = malloc_int( atoms )
+
+    me%excluded%nitems = extra
+    me%excluded%count  = 0
+    me%excluded%item   = malloc_int( me%excluded%nitems )
+    me%excluded%first  = malloc_int( atoms, value = 1_ib )
+    me%excluded%last   = malloc_int( atoms, value = 0_ib )
 
     me%time = 0.0_rb
 
     nullify( me )
   end subroutine md_initialize
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine md_upload( md, coords, momenta ) bind(C)
-    type(c_ptr), value :: md, coords, momenta
-    type(tEmDee), pointer :: me
-    call c_f_pointer( md, me )
-    if (c_associated(coords))  call copy_real( coords, me%R, me%nx3 )
-    if (c_associated(momenta)) call copy_real( momenta, me%P, me%nx3 )
-  end subroutine md_upload
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine md_download( md, coords, momenta, forces ) bind(C)
-    type(c_ptr), value :: md, coords, momenta, forces
-    type(tEmDee), pointer :: me
-    call c_f_pointer( md, me )
-    if (c_associated(coords))  call copy_real( me%R, coords, me%nx3 )
-    if (c_associated(momenta)) call copy_real( me%P, momenta, me%nx3 )
-    if (c_associated(forces))  call copy_real( me%F, forces, me%nx3 )
-  end subroutine md_download
 
 !---------------------------------------------------------------------------------------------------
 
@@ -415,39 +480,52 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_change_coordinates( md, a, b ) bind(C)
+  subroutine md_exclude_pair( md, i, j ) bind(C)
     type(c_ptr), value :: md
-    real(rb),    value :: a, b
+    integer(ib), value :: i, j
 
-    integer :: i
+    integer :: n
     type(tEmDee), pointer :: me
-    real(rb),     pointer :: R(:,:), P(:,:), invmass(:)
+    integer(ib),  pointer :: first(:), last(:), item(:)
 
-    call c_f_pointer( md, me )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%P, P, [3,me%natoms] )
-    call c_f_pointer( me%invmass, invmass, [me%natoms] )
-    forall (i=1:me%natoms) R(:,i) = a*R(:,i) + b*invmass(i)*P(:,i)
-    nullify( me, R, P, invmass )
+    if (i /= j) then
+      call c_f_pointer( md, me )
+      call c_f_pointer( me%excluded%first, first, [me%natoms] )
+      call c_f_pointer( me%excluded%last,  last,  [me%natoms] )
+      n = me%excluded%count
+      if (n == me%excluded%nitems) call reallocate_list( me%excluded, n + extra )
+      call c_f_pointer( me%excluded%item, item, [me%excluded%nitems] )
+      call add_item( min(i,j), max(i,j) )
+!      call add_item( i, j )
+!      call add_item( j, i )
+      me%excluded%count = n
+      nullify( me, first, last, item)
+    end if
 
-  end subroutine md_change_coordinates
+    contains
 
-!---------------------------------------------------------------------------------------------------
+      subroutine add_item( i, j )
+        integer, intent(in) :: i, j
+        integer :: start, end
+        start = first(i)
+        end = last(i)
+        if ((end < start).or.(j > item(end))) then
+          item(end+2:n+1) = item(end+1:n)
+          item(end+1) = j
+        else
+          do while (j > item(start))
+            start = start + 1
+          end do
+          if (j == item(start)) return
+          item(start+1:n+1) = item(start:n)
+          item(start) = j
+        end if
+        first(i+1:) = first(i+1:) + 1
+        last(i:) = last(i:) + 1
+        n = n + 1
+      end subroutine add_item
 
-  subroutine md_change_momenta( md, a, b ) bind(C)
-    type(c_ptr), value :: md
-    real(rb),    value :: a, b
-
-    type(tEmDee), pointer :: me
-    real(rb),     pointer :: P(:), F(:)
-
-    call c_f_pointer( md, me )
-    call c_f_pointer( me%P, P, [me%nx3] )
-    call c_f_pointer( me%F, F, [me%nx3] )
-    P = a*P + b*F
-    nullify( me, P, F )
-
-  end subroutine md_change_momenta
+  end subroutine md_exclude_pair
 
 !---------------------------------------------------------------------------------------------------
 
@@ -482,12 +560,13 @@ contains
         stop
       end if
       if (M /= me%mcells) call make_cells( me, M )
-      call find_pairs_and_compute( me, L )
+      call find_pairs( me, L )
       R0 = R
       me%builds = me%builds + 1
-    else
-      call compute( me, L )
     end if
+
+    call compute( me, L )
+    
     call cpu_time( tf )
     me%time = me%time + (tf - ti)
 

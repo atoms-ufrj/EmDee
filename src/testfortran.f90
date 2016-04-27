@@ -14,25 +14,46 @@ real(rb), pointer :: R(:,:), V(:,:), F(:,:)
 integer(ib) :: step
 real(rb)    :: ti, tf
 type(c_ptr) :: mdp
-real(rb),     target :: mass
 type(tEmDee), target :: md
+
+integer :: i, j
+!integer, pointer :: first(:), last(:), item(:)
 
 call read_data
 call create_configuration
 mdp = c_loc(md)
-mass = 1.0_rb
-call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(mass) )
+call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(R), c_loc(F) )
 call md_set_pair( mdp, 1, 1, lennard_jones( 1.0_rb, 1.0_rb ) )
-call md_upload( mdp, c_loc(R), c_loc(V) )
+
+
+!print*, match( [1,7,5,3,2,4,8,6], [2,3,4,8])
+!stop
+
+do i = 1, N-1
+  do j = i+1, N
+    if (abs(i-j) < 10) call md_exclude_pair( mdp, i, j )
+  end do
+end do
+
+!call c_f_pointer( md%excluded%first, first, [md%natoms])
+!call c_f_pointer( md%excluded%last, last, [md%natoms])
+!call c_f_pointer( md%excluded%item, item, [md%excluded%nitems])
+
+!do i = 1, N
+!  print*, i, " --- ", item(first(i):last(i))
+!end do
+!stop
+
+
 call md_compute_forces( mdp, L )
 print*, 0, md%Energy, md%Virial
 call cpu_time( ti )
 do step = 1, Nsteps
   if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
-  call md_change_momenta( mdp, 1.0_rb, Dt_2 )
-  call md_change_coordinates( mdp, 1.0_rb, Dt )
+  V = V + Dt_2*F
+  R = R + Dt*V
   call md_compute_forces( mdp, L )
-  call md_change_momenta( mdp, 1.0_rb, Dt_2 )
+  V = V + Dt_2*F
 end do
 call cpu_time( tf )
 print*, "neighbor list builds = ", md%builds

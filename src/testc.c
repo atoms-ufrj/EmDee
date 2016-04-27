@@ -105,19 +105,20 @@ int main()
   read_data( &par );
   create_configuration( &par );
   tEmDee md;
-  double mass = 1.0;
-  md_initialize( &md, par.Rc, par.Rs, par.N, 1, NULL, &mass );
+  md_initialize( &md, par.Rc, par.Rs, par.N, 1, NULL, par.R, par.F );
   md_set_pair( &md, 1, 1, lennard_jones( 1.0, 1.0 ) );
-  md_upload( &md, par.R, par.V );
   md_compute_forces( &md, par.L );
   printf("%d %lf %lf\n", 0, md.Energy, md.Virial);
   clock_t start = clock();
   for (int passo = 1; passo <= par.Npassos; passo++) {
     if (passo % par.Nprop == 0) printf("%d %lf %lf\n", passo, md.Energy, md.Virial);
-    md_change_momenta( &md, 1.0, par.Dt_2 );
-    md_change_coordinates( &md, 1.0, par.Dt );
+    for (int i = 0; i < md.nx3; i++) {
+      par.V[i] += par.Dt_2*par.F[i];
+      par.R[i] += par.Dt*par.V[i];
+    }
     md_compute_forces( &md, par.L );
-    md_change_momenta( &md, 1.0, par.Dt_2 );
+    for (int i = 0; i < md.nx3; i++)
+      par.V[i] += par.Dt_2*par.F[i];
   }
   clock_t diff = clock() - start;
   int msec = diff * 1000 / CLOCKS_PER_SEC;
