@@ -129,7 +129,7 @@ contains
     end if
 
     allocate( pairType(types,types) )
-    me%pairType = c_loc(pairType)
+    me%pairType = c_loc(pairType(1,1))
     pairType%model = NONE
     nullify(pairType)
 
@@ -275,7 +275,7 @@ contains
     n = min(list%nitems,size)
     new(1:n) = old(1:n)
     deallocate( old )
-    list%item = c_loc(new)
+    list%item = c_loc(new(1))
     list%nitems = size
 
   end subroutine reallocate_list
@@ -298,7 +298,7 @@ contains
       deallocate( cell )
       allocate( cell(me%ncells) )
       me%maxcells = me%ncells
-      me%cell = c_loc(cell)
+      me%cell = c_loc(cell(1))
     end if
     forall ( k = 1:nbcells, ix = 0:Mm1, iy = 0:Mm1, iz = 0:Mm1 )
       cell(1+ix+iy*M+iz*MM)%neighbor(k) = 1+pbc(ix+nb(1,k))+pbc(iy+nb(2,k))*M+pbc(iz+nb(3,k))*MM

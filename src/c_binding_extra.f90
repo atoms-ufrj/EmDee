@@ -11,7 +11,7 @@ contains
     integer(c_int), intent(in), optional :: value, array(:)
     integer(c_int), pointer :: ptr(:)
     allocate( ptr(n) )
-    malloc_int = c_loc(ptr)
+    malloc_int = c_loc(ptr(1))
     if (present(array)) then
       ptr = array
     else if (present(value)) then
@@ -27,7 +27,7 @@ contains
     real(c_double),    intent(in), optional :: value, array(:)
     real(c_double), pointer :: ptr(:)
     allocate( ptr(n) )
-    malloc_real = c_loc(ptr)
+    malloc_real = c_loc(ptr(1))
     if (present(array)) then
       ptr = array
     else if (present(value)) then
@@ -51,7 +51,7 @@ contains
     n = min(size,new_size)
     new(1:n) = old(1:n)
     deallocate( old )
-    ptr = c_loc(new)
+    ptr = c_loc(new(1))
     size = new_size
 
   end subroutine realloc_int
