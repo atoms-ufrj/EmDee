@@ -1,13 +1,13 @@
 FORT = gfortran
 CC   = gcc
-OPTS = -march=native -ffast-math -fstrict-aliasing -Ofast -fPIC -fopenmp -Wunused -cpp
+OPTS = -march=native -ffast-math -fstrict-aliasing -Ofast -fPIC -m64 -Wunused -cpp
 
 SRCDIR = ./src
 OBJDIR = $(SRCDIR)/obj
 BINDIR = ./test
 LIBDIR = ./lib
 
-LIBFILE = $(LIBDIR)/libemdee.a
+LIBFILE = $(LIBDIR)/libemdee.so
 
 LIBS = -L$(LIBDIR) -lemdee -lgfortran -lm
 
@@ -43,8 +43,8 @@ $(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(SRCDIR)/EmDee.h $(LIBFILE)
 	$(CC) $(OPTS) -c -o $@ $<
 
 $(LIBFILE): $(OBJ)
-	ar -cr $(LIBFILE) $(OBJ)
-
+	$(FORT) -shared -fPIC -o $(LIBFILE) $^
+ 
 $(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.f90 $(OBJDIR)/c_binding_extra.o \
                    $(SRCDIR)/pair_compute.f90 $(SRCDIR)/pair_setup.f90
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<

@@ -246,8 +246,7 @@ contains
       R0 = R
       me%builds = me%builds + 1
     else
-!      call compute( me, L )
-      call compute_parallel( me, L )
+      call compute( me, L )
     end if
     call cpu_time( tf )
     me%time = me%time + (tf - ti)
@@ -539,89 +538,6 @@ contains
       include "pair_compute.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine compute_parallel( me, L )
-    type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: L
-
-    integer  :: i, j, k, itype
-    real(rb) :: invL, invL2, Rc2, Epot, Virial
-    real(rb) :: r2, invR2, Rij(3), Ri(3), Fi(3), Eij, Wij, E(me%natoms), W(me%natoms), Ei, Wi
-    real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms)
-    type(tPairType), pointer :: ij
-    integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
-    real(rb),        pointer :: R(:,:), F(:,:)
-    type(tPairType), pointer :: pairType(:,:)
-
-    real(rb), allocatable :: Fij(:,:)
-
-    call c_f_pointer( me%type, type, [me%natoms] )
-    call c_f_pointer( me%neighbor%first, first, [me%natoms] )
-    call c_f_pointer( me%neighbor%last, last, [me%natoms] )
-    call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%count] )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
-
-    invL = 1.0_rb/L
-    invL2 = invL*invL
-    Rs = R*invL
-    Rc2 = me%RcSq*invL2
-    allocate( Fij(3,me%neighbor%count) )
-    !$omp parallel do private(i,itype,Ri,Ei,Wi,k,j,Rij,r2,invR2,ij,Eij,Wij)
-    do i = 1, me%natoms
-      itype = type(i)
-      Ri = Rs(:,i)
-      Ei = 0.0_rb
-      Wi = 0.0_rb
-      do k = first(i), last(i)
-        j = neighbor(k)
-        Rij = Ri - Rs(:,j)
-        Rij = Rij - nint(Rij)
-        r2 = sum(Rij*Rij)
-        if (r2 < Rc2) then
-          invR2 = invL2/r2
-          ij => pairType(itype,type(j))
-  select case (ij%model)
-    case (LJ)
-      call lennard_jones_compute( Eij, Wij, invR2*ij%p1, ij%p2 )
-    case (SF_LJ)
-      call lennard_jones_sf_compute( Eij, Wij, invR2*ij%p1, ij%p2, ij%p3/sqrt(invR2), ij%p4 )
-  end select
-          Fij(:,k) = Wij*invR2*Rij
-          Ei = Ei + Eij
-          Wi = Wi + Wij
-        else
-          Fij(:,k) = 0.0_rb
-        end if
-      end do
-      E(i) = Ei
-      W(i) = Wi
-    end do
-    !$omp end parallel do
-    Epot = 0.0_rb
-    Virial = 0.0_rb
-    Fs = 0.0_rb
-    do i = 1, me%natoms
-      do k = first(i), last(i)
-        j = neighbor(k)
-        Fs(:,i) = Fs(:,i) + Fij(:,k)
-        Fs(:,j) = Fs(:,j) - Fij(:,k)
-      end do
-    end do
-    deallocate( Fij )
-    me%Energy = sum(E)
-    me%Virial = sum(W)/3.0_rb
-    F = L*Fs
-
-    nullify( type, first, last, neighbor, R, F, pairType )
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "pair_compute.f90"
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine compute_parallel
 
 !---------------------------------------------------------------------------------------------------
 

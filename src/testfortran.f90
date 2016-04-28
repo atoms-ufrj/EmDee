@@ -22,7 +22,7 @@ integer :: i, j
 call read_data
 call create_configuration
 mdp = c_loc(md)
-call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(R), c_loc(F) )
+call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
 call md_set_pair( mdp, 1, 1, lennard_jones( 1.0_rb, 1.0_rb ) )
 
 
