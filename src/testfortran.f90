@@ -23,6 +23,7 @@ call read_data
 call create_configuration
 mdp = c_loc(md)
 call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
+
 call md_set_pair( mdp, 1, 1, lennard_jones( 1.0_rb, 1.0_rb ) )
 
 
@@ -34,6 +35,10 @@ do i = 1, N-1
     if (abs(i-j) < 10) call md_exclude_pair( mdp, i, j )
   end do
 end do
+
+call md_add_bond( mdp, 1, 2, harmonic( 1.0_rb, 1.0_rb ) )
+call md_add_bond( mdp, 2, 3, harmonic( 1.0_rb, 1.0_rb ) )
+call md_add_bond( mdp, 4, 5, harmonic( 1.0_rb, 1.0_rb ) )
 
 !call c_f_pointer( md%excluded%first, first, [md%natoms])
 !call c_f_pointer( md%excluded%last, last, [md%natoms])

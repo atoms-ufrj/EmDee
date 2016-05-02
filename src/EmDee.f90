@@ -2,15 +2,12 @@ module EmDee
 
 use, intrinsic :: iso_c_binding
 use c_binding_extra
+use model_setup
 
 implicit none
 
 integer,     parameter, private :: ib = c_int
 integer,     parameter, private :: rb = c_double
-
-integer(ib), parameter, private :: NONE  = 0, &
-                                   LJ    = 1, &
-                                   SF_LJ = 2
 
 integer(ib), parameter, private :: extra = 2000
 integer(ib), parameter, private :: ndiv = 2
@@ -38,13 +35,10 @@ type, bind(C) :: tList
   type(c_ptr)    :: item
 end type tList
 
-type, bind(C) :: tPairType
-  integer(ib) :: model
-  real(rb)    :: p1
-  real(rb)    :: p2
-  real(rb)    :: p3
-  real(rb)    :: p4
-end type tPairType
+type tBondedStruc
+  integer(ib)  :: i, j, k, l
+  type(tModel) :: model
+end type tBondedStruc
 
 type, bind(C) :: tEmDee
 
@@ -77,12 +71,22 @@ type, bind(C) :: tEmDee
   integer(ib) :: ntypes    ! Number of atom types
   type(c_ptr) :: pairType  ! Model and parameters of each type of atom pair
 
+  integer(ib) :: nbonds
+  integer(ib) :: maxbonds
+  type(c_ptr) :: bond
+
+  integer(ib) :: nangles
+  integer(ib) :: maxangles
+  type(c_ptr) :: angle
+
   real(rb)    :: Energy    ! Total potential energy of the system
   real(rb)    :: Virial    ! Total internal virial of the system
 
 end type tEmDee
 
-private :: reallocate_list, make_cells, distribute_atoms, find_pairs_and_compute, compute
+private :: reallocate_list, add_bonded_struc, make_cells, distribute_atoms, &
+           find_pairs_and_compute, compute
+           
 
 contains
 
@@ -96,9 +100,9 @@ contains
     integer(ib), value :: atoms, types
     type(c_ptr), value :: type_index, coords, forces
 
-    type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: type_ptr(:)
-    type(tPairType), pointer :: pairType(:,:)
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: type_ptr(:)
+    type(tModel), pointer :: pairType(:,:)
 
     call c_f_pointer( md, me )
 
@@ -115,10 +119,16 @@ contains
     me%mcells = 0
     me%ncells = 0
     me%maxcells = 0
+    me%nbonds = 0
+    me%maxbonds = 0
+    me%nangles = 0
+    me%maxangles = 0
     me%builds = 0
     me%time = 0.0_rb
     me%R0 = malloc_real( me%nx3, value = 0.0_rb )
     me%cell = malloc_int( 0 )
+    me%bond = malloc_int( 0 )
+    me%angle = malloc_int( 0 )
 
     if (c_associated(type_index)) then
       call c_f_pointer( type_index, type_ptr, [atoms] )
@@ -142,26 +152,56 @@ contains
     me%excluded%nitems = extra
     me%excluded%count  = 0
     me%excluded%item   = malloc_int( me%excluded%nitems )
-    me%excluded%first  = malloc_int( atoms, value = 1_ib )
-    me%excluded%last   = malloc_int( atoms, value = 0_ib )
+    me%excluded%first  = malloc_int( atoms, value = 1 )
+    me%excluded%last   = malloc_int( atoms, value = 0 )
 
     nullify( me )
   end subroutine md_initialize
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_set_pair( md, i, j, model ) bind(C)
-    type(c_ptr),     value :: md
-    integer(ib),     value :: i, j
-    type(tPairType), value :: model
-    type(tEmDee),    pointer :: me
-    type(tPairType), pointer :: pairType(:,:)
+  subroutine md_set_pair( md, itype, jtype, model ) bind(C)
+    type(c_ptr),  value :: md
+    integer(ib),  value :: itype, jtype
+    type(tModel), value :: model
+
+    type(tEmDee), pointer :: me
+    type(tModel), pointer :: pairType(:,:)
+
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
-    pairType(i,j) = model
-    pairType(j,i) = model
+    pairType(itype,jtype) = model
+    pairType(jtype,itype) = model
+
     nullify( me, pairType )
   end subroutine md_set_pair
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine md_add_bond( md, i, j, model ) bind(C)
+    type(c_ptr),  value :: md
+    integer(ib),  value :: i, j
+    type(tModel), value :: model
+    type(tEmDee), pointer :: me
+    call c_f_pointer( md, me )
+    call add_bonded_struc( me%bond, me%nbonds, me%maxbonds, i, j, 0, 0, model )
+    call md_exclude_pair( md, i, j )
+    nullify( me )
+  end subroutine md_add_bond
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine md_add_angle( md, i, j, k, model ) bind(C)
+    type(c_ptr),  value :: md
+    integer(ib),  value :: i, j, k
+    type(tModel), value :: model
+    type(tEmDee), pointer :: me
+    call c_f_pointer( md, me )
+    call add_bonded_struc( me%angle, me%nangles, me%maxangles, i, j, k, 0, model )
+    call md_exclude_pair( md, i, j )
+    call md_exclude_pair( md, j, k )
+    nullify( me )
+  end subroutine md_add_angle
 
 !---------------------------------------------------------------------------------------------------
 
@@ -173,8 +213,8 @@ contains
     type(tEmDee), pointer :: me
     integer(ib),  pointer :: first(:), last(:), item(:)
 
-    if (i /= j) then
-      call c_f_pointer( md, me )
+    call c_f_pointer( md, me )
+    if ((i > 0).and.(i <= me%natoms).and.(j > 0).and.(j <= me%natoms).and.(i /= j)) then
       call c_f_pointer( me%excluded%first, first, [me%natoms] )
       call c_f_pointer( me%excluded%last,  last,  [me%natoms] )
       n = me%excluded%count
@@ -182,9 +222,10 @@ contains
       call c_f_pointer( me%excluded%item, item, [me%excluded%nitems] )
       call add_item( min(i,j), max(i,j) )
       me%excluded%count = n
-      nullify( me, first, last, item)
+      nullify( first, last, item)
     end if
 
+    nullify( me )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine add_item( i, j )
@@ -238,7 +279,7 @@ contains
     if (maximum + 2.0_rb*sqrt(maximum*next) + next > me%skinSq) then
       M = floor(ndiv*L/me%xRc)
       if (M < 5) then
-        write(0,'("ERROR: simulation box is too small.")')
+        write(0,'("ERROR: simulation box exceedingly small.")')
         stop
       end if
       if (M /= me%mcells) call make_cells( me, M )
@@ -253,10 +294,6 @@ contains
 
     nullify( me, R, R0 )
   end subroutine md_compute_forces
-
-!---------------------------------------------------------------------------------------------------
-
-  include "pair_setup.f90"
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
@@ -278,6 +315,31 @@ contains
     list%nitems = size
 
   end subroutine reallocate_list
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine add_bonded_struc( ptr, size, sizemax, i, j, k, l, model )
+    type(c_ptr),  intent(inout) :: ptr
+    integer(ib),  intent(inout) :: size, sizemax
+    integer(ib),  intent(in)    :: i, j, k, l
+    type(tModel), intent(in)    :: model
+
+    type(tBondedStruc), pointer :: old(:), new(:)
+
+    if (size + 1 > sizemax) then
+      call c_f_pointer( ptr, old, [sizemax] )
+      allocate( new(sizemax+extra) )
+      new(1:size) = old(1:size)
+      deallocate( old )
+      ptr = c_loc(new(1))
+    else
+      call c_f_pointer( ptr, new, [size+1] )
+    end if
+    size = size + 1
+    new(size) = tBondedStruc( i, j, k, l, model )
+
+    nullify( new )
+  end subroutine add_bonded_struc
 
 !---------------------------------------------------------------------------------------------------
 
@@ -353,6 +415,86 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
+  subroutine compute_bonds( me, L, Rs, Fs, Energy, Virial )
+    type(tEmDee), intent(in)    :: me
+    real(rb),     intent(in)    :: L, Rs(:,:)
+    real(rb),     intent(inout) :: Fs(:,:), Energy, Virial
+
+    integer(ib) :: i, j, m
+    real(rb) :: Rij(3), Fij(3), r, E, F
+    type(tBondedStruc), pointer :: bond(:)
+
+    call c_f_pointer( me%bond,  bond,  [me%nbonds]  )
+
+    do m = 1, me%nbonds
+      i = bond(m)%i
+      j = bond(m)%j
+      Rij = Rs(:,i) - Rs(:,j)
+      Rij = Rij - nint(Rij)
+      r = L*sqrt(sum(Rij*Rij))
+      call compute_bond( bond(m)%model, r )
+      Energy = Energy + E
+      Virial = Virial + F*r
+      Fij = F*Rij/r
+      Fs(:,i) = Fs(:,i) + Fij
+      Fs(:,j) = Fs(:,j) - Fij
+    end do
+
+    nullify( bond )
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      include "bond_compute.f90"
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_bonds
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine compute_angles( me, Rs, Fs, Energy, Virial )
+    type(tEmDee), intent(in)    :: me
+    real(rb),     intent(in)    :: Rs(:,:)
+    real(rb),     intent(inout) :: Fs(:,:), Energy, Virial
+
+    integer(ib) :: i, j, k, m
+    real(rb) :: Rj(3), Rij(3), Rkj(3), RijSq, RkjSq, dot, cross, theta, invDot, E, F, Fi(3), Fk(3)
+    type(tBondedStruc), pointer :: angle(:)
+
+    call c_f_pointer( me%angle, angle, [me%nangles] )
+
+    do m = 1, me%nangles
+      i = angle(m)%i
+      j = angle(m)%j
+      k = angle(m)%k
+      Rj = Rs(:,j)
+      Rij = Rs(:,i) - Rj
+      Rkj = Rs(:,k) - Rj
+      Rij = Rij - nint(Rij)
+      Rkj = Rkj - nint(Rkj)
+      RijSq = sum(Rij*Rij)
+      RkjSq = sum(Rkj*Rkj)
+      dot = sum(Rij*Rkj)
+      cross = sqrt(RijSq*RkjSq - dot*dot)
+      theta = atan2(cross,dot)
+      call compute_angle( angle(m)%model, theta )
+      invDot = 1.0_rb/dot
+      F = cross*invDot*F
+      Fi = F*(Rkj*invDot - Rij/RijSq)
+      Fk = F*(Rij*invDot - Rkj/RkjSq)
+      Fs(:,i) = Fs(:,i) + Fi
+      Fs(:,k) = Fs(:,k) + Fk
+      Fs(:,j) = Fs(:,j) - (Fi + Fk)
+      Energy = Energy + E
+      ! VIRIAL UPDATE MUST COME HERE
+    end do
+
+    nullify( angle )
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      include "angle_compute.f90"
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_angles
+
+!---------------------------------------------------------------------------------------------------
+
   subroutine find_pairs_and_compute( me, L )
     type(tEmDee), intent(inout) :: me
     real(rb),     intent(in)    :: L
@@ -366,11 +508,11 @@ contains
 
     integer(ib), allocatable :: ilist(:)
 
-    type(tCell),     pointer :: cell(:)
-    integer(ib),     pointer :: first(:), last(:), neighbor(:), type(:)
-    integer(ib),     pointer :: xfirst(:), xlast(:), excluded(:)
-    real(rb),        pointer :: R(:,:), F(:,:)
-    type(tPairType), pointer :: pairType(:,:), ij
+    type(tCell),  pointer :: cell(:)
+    integer(ib),  pointer :: first(:), last(:), neighbor(:), type(:)
+    integer(ib),  pointer :: xfirst(:), xlast(:), excluded(:)
+    real(rb),     pointer :: R(:,:), F(:,:)
+    type(tModel), pointer :: pairType(:,:), ij
 
     call c_f_pointer( me%R, R, [3,me%natoms] )
     call c_f_pointer( me%F, F, [3,me%natoms] )
@@ -486,10 +628,10 @@ contains
     real(rb) :: invL, invL2, Rc2, Epot, Virial
     real(rb) :: r2, invR2, Rij(3), Ri(3), Fi(3), Fij(3), Eij, Wij
     real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms)
-    type(tPairType), pointer :: ij
-    integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
-    real(rb),        pointer :: R(:,:), F(:,:)
-    type(tPairType), pointer :: pairType(:,:)
+    type(tModel), pointer :: ij
+    integer(ib),  pointer :: type(:), first(:), last(:), neighbor(:)
+    real(rb),     pointer :: R(:,:), F(:,:)
+    type(tModel), pointer :: pairType(:,:)
 
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%neighbor%first, first, [me%natoms] )
