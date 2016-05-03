@@ -15,6 +15,7 @@ integer(ib) :: step
 real(rb)    :: ti, tf
 type(c_ptr) :: mdp
 type(tEmDee), target :: md
+type(tModel), target :: lj
 
 integer :: i, j
 !integer, pointer :: first(:), last(:), item(:)
@@ -24,7 +25,8 @@ call create_configuration
 mdp = c_loc(md)
 call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
 
-call md_set_pair( mdp, 1, 1, lennard_jones( 1.0_rb, 1.0_rb ) )
+lj = lennard_jones( 1.0_rb, 1.0_rb )
+call md_set_pair( mdp, 1, 1, lj )
 
 
 !print*, match( [1,7,5,3,2,4,8,6], [2,3,4,8])

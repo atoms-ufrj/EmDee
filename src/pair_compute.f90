@@ -1,9 +1,9 @@
 !---------------------------------------------------------------------------------------------------
 subroutine compute_pair
   select case (ij%model)
-    case (LJ)
+    case (mLJ)
       call lennard_jones_compute( Eij, Wij, invR2*ij%p1, ij%p2 )
-    case (SF_LJ)
+    case (mSFLJ)
       call lennard_jones_sf_compute( Eij, Wij, invR2*ij%p1, ij%p2, ij%p3/sqrt(invR2), ij%p4 )
   end select
 end subroutine compute_pair

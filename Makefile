@@ -44,7 +44,7 @@ $(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(SRCDIR)/EmDee.h $(LIBFILE)
 
 $(LIBFILE): $(OBJ)
 	$(FORT) -shared -fPIC -o $(LIBFILE) $^
- 
+
 $(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.f90 $(OBJDIR)/c_binding_extra.o \
                    $(OBJDIR)/model_setup.o $(SRCDIR)/pair_compute.f90
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<

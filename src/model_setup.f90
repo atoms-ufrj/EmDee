@@ -12,9 +12,9 @@ type, bind(C) :: tModel
   real(rb)    :: p1, p2, p3, p4
 end type tModel
 
-integer(ib), parameter :: NONE  = 0, &
-                          LJ    = 1, &
-                          SF_LJ = 2, &
+integer(ib), parameter :: mNONE  = 0, &
+                          mLJ    = 1, &
+                          mSFLJ = 2, &
                           mHARMOMIC = 3, &
                           mMORSE    = 4
 
@@ -24,7 +24,7 @@ contains
 
 type(tModel) function lennard_jones( sigma, epsilon ) bind(C)
   real(rb), value :: sigma, epsilon
-  lennard_jones = tModel( LJ, sigma*sigma, 4.0_rb*epsilon, 0.0_rb, 0.0_rb )
+  lennard_jones = tModel( mLJ, sigma*sigma, 4.0_rb*epsilon, 0.0_rb, 0.0_rb )
 end function lennard_jones
 
 !---------------------------------------------------------------------------------------------------
@@ -37,7 +37,7 @@ type(tModel) function shifted_force_lennard_jones( sigma, epsilon, rc ) bind(C)
   eps4 = 4.0_rb*epsilon
   Ec = eps4*(sr12 - sr6)
   Fc = 6.0_rb*(eps4*sr12 + Ec)/rc
-  shifted_force_lennard_jones = tModel( SF_LJ, sigma**2, eps4, Fc, -(Ec + Fc*rc) )
+  shifted_force_lennard_jones = tModel( mSFLJ, sigma**2, eps4, Fc, -(Ec + Fc*rc) )
 end function shifted_force_lennard_jones
 
 !---------------------------------------------------------------------------------------------------

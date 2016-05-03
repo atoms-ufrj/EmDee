@@ -1,13 +1,11 @@
 !---------------------------------------------------------------------------------------------------
 
-subroutine compute_bond( ij, r )
-  type(tModel), intent(in) :: ij
-  real(rb),     intent(in) :: r
+subroutine compute_bond
   select case (ij%model)
     case (mHARMOMIC)
-      call harmonic_compute( E, F, r - ij%p1, ij%p2, ij%p3 )
+      call harmonic_compute( E, mdEdr, d - ij%p1, ij%p2, ij%p3 )
     case (mMORSE)
-      call morse_compute( E, F, exp(ij%p2*(r - ij%p1)), ij%p2, ij%p3 )
+      call morse_compute( E, mdEdr, exp(ij%p2*(d - ij%p1)), ij%p2, ij%p3 )
   end select
 end subroutine compute_bond
 
