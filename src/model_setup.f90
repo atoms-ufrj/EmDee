@@ -15,7 +15,8 @@ end type tModel
 integer(ib), parameter :: NONE  = 0, &
                           LJ    = 1, &
                           SF_LJ = 2, &
-                          HARM  = 3
+                          mHARMOMIC = 3, &
+                          mMORSE    = 4
 
 contains
 
@@ -43,8 +44,15 @@ end function shifted_force_lennard_jones
 
 type(tModel) function harmonic( k, x0 ) bind(C)
   real(rb), value :: k, x0
-  harmonic = tModel( HARM, x0, k, 0.5_rb*k, 0.0_rb )
+  harmonic = tModel( mHARMOMIC, x0, -k, 0.5_rb*k, 0.0_rb )
 end function harmonic
+
+!---------------------------------------------------------------------------------------------------
+
+type(tModel) function morse( D, alpha, r0 ) bind(C)
+  real(rb), value :: D, alpha, r0
+  morse = tModel( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
+end function morse
 
 !---------------------------------------------------------------------------------------------------
 
