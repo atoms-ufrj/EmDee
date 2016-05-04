@@ -1,11 +1,27 @@
+!   This file is part of EmDee.
+!
+!    EmDee is free software: you can redistribute it and/or modify
+!    it under the terms of the GNU General Public License as published by
+!    the Free Software Foundation, either version 3 of the License, or
+!    (at your option) any later version.
+!
+!    EmDee is distributed in the hope that it will be useful,
+!    but WITHOUT ANY WARRANTY; without even the implied warranty of
+!    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+!    GNU General Public License for more details.
+!
+!    You should have received a copy of the GNU General Public License
+!    along with EmDee. If not, see <http://www.gnu.org/licenses/>.
+!
+!    Author: Charlles R. A. Abreu (abreu@eq.ufrj.br)
+!            Applied Thermodynamics and Molecular Simulation
+!            Federal University of Rio de Janeiro, Brazil
+
 program testfortran
 
 use EmDee
-use iso_c_binding
 
 implicit none
-
-integer, parameter :: ib = c_int, rb = c_double
 
 integer(ib) :: N, Nsteps, Nprop
 real(rb)    :: rho, L, Rc, Rs, Rc2, Temp, Dt, Dt_2
@@ -15,7 +31,7 @@ integer(ib) :: step
 real(rb)    :: ti, tf
 type(c_ptr) :: mdp
 type(tEmDee), target :: md
-type(tModel), target :: lj
+type(tModel), target :: lj, bond
 
 integer :: i, j
 !integer, pointer :: first(:), last(:), item(:)
@@ -23,11 +39,10 @@ integer :: i, j
 call read_data
 call create_configuration
 mdp = c_loc(md)
-call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
+call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
 
-lj = lennard_jones( 1.0_rb, 1.0_rb )
-call md_set_pair( mdp, 1, 1, lj )
-
+lj = pair_lj( 1.0_rb, 1.0_rb )
+call md_set_pair( c_loc(md), 1, 1, c_loc(lj) )
 
 !print*, match( [1,7,5,3,2,4,8,6], [2,3,4,8])
 !stop
@@ -38,9 +53,10 @@ do i = 1, N-1
   end do
 end do
 
-call md_add_bond( mdp, 1, 2, harmonic( 1.0_rb, 1.0_rb ) )
-call md_add_bond( mdp, 2, 3, harmonic( 1.0_rb, 1.0_rb ) )
-call md_add_bond( mdp, 4, 5, harmonic( 1.0_rb, 1.0_rb ) )
+bond = bond_harmonic( 1.0_rb, 1.0_rb )
+call md_add_bond( mdp, 1, 2, c_loc(bond) )
+call md_add_bond( mdp, 2, 3, c_loc(bond) )
+call md_add_bond( mdp, 4, 5, c_loc(bond) )
 
 !call c_f_pointer( md%excluded%first, first, [md%natoms])
 !call c_f_pointer( md%excluded%last, last, [md%natoms])

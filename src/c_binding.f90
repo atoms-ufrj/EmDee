@@ -1,6 +1,30 @@
-module c_binding_extra
+!   This file is part of EmDee.
+!
+!    EmDee is free software: you can redistribute it and/or modify
+!    it under the terms of the GNU General Public License as published by
+!    the Free Software Foundation, either version 3 of the License, or
+!    (at your option) any later version.
+!
+!    EmDee is distributed in the hope that it will be useful,
+!    but WITHOUT ANY WARRANTY; without even the implied warranty of
+!    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+!    GNU General Public License for more details.
+!
+!    You should have received a copy of the GNU General Public License
+!    along with EmDee. If not, see <http://www.gnu.org/licenses/>.
+!
+!    Author: Charlles R. A. Abreu (abreu@eq.ufrj.br)
+!            Applied Thermodynamics and Molecular Simulation
+!            Federal University of Rio de Janeiro, Brazil
+
+module c_binding
 
 use, intrinsic :: iso_c_binding
+
+implicit none
+
+integer, parameter :: ib = c_int
+integer, parameter :: rb = c_double
 
 contains
 
@@ -70,4 +94,4 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-end module c_binding_extra
+end module c_binding
