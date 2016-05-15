@@ -29,7 +29,8 @@ implicit none
 real(rb), parameter, private :: zero  = 0.0_rb,                 &
                                 one   = 1.0_rb,                 &
                                 third = 0.33333333333333333_rb, &
-                                pi    = 3.14159265358979324_rb
+                                pi    = 3.14159265358979324_rb, &
+                                piBy2 = 0.5_rb*pi
 
 integer(ib), parameter, private :: extra = 2000
 integer(ib), parameter, private :: ndiv = 2
@@ -83,26 +84,17 @@ type, bind(C) :: tEmDee
   real(rb)    :: pairEnergy  ! Potential energy due to pair interactions
   real(rb)    :: pairVirial  ! Internal virial due to pair interactions
 
-  integer(ib) :: nbonds      ! Number of chemical bonds in the system
-  integer(ib) :: maxbonds    ! Maximum number of stored chemical bonds
-  type(c_ptr) :: bond        ! Pointer to the list of chemical bonds
-  real(rb)    :: bondEnergy  ! Potential energy due to bond stretching
-  real(rb)    :: bondVirial  ! Internal virial due to bond stretching
-
-  integer(ib) :: nangles     ! Number of bond angles in the system
-  integer(ib) :: maxangles   ! Maximum number of stored bond angles
-  type(c_ptr) :: angle       ! Pointer to the list of bond angles
-  real(rb)    :: angleEnergy ! Potential energy due to angle bending
-  real(rb)    :: angleVirial ! Internal virial due to angle bending
+  type(tStructData) :: bond
+  type(tStructData) :: angle
+  type(tStructData) :: dihedral
 
   real(rb)    :: Energy      ! Total potential energy of the system
   real(rb)    :: Virial      ! Total internal virial of the system
 
 end type tEmDee
 
-private :: reallocate_list, add_bonded_struc, make_cells, distribute_atoms, &
-           compute_bonds, compute_angles, find_pairs_and_compute, compute_pairs
-           
+private :: reallocate_list, make_cells, distribute_atoms, find_pairs_and_compute, &
+           compute_pairs, compute_bonds, compute_angles, compute_dihedrals
 
 contains
 
@@ -136,20 +128,20 @@ contains
     me%mcells = 0
     me%ncells = 0
     me%maxcells = 0
-    me%nbonds = 0
-    me%maxbonds = 0
-    me%bondEnergy = zero
-    me%bondVirial = zero
-    me%nangles = 0
-    me%maxangles = 0
-    me%angleEnergy = zero
-    me%angleVirial = zero
+    me%bond%number = 0
+    me%bond%max = 0
+    me%bond%energy = zero
+    me%bond%virial = zero
+    me%angle%number = 0
+    me%angle%max = 0
+    me%angle%energy = zero
+    me%angle%virial = zero
     me%builds = 0
     me%time = zero
     me%R0 = malloc_real( me%nx3, value = zero )
     me%cell = malloc_int( 0 )
-    me%bond = malloc_int( 0 )
-    me%angle = malloc_int( 0 )
+    me%bond%list = malloc_int( 0 )
+    me%angle%list = malloc_int( 0 )
 
     call allocate_list( me%neighbor, extra, atoms )
     call allocate_list( me%excluded, extra, atoms )
@@ -202,7 +194,7 @@ contains
     type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
-    call add_bonded_struc( me%bond, me%nbonds, me%maxbonds, i, j, 0, 0, model )
+    call add_bonded_struc( me%bond, i, j, 0, 0, model )
     call md_exclude_pair( md, i, j )
 
     nullify( me )
@@ -218,12 +210,34 @@ contains
     type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
-    call add_bonded_struc( me%angle, me%nangles, me%maxangles, i, j, k, 0, model )
+    call add_bonded_struc( me%angle, i, j, k, 0, model )
     call md_exclude_pair( md, i, j )
+    call md_exclude_pair( md, i, k )
     call md_exclude_pair( md, j, k )
 
     nullify( me )
   end subroutine md_add_angle
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine md_add_dihedral( md, i, j, k, l, model ) bind(C)
+    type(c_ptr), value :: md
+    integer(ib), value :: i, j, k, l
+    type(c_ptr), value :: model
+
+    type(tEmDee), pointer :: me
+
+    call c_f_pointer( md, me )
+    call add_bonded_struc( me%dihedral, i, j, k, l, model )
+    call md_exclude_pair( md, i, j )
+    call md_exclude_pair( md, i, k )
+    call md_exclude_pair( md, i, l )
+    call md_exclude_pair( md, j, k )
+    call md_exclude_pair( md, j, l )
+    call md_exclude_pair( md, k, l )
+
+    nullify( me )
+  end subroutine md_add_dihedral
 
 !---------------------------------------------------------------------------------------------------
 
@@ -302,11 +316,12 @@ contains
       call compute_pairs( me, L )
     end if
 
-    if (me%nbonds  /= 0) call compute_bonds( me, L )
-    if (me%nangles /= 0) call compute_angles( me, L )
+    if (me%bond%number /= 0) call compute_bonds( me, L )
+    if (me%angle%number /= 0) call compute_angles( me, L )
+    if (me%dihedral%number /= 0) call compute_dihedrals( me, L )
 
-    me%Energy = me%pairEnergy + me%bondEnergy + me%angleEnergy
-    me%Virial = me%pairVirial + me%bondVirial + me%angleVirial
+    me%Energy = me%pairEnergy + me%bond%energy + me%angle%energy
+    me%Virial = me%pairVirial + me%bond%virial + me%angle%virial
 
     call cpu_time( time )
     me%time = me%time + time
@@ -428,14 +443,14 @@ contains
     real(rb),      pointer :: R(:,:), F(:,:)
     type(tStruct), pointer :: bond(:)
 
-    call c_f_pointer( me%bond, bond, [me%nbonds] )
+    call c_f_pointer( me%bond%list, bond, [me%bond%number] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
     call c_f_pointer( me%F, F, [3,me%natoms] )
 
     invL = one/L
     Energy = zero
     Virial = zero
-    do m = 1, me%nbonds
+    do m = 1, me%bond%number
       i = bond(m)%i
       j = bond(m)%j
       Rij = R(:,i) - R(:,j)
@@ -449,8 +464,8 @@ contains
       F(:,i) = F(:,i) + Fij
       F(:,j) = F(:,j) - Fij
     end do
-    me%bondEnergy = Energy
-    me%bondVirial = third*Virial
+    me%bond%energy = Energy
+    me%bond%virial = third*Virial
 
     nullify( bond, R, F )
     contains
@@ -466,53 +481,108 @@ contains
     real(rb),     intent(in)    :: L
 
     integer(ib) :: i, j, k, m
-    real(rb)    :: invL, Energy, Virial, RijSq, RkjSq, dot, cross, theta, invDot, E, dEdtheta, Fa
-    real(rb)    :: Rj(3), Rij(3), Rkj(3), Fi(3), Fk(3)
+    real(rb)    :: invL, Energy, Virial, aa, bb, ab, axb, theta, Ea, Fa
+    real(rb)    :: Rj(3), Fi(3), Fk(3), a(3), b(3)
 
     type(tModel),  pointer :: model
     real(rb),      pointer :: R(:,:), F(:,:)
     type(tStruct), pointer :: angle(:)
 
-    call c_f_pointer( me%angle, angle, [me%nangles] )
+    call c_f_pointer( me%angle%list, angle, [me%angle%number] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
     call c_f_pointer( me%F, F, [3,me%natoms] )
 
     invL = one/L
     Energy = zero
     Virial = zero
-    do m = 1, me%nangles
+    do m = 1, me%angle%number
       i = angle(m)%i
       j = angle(m)%j
       k = angle(m)%k
-      Rj = R(:,j)
-      Rij = R(:,i) - Rj
-      Rkj = R(:,k) - Rj
-      Rij = Rij - L*nint(invL*Rij)
-      Rkj = Rkj - L*nint(invL*Rkj)
-      RijSq = sum(Rij*Rij)
-      RkjSq = sum(Rkj*Rkj)
-      dot = sum(Rij*Rkj)
-      cross = sqrt(RijSq*RkjSq - dot*dot)
-      theta = pi + atan2(cross,dot)
       model => angle(m)%model
+      Rj = R(:,j)
+      a = R(:,i) - Rj
+      b = R(:,k) - Rj
+      a = a - L*nint(invL*a)
+      b = b - L*nint(invL*b)
+      aa = sum(a*a)
+      bb = sum(b*b)
+      ab = sum(a*b)
+      axb = sqrt(aa*bb - ab*ab)
+      theta = atan2(axb,ab)
       call compute_angle()
-      Fa = dEdtheta*dot/cross
-      Fi = Fa*(Rkj*invDot - Rij/RijSq)
-      Fk = Fa*(Rij*invDot - Rkj/RkjSq)
+      Fa = Fa/axb
+      Fi = Fa*(b - (ab/aa)*a)
+      Fk = Fa*(a - (ab/bb)*b)
       F(:,i) = F(:,i) + Fi
       F(:,k) = F(:,k) + Fk
       F(:,j) = F(:,j) - (Fi + Fk)
-      Energy = Energy + E
-      Virial = Virial + sum(Fi*Rij + Fk*Rkj)
+      Energy = Energy + Ea
+      Virial = Virial + sum(Fi*a + Fk*b)
     end do
-    me%angleEnergy = Energy
-    me%angleVirial = third*Virial
+    me%angle%energy = Energy
+    me%angle%virial = third*Virial
     nullify( R, F, angle )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_angle.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_angles
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine compute_dihedrals( me, L )
+    type(tEmDee), intent(inout) :: me
+    real(rb),     intent(in)    :: L
+
+    integer(ib) :: i, j, k, m
+    real(rb)    :: invL, Energy, Virial, aa, bb, ab, axb, phi, Ed, Fd
+    real(rb)    :: Rj(3), Fi(3), Fk(3), a(3), b(3)
+
+    type(tModel),  pointer :: model
+    real(rb),      pointer :: R(:,:), F(:,:)
+    type(tStruct), pointer :: angle(:)
+
+    call c_f_pointer( me%angle%list, angle, [me%angle%number] )
+    call c_f_pointer( me%R, R, [3,me%natoms] )
+    call c_f_pointer( me%F, F, [3,me%natoms] )
+
+    invL = one/L
+    Energy = zero
+    Virial = zero
+    do m = 1, me%angle%number
+      i = angle(m)%i
+      j = angle(m)%j
+      k = angle(m)%k
+      model => angle(m)%model
+      Rj = R(:,j)
+      a = R(:,i) - Rj
+      b = R(:,k) - Rj
+      a = a - L*nint(invL*a)
+      b = b - L*nint(invL*b)
+      aa = sum(a*a)
+      bb = sum(b*b)
+      ab = sum(a*b)
+      axb = sqrt(aa*bb - ab*ab)
+      phi = atan2(axb,ab)
+      call compute_dihedral()
+      Fd = Fd/axb
+      Fi = Fd*(b - (ab/aa)*a)
+      Fk = Fd*(a - (ab/bb)*b)
+      F(:,i) = F(:,i) + Fi
+      F(:,k) = F(:,k) + Fk
+      F(:,j) = F(:,j) - (Fi + Fk)
+      Energy = Energy + Ed
+      Virial = Virial + sum(Fi*a + Fk*b)
+    end do
+    me%angle%energy = Energy
+    me%angle%virial = third*Virial
+    nullify( R, F, angle )
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      include "compute_dihedral.f90"
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_dihedrals
 
 !---------------------------------------------------------------------------------------------------
 

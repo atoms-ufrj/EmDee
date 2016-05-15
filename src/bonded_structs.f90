@@ -31,30 +31,37 @@ type tStruct
   type(tModel), pointer :: model => null()
 end type tStruct
 
+type, bind(C) :: tStructData
+  integer     :: number
+  integer     :: max
+  type(c_ptr) :: list
+  real(rb)    :: energy
+  real(rb)    :: virial
+end type tStructData
+
 contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine add_bonded_struc( ptr, size, sizemax, i, j, k, l, model )
-    type(c_ptr), intent(inout) :: ptr
-    integer(ib), intent(inout) :: size, sizemax
-    integer(ib), intent(in)    :: i, j, k, l
-    type(c_ptr), intent(in)    :: model
+  subroutine add_bonded_struc( struct, i, j, k, l, model )
+    type(tStructData), intent(inout) :: struct
+    integer(ib),       intent(in)    :: i, j, k, l
+    type(c_ptr),       intent(in)    :: model
 
     type(tStruct), pointer :: old(:), new(:)
 
-    if (size + 1 > sizemax) then
-      call c_f_pointer( ptr, old, [sizemax] )
-      allocate( new(sizemax+extra) )
-      new(1:size) = old(1:size)
+    if (struct%number + 1 > struct%max) then
+      call c_f_pointer( struct%list, old, [struct%max] )
+      allocate( new(struct%max+extra) )
+      new(1:struct%number) = old(1:struct%number)
       deallocate( old )
-      ptr = c_loc(new(1))
+      struct%list = c_loc(new(1))
     else
-      call c_f_pointer( ptr, new, [size+1] )
+      call c_f_pointer( struct%list, new, [struct%number+1] )
     end if
-    size = size + 1
-    new(size) = tStruct( i, j, k, l )
-    call c_f_pointer( model, new(size)%model )
+    struct%number = struct%number + 1
+    new(struct%number) = tStruct( i, j, k, l )
+    call c_f_pointer( model, new(struct%number)%model )
 
     nullify( new )
   end subroutine add_bonded_struc

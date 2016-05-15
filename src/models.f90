@@ -26,6 +26,7 @@ implicit none
 type, bind(C) :: tModel
   integer(ib) :: id
   real(rb)    :: p1, p2, p3, p4
+  real(rb)    :: f14 = 0.0_rb
 end type tModel
 
 type tModelPtr
@@ -99,6 +100,15 @@ contains
     real(rb), value :: k, theta0
     angle_harmonic = tModel( mHARMOMIC, theta0, -k, 0.5_rb*k, 0.0_rb )
   end function angle_harmonic
+
+!===================================================================================================
+!                                 D I H E D R A L     M O D E L S
+!===================================================================================================
+
+  type(tModel) function dihedral_harmonic( k, phi0 ) bind(C)
+    real(rb), value :: k, phi0
+    dihedral_harmonic = tModel( mHARMOMIC, phi0, -k, 0.5_rb*k, 0.0_rb )
+  end function dihedral_harmonic
 
 !---------------------------------------------------------------------------------------------------
 

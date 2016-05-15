@@ -1,0 +1,351 @@
+\documentclass[11pt]{article}
+%\documentclass[aip,jcp,preprint,amsmath,amssymb]{revtex4-1}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\newcommand{\mt}[1]{\boldsymbol{\mathbf{#1}}}           % matrix symbol
+\newcommand{\vt}[1]{\boldsymbol{\mathbf{#1}}}           % vector symbol
+\newcommand{\tr}[1]{#1^\text{t}}                        % transposition
+\newcommand{\diff}[2]{\frac{\partial #1}{\partial #2}}  % partial derivative
+
+\begin{document}
+
+\title{EmDee: A Molecular Dynamics Laboratory}
+
+\author{Charlles R. A. Abreu}
+%\email{abreu@eq.ufrj.br}
+%\affiliation{Chemical Engineering Department, Escola de Quimica, Universidade Federal do Rio de Janeiro, Rio de Janeiro, RJ 21941-909, Brazil}
+
+\date{\today}
+
+\maketitle
+
+\section{Projections and Vector Differentiation}
+
+Consider a column vector $\vt x \in \mathcal{R}^n$, whose norm is $x = \sqrt{\tr{\vt x}{\vt x}}$. A unit vector in the direction of $\vt x$ is given by $\vt{\hat x} = {\vt x}/x$. When premultiplied by an arbitrary vector in $\mathcal{R}^n$, the matrix obtained by the product $\vt{\hat x}\tr{\vt{\hat x}}$ provides the component of such vector in the direction of $\vt x$, while $\mt I - \vt{\hat x}\tr{\vt{\hat x}}$ provides its projection onto the plane orthogonal to $\vt x$. Such as any projection matrix, both $\vt{\hat x}\tr{\vt{\hat x}}$ and $\mt I - \vt{\hat x}\tr{\vt{\hat x}}$ are idempotent.
+
+Here we deal with column vectors and employ the so-called Jacobian formulation (also known as numerator layout) for derivatives. In this case, differentiation of a vector-valued function $\vt y \in \mathcal{R}^m$ with respect to a vector variable $\vt x \in \mathcal{R}^n$ results in a matrix $\mt J \in \mathcal{R}^{m \times n}$ so that $J_{ij} = \partial y_i / \partial x_j$. With this formulation, the total differential of a generic function $\vt z = {\vt z}(\vt x,\vt y)$ is given by 
+\[
+d{\vt z} = \diff{\vt z}{\vt x} d{\vt x} + \diff{\vt z}{\vt y} d{\vt y},
+\]
+which is valid even if $\vt x$, $\vt y$ or $\vt z$ is a scalar. From this expression, many useful differentiation rules involving vectors can be derived. For instance,
+\begin{equation}
+\label{eq:prod_rule_1}
+d(\tr{\vt x}{\vt y}) = \tr{\vt x}d{\vt y} + \tr{\vt y}d{\vt x}
+\end{equation}
+and
+\begin{equation}
+\label{eq:prod_rule_2}
+d({\vt x}y) = {\vt x}dy + y d{\vt x}.
+\end{equation}
+
+A special case of Eq.~\ref{eq:prod_rule_1} is $d(\tr{\vt x}{\vt x}) = 2\tr{\vt x}d{\vt x}$, which can be used to obtain the differential $dx = d(\sqrt{\tr{\vt x}{\vt x}}) = \frac{1}{2}(\tr{\vt x}\vt x)^{-1/2}d(\tr{\vt x}\vt x)$, whose final form is
+\begin{equation}
+\label{eq:norm_rule}
+dx = \frac{\tr{\vt x}d{\vt x}}{x}.
+\end{equation}
+
+Similarly, we have $d({\vt x}x^{-1}) = -{\vt x}x^{-2}dx + x^{-1}d\vt x$ as a special case of Eq.~\ref{eq:prod_rule_2}. This can be rewritten as
+\begin{equation}
+\label{eq:unit_vector_rule}
+d\hat{\vt x} = \frac{\mt I - \hat{\vt x}\tr{\hat{\vt x}}}{x} d\vt x,
+\end{equation}
+which shows us that a differential change in a vector $\vt x$ causes an orthogonal differential change in the unit vector it generates. Next, we consider the differential form of a projection like $\hat{\vt x} \tr{\hat{\vt x}} \vt y$. By applying Eq.~\ref{eq:prod_rule_2}, followed by Eq.~\ref{eq:prod_rule_1}, it turns out that
+\begin{equation}
+\label{eq:projection_rule}
+d(\hat{\vt x} \tr{\hat{\vt x}} \vt y) = \hat{\vt x}\tr{\hat{\vt x}} d\vt y + (\hat{\vt x}\tr{\vt y} + \tr{\hat{\vt x}} \vt y \mt I) d\hat{\vt x}.
+\end{equation}
+
+Finally, consider a pair of matrix-valued functions with vector arguments, $A$ and $B$, defined so that $A(\vt x)\vt y = \vt z = B(\vt y)\vt x$. In this case, it follows from Eq.~\ref{eq:prod_rule_1} that
+\begin{equation}
+\label{eq:interchange_rule}
+d\vt z = A(\vt x)d\vt y + B(\vt y)d\vt x.
+\end{equation}
+
+\section{Torsional Forces}
+
+In order to calculate the torsional forces, we begin by defining an orthonormal, right-handed basis composed by the vectors
+\begin{subequations}
+\begin{align}
+\hat{\vt z} &= \dfrac{{\vt r}_{kj}}{r_{kj}}, \\
+\hat{\vt x} &= \dfrac{\vt x}{x}, \, \text{where} \, \vt x = (\mt I - \hat{\vt z}\tr{\hat{\vt z}}){\vt r}_{ij}, \, \text{and} \label{eq:x_definition} \\
+\hat{\vt y} &= \hat{\vt z} \times \hat{\vt x}.
+\end{align}
+\end{subequations}
+
+This serves as an internal coordinate system for the dihedral. Since it is an orthonormal basis for $\mathcal{R}^3$, it follows that $\tr{\hat{\vt x}}\hat{\vt y} = \tr{\hat{\vt x}}\hat{\vt z} = \tr{\hat{\vt y}}\hat{\vt z} = 0$ and that $\hat{\vt x}\tr{\hat{\vt x}} + \hat{\vt y}\tr{\hat{\vt y}} + \hat{\vt z}\tr{\hat{\vt z}} = {\mt I}$. The dihedral angle can be calculated using the arctangent function with two arguments,
+\begin{subequations}
+\begin{equation}
+\phi = \arctan(b,a),
+\end{equation}
+where
+\begin{align}
+a &= \tr{\hat{\vt x}}{\vt r}_{lk} \quad \text{and}\\
+b &= \tr{\hat{\vt y}}{\vt r}_{lk}.
+\end{align}
+\end{subequations}
+
+The differential of $\phi$ is given by
+\[
+d\phi = \frac{a db - b da}{a^2 + b^2} = \frac{\tr{(a\hat{\vt y}-b\hat{\vt x})}d{\vt r}_{lk} + \tr{{\vt r}_{lk}}(a d\hat{\vt y} - b d\hat{\vt x})}{a^2 + b^2}.
+\]
+
+Note that $\hat{\vt y}$ is obtained from $\hat{\vt z}$ and $\hat{\vt x}$ by a cross product, which can be expressed in matrix form as $\hat{\vt y} = S(\hat{\vt z})\hat{\vt x}$, where $S(\hat{\vt z})$ is an antisymmetric matrix. Since $\hat{\vt z} \times \hat{\vt x} = - \hat{\vt x} \times \hat{\vt z}$, then $S(\hat{\vt z})\hat{\vt x} = - S(\hat{\vt x})\hat{\vt z}$ and, from Eq.~\ref{eq:interchange_rule}, it follows that $d\hat{\vt y} = S(\hat{\vt z})d\hat{\vt x} - S(\hat{\vt x})d\hat{\vt z}$. Therefore,
+\[
+\tr{{\vt r}_{lk}}d\hat{\vt y} = \tr{{\vt r}_{lk}}S(\hat{\vt z})d\hat{\vt x} - \tr{{\vt r}_{lk}}S(\hat{\vt x})d\hat{\vt z} = \tr{({\vt r}_{lk} \times \hat{\vt z})}d\hat{\vt x} - \tr{({\vt r}_{lk} \times \hat{\vt x})}d\hat{\vt z}.
+\]
+
+Substituting this result into $d\phi$ then yields
+\[
+(a^2 + b^2)d\phi = \tr{\left(a\hat{\vt y} - b\hat{\vt x}\right)}d{\vt r}_{lk}
++ \tr{\left(a{\vt r}_{lk} \times \hat{\vt z} - b{\vt r}_{lk}\right)}d\hat{\vt x}
+- \tr{\left(a{\vt r}_{lk} \times \hat{\vt x}\right)}d\hat{\vt z}.
+\]
+
+From Eqs.~\ref{eq:unit_vector_rule}, \ref{eq:projection_rule}, and \ref{eq:x_definition}, it follows that
+\[
+d\hat{\vt x} = \frac{\mt I - \hat{\vt x}\tr{\hat{\vt x}}}{x} \left[ (\mt I - \hat{\vt z}\tr{\hat{\vt z}})d{\vt r}_{ij} - (\hat{\vt z}\tr{{\vt r}_{ij}} + \tr{\hat{\vt z}} {\vt r}_{ij} \mt I) d\hat{\vt z} \right]
+\]
+
+Using the identities $(\mt I - \hat{\vt x}\tr{\hat{\vt x}})(\mt I - \hat{\vt z}\tr{\hat{\vt z}}) = \hat{\vt y}\tr{\hat{\vt y}}$ and $(\mt I - \hat{\vt x}\tr{\hat{\vt x}})\hat{\vt z} = \hat{\vt z}$, and the fact that $\tr{\hat{\vt z}} {\vt r}_{ij}$ is a scalar, we have
+\[
+d\hat{\vt x} = \frac{\hat{\vt y}\tr{\hat{\vt y}}}{x}d{\vt r}_{ij} - \frac{\hat{\vt z}\tr{{\vt r}_{ij}} + \tr{\hat{\vt z}} {\vt r}_{ij} (\mt I - \hat{\vt x}\tr{\hat{\vt x}}) }{x}d\hat{\vt z}
+\]
+
+Now, for simplification, we define
+\begin{subequations}
+\begin{align}
+&\vt u = \frac{a ({\vt r}_{lk} \times \hat{\vt z}) - b {\vt r}_{lk}}{x}, \\
+&\vt v = \frac{a ({\vt r}_{lk} \times \hat{\vt x}) + (\tr{\hat{\vt z}}\vt u) {\vt r}_{ij}}{r_{kj}}, \; \text{and} \\
+&\vt w = {\vt v} + \frac{\tr{\hat{\vt z}}{\vt r}_{ij}}{r_{kj}} {\vt u}
+\end{align}
+\end{subequations}
+
+Next, substituting $\vt u$ and $\vt v$ and observing that $d\hat{\vt z} = (\mt I - \hat{\vt z}\tr{\hat{\vt z}}) d{\vt r}_{kj}/r_{kj}$, we obtain
+\[
+(a^2 + b^2)d\phi = \tr{\left(a\hat{\vt y} - b\hat{\vt x}\right)}d{\vt r}_{lk}
++ \tr{\vt u}\hat{\vt y}\tr{\hat{\vt y}}d{\vt r}_{ij} - \frac{ r_{kj} \tr{\vt v} + \tr{\hat{\vt z}} {\vt r}_{ij} \tr{\vt u}(\mt I - \hat{\vt x}\tr{\hat{\vt x}}) }{r_{kj}} (\mt I - \hat{\vt z}\tr{\hat{\vt z}}) d{\vt r}_{kj}.
+\]
+
+To conclude, the identities $(\mt I - \hat{\vt x}\tr{\hat{\vt x}})(\mt I - \hat{\vt z}\tr{\hat{\vt z}}) = \hat{\vt y}\tr{\hat{\vt y}}$ and $\mt I - \hat{\vt z}\tr{\hat{\vt z}} = \hat{\vt x}\tr{\hat{\vt x}} + \hat{\vt y}\tr{\hat{\vt y}}$, together with the definition of $\vt w$, yield
+\[
+(a^2 + b^2)d\phi = \tr{\left(a\hat{\vt y} - b\hat{\vt x}\right)}d{\vt r}_{lk}
++ \tr{\vt u}\hat{\vt y}\tr{\hat{\vt y}}d{\vt r}_{ij} - (\tr{\vt v}\hat{\vt x}\tr{\hat{\vt x}} + \tr{\vt w}\hat{\vt y}\tr{\hat{\vt y}}) d{\vt r}_{kj}.
+\]
+
+For a given torsional potential $U(\phi)$, the force exerted on an atom $m$ is obtained by
+\[
+\vt{F}_m = -\diff{U}{\phi} \tr{ \left( \diff{\phi}{\vt{r}_m} \right) }
+\]
+
+Therefore,
+\begin{subequations}
+\begin{align}
+&\vt{F}_i = -\diff{U}{\phi} \frac{(\tr{\vt u}\hat{\vt y})\hat{\vt y}}{a^2 + b^2} \\
+&\vt{F}_j = -\diff{U}{\phi} \frac{ (\tr{\vt v}\hat{\vt x})\hat{\vt x} + (\tr{\vt w}\hat{\vt y} - \tr{\vt u}\hat{\vt y}) \hat{\vt y}}{a^2 + b^2} \\
+&\vt{F}_k = -\diff{U}{\phi} \frac{ (b - \tr{\vt v}\hat{\vt x})\hat{\vt x} - (a + \tr{\vt w}\hat{\vt y}) \hat{\vt y}}{a^2 + b^2} \\
+&\vt{F}_l = -\diff{U}{\phi} \frac{a\hat{\vt y} - b\hat{\vt x}}{a^2 + b^2}
+\end{align}
+\end{subequations}
+
+\section{New Draft}
+
+Thus,
+\[
+d\phi = \tr{\left(\frac{a\hat{\vt y} - b\hat{\vt x}}{a^2 + b^2}\right)}d{\vt r}_{lk}
++ \tr{\vt w} \hat{\vt y}\tr{\hat{\vt y}}d{\vt r}_{ij} - \frac{\tr{\vt w}\hat{\vt z}\tr{{\vt r}_{ij}} + \tr{\vt w}(\mt I - \hat{\vt x}\tr{\hat{\vt x}})\tr{\hat{\vt z}} {\vt r}_{ij}}{}d\hat{\vt z}
+- \tr{\left(\frac{a{\vt r}_{lk} \times \hat{\vt x}}{a^2 + b^2}\right)}d\hat{\vt z}.
+\]
+
+
+Substituting this result into $d\phi$ then yields
+\[
+d\phi = \frac{\tr{(a\hat{\vt y}-b\hat{\vt x})}d{\vt r}_{lk} + \tr{(a{\vt r}_{lk} \times \hat{\vt z} - b{\vt r}_{lk})}d\hat{\vt x} - \tr{(a{\vt r}_{lk} \times \hat{\vt x})}d\hat{\vt z}}{a^2 + b^2}.
+\]
+
+
+\[
+d\hat{\vt z} = \frac{\mt I - \hat{\vt z}\tr{\hat{\vt z}}}{r_{kj}} d{\vt r}_{kj}
+\]
+
+\[
+d\vt x = (\mt I - \hat{\vt z}\tr{\hat{\vt z}})d{\vt r}_{ij} - (\hat{\vt z}\tr{{\vt r}_{ij}} + \tr{\hat{\vt z}} {\vt r}_{ij} \mt I) d\hat{\vt z}
+\]
+
+
+\[
+d\vt x = (\mt I - \hat{\vt z}\tr{\hat{\vt z}})d{\vt r}_{ij} - (\hat{\vt z}\tr{{\vt r}_{ij}} + \tr{\hat{\vt z}} {\vt r}_{ij} \mt I) d\hat{\vt z}
+\]
+
+
+
+
+\[
+d\hat{\vt x} = \frac{\mt I - \hat{\vt x}\tr{\hat{\vt x}}}{x} d\vt x
+\]
+
+
+\[
+d\hat{\vt x} = \frac{\mt I - \hat{\vt x}\tr{\hat{\vt x}}}{x} \left[ (\mt I - \hat{\vt z}\tr{\hat{\vt z}})d{\vt r}_{ij} - (\hat{\vt z}\tr{{\vt r}_{ij}} + \tr{\hat{\vt z}} {\vt r}_{ij} \mt I) d\hat{\vt z} \right]
+\]
+
+
+
+
+
+Because $(\mt I - \hat{\vt x}\tr{\hat{\vt x}})(\mt I - \hat{\vt z}\tr{\hat{\vt z}}) = \hat{\vt y}\tr{\hat{\vt y}}$:
+\[
+d\hat{\vt x} =  \left[ \frac{\hat{\vt y}\tr{\hat{\vt y}}}{x}d{\vt r}_{ij} - \left( \frac{\hat{\vt z}\tr{{\vt r}_{ij}}}{x}d\hat{\vt z} + \frac{\mt I - \hat{\vt x}\tr{\hat{\vt x}}}{x}\tr{\hat{\vt z}} {\vt r}_{ij} d\hat{\vt z} \right) \right]
+\]
+
+\[
+d\hat{\vt x} = \frac{\hat{\vt y}\tr{\hat{\vt y}}d{\vt r}_{ij} - \hat{\vt z}\tr{{\vt r}_{ij}}d\hat{\vt z} - (\mt I - \hat{\vt x}\tr{\hat{\vt x}})\tr{\hat{\vt z}} {\vt r}_{ij} d\hat{\vt z}    }{x}
+\]
+
+Substituting into $d\phi$:
+\[
+d\phi = \frac{\tr{(a\hat{\vt y}-b\hat{\vt x})}d{\vt r}_{lk}}{a^2 + b^2} + \frac{\tr{(a{\vt r}_{lk} \times \hat{\vt z} - b{\vt r}_{lk})}d\hat{\vt x}}{a^2 + b^2} - \frac{\tr{(a{\vt r}_{lk} \times \hat{\vt x})}d\hat{\vt z}}{a^2 + b^2}.
+\]
+
+
+
+\[
+d\hat{\vt x} = \frac{\mt I - \hat{\vt x}\tr{\hat{\vt x}}}{x} \left[ (\mt I - \hat{\vt z}\tr{\hat{\vt z}})d{\vt r}_{ij} - (\hat{\vt z}\tr{{\vt r}_{ij}} + \tr{\hat{\vt z}} {\vt r}_{ij} \mt I) d\hat{\vt z} \right]
+\]
+
+\[
+d\hat{\vt x} = \frac{\hat{\vt y}\tr{\hat{\vt y}}}{x}d{\vt r}_{ij} - \frac{ \hat{\vt z}\tr{{\vt r}_{ij}}d\hat{\vt z} + (\mt I - \hat{\vt x}\tr{\hat{\vt x}})\tr{\hat{\vt z}} {\vt r}_{ij} d\hat{\vt z}    }{x}
+\]
+
+\[
+d\hat{\vt z} = \frac{\mt I - \hat{\vt z}\tr{\hat{\vt z}}}{r_{kj}} d{\vt r}_{kj}
+\]
+
+
+
+\section{Draft 1}
+
+$db = \tr{{\vt r}_{lk}}S(\hat{\vt z})d\hat{\vt x} - \tr{{\vt r}_{lk}}S(\hat{\vt x})d\hat{\vt z} - \tr{\hat{\vt x}}S(\hat{\vt z})d{\vt r}_{lk}$. Substituting these differentials, we have
+\[
+d\phi = \frac{\tr{{\vt r}_{lk}}[a S(\hat{\vt z}) - b\mt I]d\hat{\vt x}   a db - b da}{a^2 + b^2},
+\]
+
+
+
+
+Substituting $da = \tr{\hat{\vt x}}d{\vt r}_{lk} + \tr{{\vt r}_{lk}}d\hat{\vt x}$ and $db = \tr{\hat{\vt y}}d{\vt r}_{lk} + \tr{{\vt r}_{lk}}d\hat{\vt y}$, we have
+\[
+d\phi = \frac{\tr{(a\hat{\vt y}-b\hat{\vt x})}d{\vt r}_{lk} + a\tr{{\vt r}_{lk}}d\hat{\vt y} - b\tr{{\vt r}_{lk}}d\hat{\vt x}}{a^2 + b^2}
+\]
+
+As $\hat{\vt y} = S(\hat{\vt z})\hat{\vt x}$, then $d\hat{\vt y} = S(\hat{\vt z})d\hat{\vt x} - S(\hat{\vt x})d\hat{\vt z}$ and, therefore,
+\[
+d\phi = \frac{\tr{(a\hat{\vt y}-b\hat{\vt x})}d{\vt r}_{lk} + a\tr{{\vt r}_{lk}}d\hat{\vt y} - b\tr{{\vt r}_{lk}}d\hat{\vt x}}{a^2 + b^2}
+\]
+
+\[
+d\phi = \frac{ \tr{{\vt r}_{lk}}(\hat{\vt x}\tr{\hat{\vt y}} - \hat{\vt y}\tr{\hat{\vt x}})d{\vt r}_{lk} +   \tr{\hat{\vt x}}{\vt r}_{lk}\tr{{\vt r}_{lk}}d\hat{\vt y} - \tr{\hat{\vt y}}{\vt r}_{lk}\tr{{\vt r}_{lk}}d\hat{\vt x}     }{(\tr{\hat{\vt x}}{\vt r}_{lk})^2 + (\tr{\hat{\vt y}}{\vt r}_{lk})^2}
+\]
+
+\[
+d\phi = \frac{ \tr{{\vt r}_{lk}}[(\hat{\vt x}\tr{\hat{\vt y}} - \hat{\vt y}\tr{\hat{\vt x}})d{\vt r}_{lk} + \hat{\vt x}\tr{{\vt r}_{lk}}d\hat{\vt y} - \hat{\vt y}\tr{{\vt r}_{lk}}d\hat{\vt x}  ]       }{(\tr{\hat{\vt x}}{\vt r}_{lk})^2 + (\tr{\hat{\vt y}}{\vt r}_{lk})^2}
+\]
+
+As $\hat{\vt y} = S(\hat{\vt z})\hat{\vt x}$, then $d\hat{\vt y} = S(\hat{\vt z})d\hat{\vt x} - S(\hat{\vt x})d\hat{\vt z}$ and, therefore,
+\[
+d\phi = \frac{ \tr{{\vt r}_{lk}}\left\{(\hat{\vt x}\tr{\hat{\vt y}} - \hat{\vt y}\tr{\hat{\vt x}})d{\vt r}_{lk} + [\hat{\vt x}\tr{{\vt r}_{lk}} S(\hat{\vt z}) - \hat{\vt y}\tr{{\vt r}_{lk}}]d\hat{\vt x} - \hat{\vt x}\tr{{\vt r}_{lk}} S(\hat{\vt x})d\hat{\vt z} \right\}}{(\tr{\hat{\vt x}}{\vt r}_{lk})^2 + (\tr{\hat{\vt y}}{\vt r}_{lk})^2}
+\]
+
+
+\section{Draft}
+
+Dihedral angle $\phi({\vt r}_{ij},{\vt r}_{jk},{\vt r}_{lk})$:
+\begin{equation}
+d\phi = \diff{\phi}{{\vt r}_{ij}}d{\vt r}_{ij} + \diff{\phi}{{\vt r}_{jk}}d{\vt r}_{jk} + \diff{\phi}{{\vt r}_{lk}}d{\vt r}_{lk}.
+\end{equation}
+
+Let $\vt a = P({\vt r}_{jk}){\vt r}_{lk}$ be the projection of ${\vt r}_{lk}$ onto the plane orthogonal to ${\vt r}_{lk}$. With this definition, the dihedral angle can be calculated as
+\[
+\phi = \tan^{-1}(y,x),
+\]
+where $x = \tr{\vt r}_{ij} \hat{\vt a}$ and $y = \tr{\vt r}_{ij} S(\hat{\vt r}_{jk}) \hat{\vt a}$. Here, $S(\vt x)$ is an antisymmetric matrix defined so that $S(\vt x)\vt y = \vt x \times \vt y$. Applying the differential operator to the equation above yields,
+\[
+d\phi = \frac{1}{x^2 + y^2} (x dy - y dx),
+\]
+where
+\[
+dx = \tr{\vt r}_{ij} d\hat{\vt a} + \tr{\hat{\vt a}} d{\vt r}_{ij} = \frac{\tr{\vt r}_{ij} P(\vt a)d{\vt a} + \tr{\vt a} d{\vt r}_{ij}}{a}
+\]
+
+
+ By applying Eq.~\ref{eq:projection_by_vector}, we obtain
+\[
+d{\vt a} = \diff{\vt a}{{\vt r}_{lk}}d{{\vt r}_{lk}} + \diff{\vt a}{{\vt r}_{jk}}d{{\vt r}_{jk}} = P({\vt r}_{jk})d{{\vt r}_{lk}} - \frac{{\vt r}_{jk} \tr{{\vt r}_{lk}} + \tr{{\vt r}_{jk}} {\vt r}_{lk} \mt I}{r_{jk}^2} P({\vt r}_{jk})d{\vt r}_{jk}
+\]
+
+\[
+\phi = \tan^{-1}(y,x)
+\]
+
+\[
+d\phi = \frac{1}{x^2 + y^2} (x dy - y dx)
+\]
+
+\[
+dx = \diff{x}{{\vt r}_{ij}}d{\vt r}_{ij} + \diff{x}{{\vt r}_{jk}}d{\vt r}_{jk} + \diff{x}{{\vt r}_{lk}}d{\vt r}_{lk}.
+\]
+
+The dihedral angle can be calculated as
+\begin{equation}
+\phi = \tan^{-1}\left[\tr{\vt r}_{ij} S({\vt r}_{jk}) \hat{\vt a},\tr{\vt r}_{ij} \hat{\vt a}\right],
+\end{equation}
+where
+\[
+x = \frac{}{•}
+\]
+
+\begin{equation}
+\phi = \phi({\vt r}_{ij},{\vt r}_{jk},{\vt r}_{lk}) = \tan^{-1}\left[\tr{\vt{\hat r}}_{ij}P(\vt{\hat r}_{jk})\vt{\hat r}_{lk}, \tr{\vt{\hat r}}_{ij}P(\vt{\hat r}_{jk})\vt{\hat r}_{lk}\right]
+\end{equation}
+where,
+\[
+y = \tr{\vt{\hat r}}_{ij} S(\vt{\hat r}_{jk}) P(\vt{\hat r}_{jk}) \vt{\hat r}_{lk}
+\]
+and
+\[
+x = \tr{\vt{\hat r}}_{ij}P(\vt{\hat r}_{jk})\vt{\hat r}_{lk}.
+\]
+
+
+
+\begin{equation}
+{\vt F}_i = -\diff{U}{{\vt r}_i} = -\diff{U}{\phi}\diff{\phi}{{\vt r}_{ij}}
+\end{equation}
+
+\appendix
+
+\section{Proof of presented equations}
+
+Proof of Eq.~\ref{eq:norm_by_vector}:
+\begin{equation}
+\diff{x}{\vt x} = \frac{1}{2 \sqrt{\tr{\vt x}{\vt x}}} (2\tr{\vt x}\mt I) = \frac{\tr{\vt x}}{x}
+\end{equation}
+
+Proof of Eq.~\ref{eq:unit_vector_by_vector}:
+\begin{equation}
+\diff{\vt{\hat x}}{\vt x} = \frac{\mt I}{x} - \frac{\vt x}{x^2}\diff{x}{\vt x} = \frac{1}{x}\left(\mt I - {\vt{\hat x}}\tr{\vt{\hat x}}\right) = \frac{1}{x} P(\vt x),
+\end{equation}
+
+Proof of Eq.~\ref{eq:projection_by_vector}:
+\[
+\begin{split}
+\diff{[P(\vt x)\vt y]}{\vt x} &= \diff{\vt y}{\vt x} - \vt{\hat x}\diff{(\tr{\vt{\hat x}} \vt y)}{\vt x} - (\tr{\vt{\hat x}} \vt y)\diff{\vt{\hat x}}{\vt x} = \\
+&= \diff{\vt y}{\vt x} - \vt{\hat x} \left( \tr{\vt{\hat x}}\diff{\vt y}{\vt x} + \tr{\vt y} \diff{\vt{\hat x}}{\vt x} \right) - (\tr{\vt{\hat x}} \vt y)\frac{P(\vt x)}{x} = \\
+&= P(\vt x) \diff{\vt y}{\vt x} - (\vt{\hat x} \tr{\vt y} + \tr{\vt{\hat x}} \vt y \mt I)\frac{P(\vt x)}{x}
+\end{split}
+\]
+
+We recall that products involving matrices and vectors must be conformable and are, in general, non-commutative. We also observe that, as the dimensions $m$ and $n$ are arbitrary, one can view a scalar and a vector in $\mathcal{R}^1$ as equivalent. Note that the scaling of a vector $\vt x$ by a scalar $y$ is simply given by $\vt x y$. In contrast, the scaling of a matrix $\mt X \in \mathcal{R}^{m \times n}$ by a scalar $y$ must be replaced by $\mt Y D(\vt 1_n y)$ in order to become a conformable product. Here, $\vt 1_n$ is a vectors of 1's in $\mathcal{R}^n$ and the matrix-valued function $D$ returns a diagonal matrix made up with the entries of its vector argument.
+
+\end{document}
