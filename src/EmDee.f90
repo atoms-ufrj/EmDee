@@ -531,54 +531,72 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine compute_dihedrals( me, L )
+  subroutine compute_dihedrals( me, Lbox )
     type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: L
+    real(rb),     intent(in)    :: Lbox
 
-    integer(ib) :: i, j, k, m
-    real(rb)    :: invL, Energy, Virial, aa, bb, ab, axb, phi, Ed, Fd
-    real(rb)    :: Rj(3), Fi(3), Fk(3), a(3), b(3)
+    integer(ib) :: i, j, k, l, m
+    real(rb)    :: invL, Energy, Virial, Ed, Fd
+    real(rb)    :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3)
+    real(rb)    :: normRkj, normX, a, b, phi
+    real(rb)    :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
 
     type(tModel),  pointer :: model
     real(rb),      pointer :: R(:,:), F(:,:)
-    type(tStruct), pointer :: angle(:)
+    type(tStruct), pointer :: dihedral(:)
 
-    call c_f_pointer( me%angle%list, angle, [me%angle%number] )
+    call c_f_pointer( me%dihedral%list, dihedral, [me%dihedral%number] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
     call c_f_pointer( me%F, F, [3,me%natoms] )
 
-    invL = one/L
+    invL = one/Lbox
     Energy = zero
     Virial = zero
-    do m = 1, me%angle%number
-      i = angle(m)%i
-      j = angle(m)%j
-      k = angle(m)%k
-      model => angle(m)%model
+    do m = 1, me%dihedral%number
+      i = dihedral(m)%i
+      j = dihedral(m)%j
+      k = dihedral(m)%k
+      l = dihedral(m)%l
+      model => dihedral(m)%model
       Rj = R(:,j)
-      a = R(:,i) - Rj
-      b = R(:,k) - Rj
-      a = a - L*nint(invL*a)
-      b = b - L*nint(invL*b)
-      aa = sum(a*a)
-      bb = sum(b*b)
-      ab = sum(a*b)
-      axb = sqrt(aa*bb - ab*ab)
-      phi = atan2(axb,ab)
+      Rk = R(:,k)
+      rij = R(:,i) - Rj
+      rkj = Rk - Rj
+      rlk = R(:,l) - Rk
+      normRkj = sqrt(sum(rkj*rkj))
+      z = rkj/normRkj
+      x = rij - sum(rij*z)*z
+      normX = sqrt(sum(x*x))
+      x = x/normX
+      y = cross(z,x)
+      a = sum(x*rlk)
+      b = sum(y*rlk)
+      phi = atan2(b,a)
       call compute_dihedral()
-      Fd = Fd/axb
-      Fi = Fd*(b - (ab/aa)*a)
-      Fk = Fd*(a - (ab/bb)*b)
+      Fd = Fd/(a*a + b*b)
+      u = (a*cross(rlk,z) - b*rlk)/normX
+      v = (a*cross(rlk,x) + sum(z*u)*rij)/normRkj
+      w = v + sum(z*rij)*u/normRkj
+      Fi = Fd*sum(u*y)*y
+      Fl = Fd*(a*y - b*x)
+      Fk = -(Fd*(sum(v*x)*x + sum(w*y)*y) + Fl)
       F(:,i) = F(:,i) + Fi
       F(:,k) = F(:,k) + Fk
-      F(:,j) = F(:,j) - (Fi + Fk)
+      F(:,l) = F(:,l) + Fl
+      F(:,j) = F(:,j) - (Fi + Fk + Fl)
       Energy = Energy + Ed
-      Virial = Virial + sum(Fi*a + Fk*b)
+      Virial = Virial + sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
     end do
-    me%angle%energy = Energy
-    me%angle%virial = third*Virial
-    nullify( R, F, angle )
+    me%dihedral%energy = Energy
+    me%dihedral%virial = third*Virial
+    nullify( R, F, dihedral )
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      function cross( a, b ) result( c )
+        real(rb), intent(in) :: a(3), b(3)
+        real(rb) :: c(3)
+        c = [ a(2)*b(3) - a(3)*b(2), a(3)*b(1) - a(1)*b(3), a(1)*b(2) - a(2)*b(1) ]
+      end function cross
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_dihedral.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
