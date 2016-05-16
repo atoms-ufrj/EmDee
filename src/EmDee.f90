@@ -531,38 +531,42 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine compute_dihedrals( me, Lbox )
+  subroutine compute_dihedrals( me, L )
     type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: Lbox
+    real(rb),     intent(in)    :: L
 
-    integer(ib) :: i, j, k, l, m
-    real(rb)    :: invL, Energy, Virial, Ed, Fd
-    real(rb)    :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3)
+    integer(ib) :: m
+    real(rb)    :: invL, Energy, Virial, Ed, Fd, r2, invR2, Eij, Wij, icharge, jcharge
+    real(rb)    :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb)    :: normRkj, normX, a, b, phi
     real(rb)    :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
 
-    type(tModel),  pointer :: model
-    real(rb),      pointer :: R(:,:), F(:,:)
-    type(tStruct), pointer :: dihedral(:)
+    integer(ib),     pointer :: type(:)
+    real(rb),        pointer :: R(:,:), F(:,:), charge(:)
+    type(tModel),    pointer :: model
+    type(tStruct),   pointer :: dihedral(:), d
+    type(tModelPtr), pointer :: pairType(:,:)
 
     call c_f_pointer( me%dihedral%list, dihedral, [me%dihedral%number] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
     call c_f_pointer( me%F, F, [3,me%natoms] )
+    call c_f_pointer( me%charge, charge, [me%natoms] )
+    call c_f_pointer( me%type, type, [me%natoms] )
+    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
-    invL = one/Lbox
+    invL = one/L
     Energy = zero
     Virial = zero
     do m = 1, me%dihedral%number
-      i = dihedral(m)%i
-      j = dihedral(m)%j
-      k = dihedral(m)%k
-      l = dihedral(m)%l
-      model => dihedral(m)%model
-      Rj = R(:,j)
-      Rk = R(:,k)
-      rij = R(:,i) - Rj
+      d => dihedral(m)
+      Rj = R(:,d%j)
+      Rk = R(:,d%k)
+      rij = R(:,d%i) - Rj
       rkj = Rk - Rj
-      rlk = R(:,l) - Rk
+      rlk = R(:,d%l) - Rk
+      rij = rij - L*nint(rij*InvL)
+      rkj = rkj - L*nint(rkj*InvL)
+      rlk = rlk - L*nint(rlk*InvL)
       normRkj = sqrt(sum(rkj*rkj))
       z = rkj/normRkj
       x = rij - sum(rij*z)*z
@@ -572,6 +576,7 @@ contains
       a = sum(x*rlk)
       b = sum(y*rlk)
       phi = atan2(b,a)
+      model => d%model
       call compute_dihedral()
       Fd = Fd/(a*a + b*b)
       u = (a*cross(rlk,z) - b*rlk)/normX
@@ -580,16 +585,34 @@ contains
       Fi = Fd*sum(u*y)*y
       Fl = Fd*(a*y - b*x)
       Fk = -(Fd*(sum(v*x)*x + sum(w*y)*y) + Fl)
-      F(:,i) = F(:,i) + Fi
-      F(:,k) = F(:,k) + Fk
-      F(:,l) = F(:,l) + Fl
-      F(:,j) = F(:,j) - (Fi + Fk + Fl)
+      F(:,d%i) = F(:,d%i) + Fi
+      F(:,d%k) = F(:,d%k) + Fk
+      F(:,d%l) = F(:,d%l) + Fl
+      F(:,d%j) = F(:,d%j) + (Fi + Fk + Fl)
       Energy = Energy + Ed
       Virial = Virial + sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
+      if (model%f14 /= zero) then
+        rij = rij + rlk - rkj
+        r2 = sum(rij*rij)
+        if (r2 < me%RcSq) then
+          invR2 = one/r2
+          model => pairType(type(d%i),type(d%l))%model
+          icharge = charge(d%i)
+          jcharge = charge(d%l)
+          call compute_pair()
+          Eij = model%f14*Eij
+          Wij = model%f14*Wij
+          Energy = Energy + Eij
+          Virial = Virial + Wij
+          Fij = Wij*invR2*rij
+          F(:,d%i) = F(:,d%i) + Fij
+          F(:,d%l) = F(:,d%l) - Fij
+        end if
+      end if
     end do
     me%dihedral%energy = Energy
     me%dihedral%virial = third*Virial
-    nullify( R, F, dihedral )
+    nullify( R, F, charge, type, pairType, dihedral )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       function cross( a, b ) result( c )
@@ -600,6 +623,8 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_dihedral.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      include "compute_pair.f90"
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_dihedrals
 
 !---------------------------------------------------------------------------------------------------
@@ -609,7 +634,7 @@ contains
     real(rb),     intent(in)    :: L
 
     integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype
-    real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge
+    real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge, jcharge
     logical     :: include
     integer(ib) :: natoms(me%ncells), previous(me%ncells), atom(me%natoms)
     real(rb)    :: Rs(3,me%natoms), Ri(3), Rij(3), Fi(3), Fij(3)
@@ -710,6 +735,7 @@ contains
               neighbor(npairs) = j
               if (r2 < Rc2) then
                 invR2 = invL2/r2
+                jcharge = charge(j)
                 call compute_pair()
                 Epot = Epot + Eij
                 Virial = Virial + Wij
@@ -733,13 +759,15 @@ contains
     real(rb),     intent(in)    :: L
 
     integer  :: i, j, k, itype
-    real(rb) :: invL, invL2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge
+    real(rb) :: invL, invL2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge, jcharge
     real(rb) :: Rs(3,me%natoms), Rij(3), Ri(3), Fi(3), Fij(3)
 
     type(tModel),    pointer :: model
     integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
     real(rb),        pointer :: R(:,:), F(:,:), charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
+
+    real(rb), allocatable :: Fj(:,:)
 
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
@@ -770,6 +798,7 @@ contains
         if (r2 < Rc2) then
           invR2 = invL2/r2
           model => pairType(itype,type(j))%model
+          jcharge = charge(j)
           call compute_pair()
           Epot = Epot + Eij
           Virial = Virial + Wij
