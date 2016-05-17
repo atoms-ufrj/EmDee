@@ -28,6 +28,7 @@ type, bind(C) :: tList
   integer(ib) :: count
   type(c_ptr) :: first
   type(c_ptr) :: last
+  type(c_ptr) :: index
   type(c_ptr) :: item
 end type tList
 
@@ -44,6 +45,7 @@ contains
     list%item   = malloc_int( nitems )
     list%first  = malloc_int( natoms, value = 1_ib )
     list%last   = malloc_int( natoms, value = 0_ib )
+    list%index  = malloc_int( natoms, value = 0_ib )
 
   end subroutine allocate_list
 

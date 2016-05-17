@@ -633,7 +633,7 @@ contains
     type(tEmDee), intent(inout) :: me
     real(rb),     intent(in)    :: L
 
-    integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype
+    integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype, pos
     real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge, jcharge
     logical     :: include
     integer(ib) :: natoms(me%ncells), previous(me%ncells), atom(me%natoms)
@@ -643,7 +643,7 @@ contains
 
     type(tModel),    pointer :: model
     type(tCell),     pointer :: cell(:)
-    integer(ib),     pointer :: first(:), last(:), neighbor(:), type(:)
+    integer(ib),     pointer :: first(:), last(:), neighbor(:), index(:), type(:)
     integer(ib),     pointer :: xfirst(:), xlast(:), excluded(:)
     real(rb),        pointer :: R(:,:), F(:,:), charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
@@ -651,6 +651,7 @@ contains
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%neighbor%first, first, [me%natoms] )
     call c_f_pointer( me%neighbor%last, last, [me%natoms] )
+    call c_f_pointer( me%neighbor%index, index, [me%natoms] )
     call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%nitems] )
     call c_f_pointer( me%excluded%first, xfirst, [me%natoms] )
     call c_f_pointer( me%excluded%last, xlast, [me%natoms] )
@@ -677,6 +678,7 @@ contains
     Virial = zero
     F = zero
     npairs = 0
+    pos = 0
     do icell = 1, me%ncells
 
       if (me%neighbor%nitems < npairs + maxpairs) then
@@ -688,6 +690,8 @@ contains
       kprev = previous(icell)
       do k = 1, nlocal
         i = atom(kprev + k)
+        pos = pos + 1
+        index(pos) = i
         first(i) = npairs + 1
         itype = type(i)
         icharge = charge(i)
@@ -715,7 +719,7 @@ contains
     me%pairEnergy = Epot
     me%pairVirial = third*Virial
     F = L*F
-    nullify( cell, first, last, neighbor, type, R, F, charge, pairType )
+    nullify( cell, first, last, index, neighbor, type, R, F, charge, pairType )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine check_pair()
@@ -758,16 +762,14 @@ contains
     type(tEmDee), intent(inout) :: me
     real(rb),     intent(in)    :: L
 
-    integer  :: i, j, k, itype
+    integer  :: i, j, k, m, itype
     real(rb) :: invL, invL2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge, jcharge
     real(rb) :: Rs(3,me%natoms), Rij(3), Ri(3), Fi(3), Fij(3)
 
     type(tModel),    pointer :: model
-    integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
+    integer(ib),     pointer :: type(:), first(:), last(:), index(:), neighbor(:)
     real(rb),        pointer :: R(:,:), F(:,:), charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
-
-    real(rb), allocatable :: Fj(:,:)
 
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
@@ -775,6 +777,7 @@ contains
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%neighbor%first, first, [me%natoms] )
     call c_f_pointer( me%neighbor%last, last, [me%natoms] )
+    call c_f_pointer( me%neighbor%index, index, [me%natoms] )
     call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%count] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
@@ -785,7 +788,8 @@ contains
     Epot = zero
     Virial = zero
     F = zero
-    do i = 1, me%natoms
+    do m = 1, me%natoms
+      i = index(m)
       itype = type(i)
       Ri = Rs(:,i)
       Fi = zero
@@ -813,7 +817,7 @@ contains
     me%pairVirial = third*Virial
     F = L*F
 
-    nullify( type, R, F, charge, first, last, neighbor, pairType )
+    nullify( type, R, F, charge, first, last, index, neighbor, pairType )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_pair.f90"
