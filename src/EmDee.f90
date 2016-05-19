@@ -19,6 +19,7 @@
 
 module EmDee
 
+use omp_lib
 use c_binding
 use lists
 use models
@@ -302,30 +303,25 @@ contains
     integer(ib)    :: M
     real(rb)       :: time, Energy, Virial
     logical        :: buildList
-    type(tListPtr) :: threadAtom
 
     type(tEmDee), pointer :: me
-    real(rb),     pointer :: F(:,:), R(:,:)
+    real(rb),     pointer :: R(:,:), F(:,:)
 
     integer(ib), allocatable :: natoms(:), previous(:)
-    real(rb),    allocatable :: Rs(:,:)
-
-    integer :: threadId = 1
+    real(rb),    allocatable :: Rs(:,:), Fs(:,:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_list( me%threadAtom, threadAtom )
-
-    allocate( Rs(3,me%natoms) )
 
     call cpu_time( time )
     me%time = me%time - time
 
-    F = zero
+    allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
+    Rs = (one/L)*R
+    Fs = zero
     Energy = zero
     Virial = zero
-    Rs = (one/L)*R
 
     buildList = maximum_approach_sq( me ) > me%skinSq
     if (buildList) then
@@ -336,18 +332,28 @@ contains
       end if
       if (M /= me%mcells) call make_cells( me, M )
       allocate( natoms(me%ncells), previous(me%ncells) )
+      Rs = Rs - floor(Rs)
       call distribute_atoms( me, Rs, previous, natoms )
-      call find_pairs_and_compute( me, threadId, natoms, previous, L, Rs, F, Energy, Virial )
       call copy_real( me%R, me%R0, me%nx3 )
       me%builds = me%builds + 1
     endif
 
-    if (.not.buildList) call compute_pairs( me, threadId, L, Rs, F, Energy, Virial )
-    if (me%bond%number /= 0) call compute_bonds( me, threadId, L, Rs, F, Energy, Virial )
-    if (me%angle%number /= 0) call compute_angles( me, threadId, L, Rs, F, Energy, Virial )
-    if (me%dihedral%number /= 0) call compute_dihedrals( me, threadId, L, Rs, F, Energy, Virial )
+    !$omp parallel num_threads(me%nthreads) reduction(+:Fs,Energy,Virial)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      if (buildList) then
+        call find_pairs_and_compute( me, thread, natoms, previous, L, Rs, Fs, Energy, Virial )
+      else
+        call compute_pairs( me, thread, L, Rs, Fs, Energy, Virial )
+      end if
+      if (me%bond%number /= 0) call compute_bonds( me, thread, L, Rs, Fs, Energy, Virial )
+      if (me%angle%number /= 0) call compute_angles( me, thread, L, Rs, Fs, Energy, Virial )
+      if (me%dihedral%number /= 0) call compute_dihedrals( me, thread, L, Rs, Fs, Energy, Virial )
+    end block
+    !$omp end parallel
 
-    F = L*F
+    F = L*Fs
 
     me%Energy = Energy
     me%Virial = third*Virial
@@ -435,38 +441,41 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   subroutine distribute_atoms( me, Rs, previous, natoms )
-    type(tEmDee), intent(in) :: me
-    real(rb),    intent(in)  :: Rs(3,me%natoms)
-    integer(ib), intent(out) :: previous(me%ncells), natoms(me%ncells)
+    type(tEmDee), intent(in)  :: me
+    real(rb),     intent(in)  :: Rs(3,me%natoms)
+    integer(ib),  intent(out) :: previous(me%ncells), natoms(me%ncells)
 
-    integer(ib) :: i, j, icell, ntotal, M, MM
-    integer(ib) :: next(me%natoms), head(me%ncells)
-    real(rb)    :: Rc(3,me%natoms)
-    type(tListPtr) :: threadAtom
+    integer(ib)    :: i, j, icell, ntotal, M, MM, thread
+    integer(ib)    :: next(me%natoms), head(me%ncells)
+    type(tListPtr) :: threadAtom, threadCell
 
     call c_f_list( me%threadAtom, threadAtom )
+    call c_f_list( me%threadCell, threadCell )
 
-    Rc = Rs - floor(Rs)
     head = 0
     natoms = 0
     M = me%mcells
     MM = M*M
     do i = 1, me%natoms
-      icell = 1 + int(M*Rc(1,i),ib) + M*int(M*Rc(2,i),ib) + MM*int(M*Rc(3,i),ib)
+      icell = 1 + int(M*Rs(1,i),ib) + M*int(M*Rs(2,i),ib) + MM*int(M*Rs(3,i),ib)
       next(i) = head(icell)
       head(icell) = i
       natoms(icell) = natoms(icell) + 1
     end do
 
     ntotal = 0
-    do icell = 1, me%ncells
-      previous(icell) = ntotal
-      j = head(icell)
-      do while (j /= 0)
-        ntotal = ntotal + 1
-        threadAtom%item(ntotal) = j
-        j = next(j)
+    do thread = 1, me%nthreads
+      threadAtom%first(thread) = ntotal + 1
+      do icell = threadCell%first(thread), threadCell%last(thread)
+        previous(icell) = ntotal
+        j = head(icell)
+        do while (j /= 0)
+          ntotal = ntotal + 1
+          threadAtom%item(ntotal) = j
+          j = next(j)
+        end do
       end do
+      threadAtom%last(thread) = ntotal
     end do
 
   end subroutine distribute_atoms
@@ -659,16 +668,16 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs_and_compute( me, threadId, natoms, previous, L, Rs, F, Energy, Virial )
+  subroutine find_pairs_and_compute( me, thread, natoms, previous, L, Rs, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
-    integer,      intent(in)    :: threadId
+    integer,      intent(in)    :: thread
 
     integer,      intent(inout) :: natoms(me%ncells), previous(me%ncells)
 
     real(rb),     intent(in)    :: L, Rs(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
-    integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype, pos
+    integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype
     real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
     logical     :: include
     integer(ib) :: atom(me%natoms)
@@ -689,7 +698,7 @@ contains
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
     call c_f_pointer( me%neighborLists, neighborLists, [me%nthreads] )
-    localList => neighborLists(threadId)
+    localList => neighborLists(thread)
     call c_f_list( localList, neighbor )
     call c_f_list( me%excluded, excluded )
     call c_f_list( me%threadAtom, threadAtom )
@@ -706,8 +715,7 @@ contains
     maxpairs = (n*((2*nbcells + 1)*n - 1))/2
 
     npairs = 0
-    pos = 0
-    do icell = 1, me%ncells
+    do icell = threadCell%first(thread), threadCell%last(thread)
 
       if (localList%nitems < npairs + maxpairs) then
         call resize_list( localList, neighbor, npairs + maxpairs + extra )
@@ -717,7 +725,6 @@ contains
       kprev = previous(icell)
       do k = 1, nlocal
         i = atom(kprev + k)
-        pos = pos + 1
         neighbor%first(i) = npairs + 1
         itype = type(i)
         icharge = charge(i)
