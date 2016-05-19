@@ -56,7 +56,6 @@ type, bind(C) :: tEmDee
 
   type(c_ptr) :: neighborLists
 
-!  type(tList) :: neighbor    ! List of neighbor atoms for pair interaction calculations
   type(tList) :: excluded    ! List of atom pairs excluded from the neighbor list
 
   real(rb)    :: time        ! Total time taken in force calculations
@@ -308,7 +307,8 @@ contains
     type(tEmDee), pointer :: me
     real(rb),     pointer :: F(:,:), R(:,:)
 
-    real(rb), allocatable :: Rs(:,:)
+    integer(ib), allocatable :: natoms(:), previous(:)
+    real(rb),    allocatable :: Rs(:,:)
 
     integer :: threadId = 1
 
@@ -335,8 +335,9 @@ contains
         stop
       end if
       if (M /= me%mcells) call make_cells( me, M )
-      Rs = Rs - floor(Rs)
-      call find_pairs_and_compute( me, threadId, L, Rs, F, Energy, Virial )
+      allocate( natoms(me%ncells), previous(me%ncells) )
+      call distribute_atoms( me, Rs, previous, natoms )
+      call find_pairs_and_compute( me, threadId, natoms, previous, L, Rs, F, Energy, Virial )
       call copy_real( me%R, me%R0, me%nx3 )
       me%builds = me%builds + 1
     endif
@@ -388,7 +389,8 @@ contains
     type(tEmDee), intent(inout) :: me
     integer(ib),  intent(in)    :: M
 
-    integer(ib) :: MM, Mm1, k, ix, iy, iz
+    integer(ib) :: MM, Mm1, k, ix, iy, iz, i, cells_per_thread
+    type(tListPtr) :: threadCell
     type(tCell), pointer :: cell(:)
 
     call c_f_pointer( me%cell, cell, [me%maxcells] )
@@ -402,6 +404,15 @@ contains
       me%maxcells = me%ncells
       me%cell = c_loc(cell(1))
     end if
+
+    call allocate_list( me%threadCell, me%ncells, me%nthreads )
+    call c_f_list( me%threadCell, threadCell )
+    cells_per_thread = (me%ncells + me%nthreads - 1)/me%nthreads
+    forall (i=1:me%nthreads)
+      threadCell%first(i) = (i - 1)*cells_per_thread + 1
+      threadCell%last(i) = min( i*cells_per_thread, me%ncells )
+    end forall
+
     forall ( k = 1:nbcells, ix = 0:Mm1, iy = 0:Mm1, iz = 0:Mm1 )
       cell(1+ix+iy*M+iz*MM)%neighbor(k) = 1+pbc(ix+nb(1,k))+pbc(iy+nb(2,k))*M+pbc(iz+nb(3,k))*MM
     end forall
@@ -423,31 +434,37 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine distribute_atoms( M, N, R, atom, ncells, previous, natoms )
-    integer(ib), intent(in)  :: M, N, ncells
-    real(rb),    intent(in)  :: R(3,N)
-    integer(ib), intent(out) :: atom(N), previous(ncells), natoms(ncells)
+  subroutine distribute_atoms( me, Rs, previous, natoms )
+    type(tEmDee), intent(in) :: me
+    real(rb),    intent(in)  :: Rs(3,me%natoms)
+    integer(ib), intent(out) :: previous(me%ncells), natoms(me%ncells)
 
-    integer(ib) :: i, j, icell, ntotal, MM
-    integer(ib) :: next(N), head(ncells)
+    integer(ib) :: i, j, icell, ntotal, M, MM
+    integer(ib) :: next(me%natoms), head(me%ncells)
+    real(rb)    :: Rc(3,me%natoms)
+    type(tListPtr) :: threadAtom
 
+    call c_f_list( me%threadAtom, threadAtom )
+
+    Rc = Rs - floor(Rs)
     head = 0
     natoms = 0
+    M = me%mcells
     MM = M*M
-    do i = 1, N
-      icell = 1 + int(M*R(1,i),ib) + M*int(M*R(2,i),ib) + MM*int(M*R(3,i),ib)
+    do i = 1, me%natoms
+      icell = 1 + int(M*Rc(1,i),ib) + M*int(M*Rc(2,i),ib) + MM*int(M*Rc(3,i),ib)
       next(i) = head(icell)
       head(icell) = i
       natoms(icell) = natoms(icell) + 1
     end do
 
     ntotal = 0
-    do icell = 1, ncells
+    do icell = 1, me%ncells
       previous(icell) = ntotal
       j = head(icell)
       do while (j /= 0)
         ntotal = ntotal + 1
-        atom(ntotal) = j
+        threadAtom%item(ntotal) = j
         j = next(j)
       end do
     end do
@@ -642,18 +659,21 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs_and_compute( me, threadId, L, Rs, F, Energy, Virial )
+  subroutine find_pairs_and_compute( me, threadId, natoms, previous, L, Rs, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
     integer,      intent(in)    :: threadId
+
+    integer,      intent(inout) :: natoms(me%ncells), previous(me%ncells)
+
     real(rb),     intent(in)    :: L, Rs(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
     integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype, pos
     real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
     logical     :: include
-    integer(ib) :: natoms(me%ncells), previous(me%ncells), atom(me%natoms)
+    integer(ib) :: atom(me%natoms)
     real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3)
-    type(tListPtr) :: neighbor, excluded, threadAtom
+    type(tListPtr) :: neighbor, excluded, threadAtom, threadCell
 
     integer(ib), allocatable :: ilist(:)
 
@@ -673,19 +693,20 @@ contains
     call c_f_list( localList, neighbor )
     call c_f_list( me%excluded, excluded )
     call c_f_list( me%threadAtom, threadAtom )
+    call c_f_list( me%threadCell, threadCell )
 
     invL = one/L
     invL2 = invL*invL
     xRc2 = me%xRcSq*invL2
     Rc2 = me%RcSq*invL2
 
-    call distribute_atoms( me%mcells, me%natoms, Rs, atom, me%ncells, previous, natoms )
+    atom = threadAtom%item
 
     n = maxval(natoms)
     maxpairs = (n*((2*nbcells + 1)*n - 1))/2
 
     npairs = 0
-    pos = threadAtom%first(threadId) - 1
+    pos = 0
     do icell = 1, me%ncells
 
       if (localList%nitems < npairs + maxpairs) then
@@ -697,7 +718,6 @@ contains
       do k = 1, nlocal
         i = atom(kprev + k)
         pos = pos + 1
-        threadAtom%item(pos) = i
         neighbor%first(i) = npairs + 1
         itype = type(i)
         icharge = charge(i)
