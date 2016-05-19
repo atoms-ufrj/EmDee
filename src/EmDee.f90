@@ -91,9 +91,13 @@ type, bind(C) :: tEmDee
   real(rb)    :: Energy      ! Total potential energy of the system
   real(rb)    :: Virial      ! Total internal virial of the system
 
+  integer(ib) :: nthreads    ! Number of parallel openmp threads
+  type(tList) :: threadAtom  ! List of atoms to be dealt with in each parallel thread
+  type(tList) :: threadCell  ! List of cells to be dealt with in each parallel thread
+
 end type tEmDee
 
-private :: reallocate_list, make_cells, distribute_atoms, find_pairs_and_compute, &
+private :: make_cells, distribute_atoms, find_pairs_and_compute, &
            compute_pairs, compute_bonds, compute_angles, compute_dihedrals
 
 contains
@@ -102,16 +106,20 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  subroutine md_initialize( md, rc, skin, atoms, types, indices, charges, coords, forces ) bind(C)
+  subroutine md_initialize( md, threads, rc, skin, atoms, types, indices, charges, &
+                            coords, forces ) bind(C)
     type(c_ptr), value :: md
+    integer(ib), value :: threads, atoms, types
     real(rb),    value :: rc, skin
-    integer(ib), value :: atoms, types
     type(c_ptr), value :: indices, charges, coords, forces
 
     type(tEmDee),    pointer :: me
     integer(ib),     pointer :: type_ptr(:)
     real(rb),        pointer :: charge_ptr(:)
     type(tModelPtr), pointer :: pairType(:,:)
+
+    integer(ib)    :: i, atoms_per_thread
+    type(tListPtr) :: threadAtom
 
     call c_f_pointer( md, me )
 
@@ -128,14 +136,6 @@ contains
     me%mcells = 0
     me%ncells = 0
     me%maxcells = 0
-    me%bond%number = 0
-    me%bond%max = 0
-    me%bond%energy = zero
-    me%bond%virial = zero
-    me%angle%number = 0
-    me%angle%max = 0
-    me%angle%energy = zero
-    me%angle%virial = zero
     me%builds = 0
     me%time = zero
     me%R0 = malloc_real( me%nx3, value = zero )
@@ -145,6 +145,15 @@ contains
 
     call allocate_list( me%neighbor, extra, atoms )
     call allocate_list( me%excluded, extra, atoms )
+
+    me%nthreads = threads
+    call allocate_list( me%threadAtom, atoms, threads )
+    call c_f_list( me%threadAtom, threadAtom )
+    atoms_per_thread = (atoms + threads - 1)/threads
+    forall (i=1:threads)
+      threadAtom%first(i) = (i - 1)*atoms_per_thread + 1
+      threadAtom%last(i) = min(i*atoms_per_thread, atoms )
+    end forall
 
     if (c_associated(indices)) then
       call c_f_pointer( indices, type_ptr, [atoms] )
@@ -163,7 +172,6 @@ contains
     allocate( pairType(types,types) )
     me%pairType = c_loc(pairType(1,1))
 
-    nullify( me, type_ptr, charge_ptr, pairType )
   end subroutine md_initialize
 
 !---------------------------------------------------------------------------------------------------
@@ -181,7 +189,6 @@ contains
     call c_f_pointer( model, pairType(itype,jtype)%model )
     call c_f_pointer( model, pairType(jtype,itype)%model )
 
-    nullify( me, pairType )
   end subroutine md_set_pair
 
 !---------------------------------------------------------------------------------------------------
@@ -197,7 +204,6 @@ contains
     call add_bonded_struc( me%bond, i, j, 0, 0, model )
     call md_exclude_pair( md, i, j )
 
-    nullify( me )
   end subroutine md_add_bond
 
 !---------------------------------------------------------------------------------------------------
@@ -215,7 +221,6 @@ contains
     call md_exclude_pair( md, i, k )
     call md_exclude_pair( md, j, k )
 
-    nullify( me )
   end subroutine md_add_angle
 
 !---------------------------------------------------------------------------------------------------
@@ -236,7 +241,6 @@ contains
     call md_exclude_pair( md, j, l )
     call md_exclude_pair( md, k, l )
 
-    nullify( me )
   end subroutine md_add_dihedral
 
 !---------------------------------------------------------------------------------------------------
@@ -247,41 +251,37 @@ contains
 
     integer(ib) :: n
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: first(:), last(:), item(:)
+    type(tListPtr) :: excluded
 
     call c_f_pointer( md, me )
     if ((i > 0).and.(i <= me%natoms).and.(j > 0).and.(j <= me%natoms).and.(i /= j)) then
-      call c_f_pointer( me%excluded%first, first, [me%natoms] )
-      call c_f_pointer( me%excluded%last,  last,  [me%natoms] )
+      call c_f_list( me%excluded, excluded )
       n = me%excluded%count
-      if (n == me%excluded%nitems) call reallocate_list( me%excluded, n + extra )
-      call c_f_pointer( me%excluded%item, item, [me%excluded%nitems] )
+      if (n == me%excluded%nitems) call resize_list( me%excluded, excluded, n + extra )
       call add_item( min(i,j), max(i,j) )
       me%excluded%count = n
-      nullify( first, last, item)
     end if
 
-    nullify( me )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine add_item( i, j )
         integer, intent(in) :: i, j
         integer :: start, end
-        start = first(i)
-        end = last(i)
-        if ((end < start).or.(j > item(end))) then
-          item(end+2:n+1) = item(end+1:n)
-          item(end+1) = j
+        start = excluded%first(i)
+        end = excluded%last(i)
+        if ((end < start).or.(j > excluded%item(end))) then
+          excluded%item(end+2:n+1) = excluded%item(end+1:n)
+          excluded%item(end+1) = j
         else
-          do while (j > item(start))
+          do while (j > excluded%item(start))
             start = start + 1
           end do
-          if (j == item(start)) return
-          item(start+1:n+1) = item(start:n)
-          item(start) = j
+          if (j == excluded%item(start)) return
+          excluded%item(start+1:n+1) = excluded%item(start:n)
+          excluded%item(start) = j
         end if
-        first(i+1:) = first(i+1:) + 1
-        last(i:) = last(i:) + 1
+        excluded%first(i+1:) = excluded%first(i+1:) + 1
+        excluded%last(i:) = excluded%last(i:) + 1
         n = n + 1
       end subroutine add_item
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -293,40 +293,59 @@ contains
     type(c_ptr), value :: md
     real(rb),    value :: L
 
-    integer(ib) :: M
-    real(rb)    :: time
+    integer(ib)    :: M
+    real(rb)       :: time, Energy, Virial
+    logical        :: buildList
+    type(tListPtr) :: threadAtom
+
     type(tEmDee), pointer :: me
+    real(rb),     pointer :: F(:,:), R(:,:)
+
+    real(rb), allocatable :: Rs(:,:)
+
+    integer :: threadId = 1
 
     call c_f_pointer( md, me )
+    call c_f_pointer( me%F, F, [3,me%natoms] )
+    call c_f_pointer( me%R, R, [3,me%natoms] )
+    call c_f_list( me%threadAtom, threadAtom )
+
+    allocate( Rs(3,me%natoms) )
 
     call cpu_time( time )
     me%time = me%time - time
 
-    if (maximum_approach_sq( me ) > me%skinSq) then
+    F = zero
+    Energy = zero
+    Virial = zero
+    Rs = (one/L)*R
+
+    buildList = maximum_approach_sq( me ) > me%skinSq
+    if (buildList) then
       M = floor(ndiv*L/me%xRc)
       if (M < 5) then
         write(0,'("ERROR: simulation box exceedingly small.")')
         stop
       end if
       if (M /= me%mcells) call make_cells( me, M )
-      call find_pairs_and_compute( me, L )
+      call find_pairs_and_compute( me, threadId, L, Rs, F, Energy, Virial )
       call copy_real( me%R, me%R0, me%nx3 )
       me%builds = me%builds + 1
-    else
-      call compute_pairs( me, L )
-    end if
+    endif
 
-    if (me%bond%number /= 0) call compute_bonds( me, L )
-    if (me%angle%number /= 0) call compute_angles( me, L )
-    if (me%dihedral%number /= 0) call compute_dihedrals( me, L )
+    if (.not.buildList) call compute_pairs( me, threadId, L, Rs, F, Energy, Virial )
+    if (me%bond%number /= 0) call compute_bonds( me, threadId, L, Rs, F, Energy, Virial )
+    if (me%angle%number /= 0) call compute_angles( me, threadId, L, Rs, F, Energy, Virial )
+    if (me%dihedral%number /= 0) call compute_dihedrals( me, threadId, L, Rs, F, Energy, Virial )
 
-    me%Energy = me%pairEnergy + me%bond%energy + me%angle%energy
-    me%Virial = me%pairVirial + me%bond%virial + me%angle%virial
+    F = L*F
+
+    me%Energy = Energy
+    me%Virial = third*Virial
 
     call cpu_time( time )
     me%time = me%time + time
 
-    nullify( me )
   end subroutine md_compute_forces
 
 !===================================================================================================
@@ -353,7 +372,6 @@ contains
     end do
     maximum_approach_sq = maximum + 2*sqrt(maximum*next) + next
 
-    nullify( R, R0 )
   end function maximum_approach_sq
 
 !---------------------------------------------------------------------------------------------------
@@ -379,7 +397,6 @@ contains
     forall ( k = 1:nbcells, ix = 0:Mm1, iy = 0:Mm1, iz = 0:Mm1 )
       cell(1+ix+iy*M+iz*MM)%neighbor(k) = 1+pbc(ix+nb(1,k))+pbc(iy+nb(2,k))*M+pbc(iz+nb(3,k))*MM
     end forall
-    nullify( cell )
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -431,31 +448,29 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine compute_bonds( me, L )
+  subroutine compute_bonds( me, threadId, L, R, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: L
+    integer,      intent(in)    :: threadId
+    real(rb),     intent(in)    :: L, R(3,me%natoms)
+    real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
-    integer(ib) :: i, j, m
-    real(rb)    :: invL, d, E, mdEdr, Energy, Virial
+    integer(ib) :: i, j, m, nbonds
+    real(rb)    :: invL, d, E, mdEdr
     real(rb)    :: Rij(3), Fij(3)
 
     type(tModel),  pointer :: model
-    real(rb),      pointer :: R(:,:), F(:,:)
     type(tStruct), pointer :: bond(:)
 
     call c_f_pointer( me%bond%list, bond, [me%bond%number] )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
 
     invL = one/L
-    Energy = zero
-    Virial = zero
-    do m = 1, me%bond%number
+    nbonds = (me%bond%number + me%nthreads - 1)/me%nthreads
+    do m = (threadId - 1)*nbonds + 1, min( me%bond%number, threadId*nbonds )
       i = bond(m)%i
       j = bond(m)%j
       Rij = R(:,i) - R(:,j)
-      Rij = Rij - L*nint(invL*Rij)
-      d = sqrt(sum(Rij*Rij))
+      Rij = Rij - nint(Rij)
+      d = L*sqrt(sum(Rij*Rij))
       model => bond(m)%model
       call compute_bond
       Energy = Energy + E
@@ -464,10 +479,7 @@ contains
       F(:,i) = F(:,i) + Fij
       F(:,j) = F(:,j) - Fij
     end do
-    me%bond%energy = Energy
-    me%bond%virial = third*Virial
 
-    nullify( bond, R, F )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_bond.f90"
@@ -476,26 +488,23 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine compute_angles( me, L )
+  subroutine compute_angles( me, threadId, L, R, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: L
+    integer,      intent(in)    :: threadId
+    real(rb),     intent(in)    :: L, R(3,me%natoms)
+    real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
-    integer(ib) :: i, j, k, m
-    real(rb)    :: invL, Energy, Virial, aa, bb, ab, axb, theta, Ea, Fa
+    integer(ib) :: i, j, k, m, nangles
+    real(rb)    :: aa, bb, ab, axb, theta, Ea, Fa
     real(rb)    :: Rj(3), Fi(3), Fk(3), a(3), b(3)
 
     type(tModel),  pointer :: model
-    real(rb),      pointer :: R(:,:), F(:,:)
     type(tStruct), pointer :: angle(:)
 
     call c_f_pointer( me%angle%list, angle, [me%angle%number] )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
 
-    invL = one/L
-    Energy = zero
-    Virial = zero
-    do m = 1, me%angle%number
+    nangles = (me%angle%number + me%nthreads - 1)/me%nthreads
+    do m = (threadId - 1)*nangles + 1, min( me%angle%number, threadId*nangles )
       i = angle(m)%i
       j = angle(m)%j
       k = angle(m)%k
@@ -503,26 +512,24 @@ contains
       Rj = R(:,j)
       a = R(:,i) - Rj
       b = R(:,k) - Rj
-      a = a - L*nint(invL*a)
-      b = b - L*nint(invL*b)
+      a = a - nint(a)
+      b = b - nint(b)
       aa = sum(a*a)
       bb = sum(b*b)
       ab = sum(a*b)
       axb = sqrt(aa*bb - ab*ab)
       theta = atan2(axb,ab)
       call compute_angle()
-      Fa = Fa/axb
+      Fa = Fa/(L*axb)
       Fi = Fa*(b - (ab/aa)*a)
       Fk = Fa*(a - (ab/bb)*b)
       F(:,i) = F(:,i) + Fi
       F(:,k) = F(:,k) + Fk
       F(:,j) = F(:,j) - (Fi + Fk)
       Energy = Energy + Ea
-      Virial = Virial + sum(Fi*a + Fk*b)
+      Virial = Virial + L*sum(Fi*a + Fk*b)
     end do
-    me%angle%energy = Energy
-    me%angle%virial = third*Virial
-    nullify( R, F, angle )
+
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_angle.f90"
@@ -531,42 +538,42 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine compute_dihedrals( me, L )
+  subroutine compute_dihedrals( me, threadId, L, R, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: L
+    integer,      intent(in)    :: threadId
+    real(rb),     intent(in)    :: L, R(3,me%natoms)
+    real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
-    integer(ib) :: m
-    real(rb)    :: invL, Energy, Virial, Ed, Fd, r2, invR2, Eij, Wij, icharge, jcharge
+    integer(ib) :: m, ndihedrals
+    real(rb)    :: invL2, Rc2, Ed, Fd, r2, invR2, Eij, Wij, icharge, jcharge
     real(rb)    :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb)    :: normRkj, normX, a, b, phi
     real(rb)    :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
 
     integer(ib),     pointer :: type(:)
-    real(rb),        pointer :: R(:,:), F(:,:), charge(:)
+    real(rb),        pointer :: charge(:)
     type(tModel),    pointer :: model
     type(tStruct),   pointer :: dihedral(:), d
     type(tModelPtr), pointer :: pairType(:,:)
 
     call c_f_pointer( me%dihedral%list, dihedral, [me%dihedral%number] )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
-    invL = one/L
-    Energy = zero
-    Virial = zero
-    do m = 1, me%dihedral%number
+    invL2 = one/(L*L)
+    Rc2 = me%RcSq*invL2
+    ndihedrals = (me%dihedral%number + me%nthreads - 1)/me%nthreads
+    do m = (threadId - 1)*ndihedrals + 1, min( me%dihedral%number, threadId*ndihedrals )
       d => dihedral(m)
       Rj = R(:,d%j)
       Rk = R(:,d%k)
       rij = R(:,d%i) - Rj
       rkj = Rk - Rj
       rlk = R(:,d%l) - Rk
-      rij = rij - L*nint(rij*InvL)
-      rkj = rkj - L*nint(rkj*InvL)
-      rlk = rlk - L*nint(rlk*InvL)
+      rij = rij - nint(rij)
+      rkj = rkj - nint(rkj)
+      rlk = rlk - nint(rlk)
       normRkj = sqrt(sum(rkj*rkj))
       z = rkj/normRkj
       x = rij - sum(rij*z)*z
@@ -578,7 +585,7 @@ contains
       phi = atan2(b,a)
       model => d%model
       call compute_dihedral()
-      Fd = Fd/(a*a + b*b)
+      Fd = Fd/(L*(a*a + b*b))
       u = (a*cross(rlk,z) - b*rlk)/normX
       v = (a*cross(rlk,x) + sum(z*u)*rij)/normRkj
       w = v + sum(z*rij)*u/normRkj
@@ -590,12 +597,12 @@ contains
       F(:,d%l) = F(:,d%l) + Fl
       F(:,d%j) = F(:,d%j) + (Fi + Fk + Fl)
       Energy = Energy + Ed
-      Virial = Virial + sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
+      Virial = Virial + L*sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
       if (model%f14 /= zero) then
         rij = rij + rlk - rkj
         r2 = sum(rij*rij)
         if (r2 < me%RcSq) then
-          invR2 = one/r2
+          invR2 = invL2/r2
           model => pairType(type(d%i),type(d%l))%model
           icharge = charge(d%i)
           jcharge = charge(d%l)
@@ -610,9 +617,7 @@ contains
         end if
       end if
     end do
-    me%dihedral%energy = Energy
-    me%dihedral%virial = third*Virial
-    nullify( R, F, charge, type, pairType, dihedral )
+
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       function cross( a, b ) result( c )
@@ -629,61 +634,52 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs_and_compute( me, L )
+  subroutine find_pairs_and_compute( me, threadId, L, R, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: L
+    integer,      intent(in)    :: threadId
+    real(rb),     intent(in)    :: L, R(3,me%natoms)
+    real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
     integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype, pos
-    real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge, jcharge
+    real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
     logical     :: include
     integer(ib) :: natoms(me%ncells), previous(me%ncells), atom(me%natoms)
     real(rb)    :: Rs(3,me%natoms), Ri(3), Rij(3), Fi(3), Fij(3)
+    type(tListPtr) :: neighbor, excluded, threadAtom
 
     integer(ib), allocatable :: ilist(:)
 
     type(tModel),    pointer :: model
     type(tCell),     pointer :: cell(:)
-    integer(ib),     pointer :: first(:), last(:), neighbor(:), index(:), type(:)
-    integer(ib),     pointer :: xfirst(:), xlast(:), excluded(:)
-    real(rb),        pointer :: R(:,:), F(:,:), charge(:)
+    integer(ib),     pointer :: type(:)
+    real(rb),        pointer :: charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
-    call c_f_pointer( me%neighbor%first, first, [me%natoms] )
-    call c_f_pointer( me%neighbor%last, last, [me%natoms] )
-    call c_f_pointer( me%neighbor%index, index, [me%natoms] )
-    call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%nitems] )
-    call c_f_pointer( me%excluded%first, xfirst, [me%natoms] )
-    call c_f_pointer( me%excluded%last, xlast, [me%natoms] )
-    call c_f_pointer( me%excluded%item, excluded, [me%excluded%nitems] )
     call c_f_pointer( me%type, type, [me%natoms] )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    call c_f_list( me%neighbor, neighbor )
+    call c_f_list( me%excluded, excluded )
+    call c_f_list( me%threadAtom, threadAtom )
 
     invL = one/L
     invL2 = invL*invL
     xRc2 = me%xRcSq*invL2
     Rc2 = me%RcSq*invL2
-    Rs = R*invL
-    Rs = Rs - floor(Rs)
+    Rs = R - floor(R)
 
     call distribute_atoms( me%mcells, me%natoms, Rs, atom, me%ncells, previous, natoms )
 
     n = maxval(natoms)
     maxpairs = (n*((2*nbcells + 1)*n - 1))/2
 
-    Epot = zero
-    Virial = zero
-    F = zero
     npairs = 0
     pos = 0
     do icell = 1, me%ncells
 
       if (me%neighbor%nitems < npairs + maxpairs) then
-        call reallocate_list( me%neighbor, npairs + maxpairs + extra )
-        call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%nitems] )
+        call resize_list( me%neighbor, neighbor, npairs + maxpairs + extra )
       end if
 
       nlocal = natoms(icell)
@@ -691,13 +687,13 @@ contains
       do k = 1, nlocal
         i = atom(kprev + k)
         pos = pos + 1
-        index(pos) = i
-        first(i) = npairs + 1
+        threadAtom%item(pos) = i
+        neighbor%first(i) = npairs + 1
         itype = type(i)
         icharge = charge(i)
         Ri = Rs(:,i)
         Fi = zero
-        ilist = excluded(xfirst(i):xlast(i))
+        ilist = excluded%item(excluded%first(i):excluded%last(i))
         do m = k + 1, nlocal
           j = atom(kprev + m)
           call check_pair()
@@ -711,15 +707,11 @@ contains
           end do
         end do
         F(:,i) = F(:,i) + Fi
-        last(i) = npairs
+        neighbor%last(i) = npairs
       end do
 
     end do
     me%neighbor%count = npairs
-    me%pairEnergy = Epot
-    me%pairVirial = third*Virial
-    F = L*F
-    nullify( cell, first, last, index, neighbor, type, R, F, charge, pairType )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine check_pair()
@@ -732,16 +724,16 @@ contains
             if (i < j) then
               include = all(ilist /= j)
             else
-              include = all(excluded(xfirst(j):xlast(j)) /= i)
+              include = all(excluded%item(excluded%first(j):excluded%last(j)) /= i)
             end if
             if (include) then
               npairs = npairs + 1
-              neighbor(npairs) = j
+              neighbor%item(npairs) = j
               if (r2 < Rc2) then
                 invR2 = invL2/r2
                 jcharge = charge(j)
                 call compute_pair()
-                Epot = Epot + Eij
+                Energy = Energy + Eij
                 Virial = Virial + Wij
                 Fij = Wij*invR2*Rij
                 Fi = Fi + Fij
@@ -758,38 +750,35 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine compute_pairs( me, L )
-    type(tEmDee), intent(inout) :: me
-    real(rb),     intent(in)    :: L
+  subroutine compute_pairs( me, threadId, L, Rs, F, Energy, Virial )
+    type(tEmDee), intent(in)    :: me
+    integer,      intent(in)    :: threadId
+    real(rb),     intent(in)    :: L, Rs(3,me%natoms)
+    real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
     integer  :: i, j, k, m, itype
-    real(rb) :: invL, invL2, Rc2, r2, invR2, Epot, Virial, Eij, Wij, icharge, jcharge
-    real(rb) :: Rs(3,me%natoms), Rij(3), Ri(3), Fi(3), Fij(3)
+    real(rb) :: invL, invL2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
+    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    type(tListPtr) :: threadAtom
 
     type(tModel),    pointer :: model
-    integer(ib),     pointer :: type(:), first(:), last(:), index(:), neighbor(:)
-    real(rb),        pointer :: R(:,:), F(:,:), charge(:)
+    integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
+    real(rb),        pointer :: charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
 
+    call c_f_list( me%threadAtom, threadAtom )
     call c_f_pointer( me%type, type, [me%natoms] )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%neighbor%first, first, [me%natoms] )
     call c_f_pointer( me%neighbor%last, last, [me%natoms] )
-    call c_f_pointer( me%neighbor%index, index, [me%natoms] )
     call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%count] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
     invL = one/L
     invL2 = invL*invL
     Rc2 = me%RcSq*invL2
-    Rs = R*invL
-    Epot = zero
-    Virial = zero
-    F = zero
     do m = 1, me%natoms
-      i = index(m)
+      i = threadAtom%item(m)
       itype = type(i)
       Ri = Rs(:,i)
       Fi = zero
@@ -804,7 +793,7 @@ contains
           model => pairType(itype,type(j))%model
           jcharge = charge(j)
           call compute_pair()
-          Epot = Epot + Eij
+          Energy = Energy + Eij
           Virial = Virial + Wij
           Fij = Wij*invR2*Rij
           Fi = Fi + Fij
@@ -813,11 +802,7 @@ contains
       end do
       F(:,i) = F(:,i) + Fi
     end do
-    me%pairEnergy = Epot
-    me%pairVirial = third*Virial
-    F = L*F
 
-    nullify( type, R, F, charge, first, last, index, neighbor, pairType )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_pair.f90"

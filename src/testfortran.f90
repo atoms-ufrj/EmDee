@@ -33,13 +33,27 @@ type(c_ptr) :: mdp
 type(tEmDee), target :: md
 type(tModel), target :: lj, bond
 
-integer :: i, j
+integer :: i, j, argcount, threads
+character(256) :: line
 !integer, pointer :: first(:), last(:), item(:)
 
-call read_data
+argcount = command_argument_count()
+if (argcount == 1) then
+  threads = 1
+  call get_command_argument( 1, line )
+else if (argcount == 2) then
+  call get_command_argument( 1, line )
+  read(line,*) threads
+  call get_command_argument( 2, line )
+else
+  write(0,'("Usage: testfortran [number-of-threads] input-file")')
+  stop
+end if
+
+call read_data( file = line )
 call create_configuration
 mdp = c_loc(md)
-call md_initialize( mdp, Rc, Rs, N, 1, c_null_ptr, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
+call md_initialize( mdp, threads, Rc, Rs, N, 1, c_null_ptr, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
 
 lj = pair_lj( 1.0_rb, 1.0_rb )
 call md_set_pair( c_loc(md), 1, 1, c_loc(lj) )
@@ -67,10 +81,17 @@ call md_add_bond( mdp, 4, 5, c_loc(bond) )
 !end do
 !stop
 
+!tf = secnds(0.0)
+!do step = 1, 20000
+!  call find_pairs( md, L+step/200 )
+!end do
+!print*, "execution time = ", secnds(0.0) - tf, " s."
+!stop
 
 call md_compute_forces( mdp, L )
 print*, 0, md%Energy, md%Virial
 call cpu_time( ti )
+tf = secnds(0.0)
 do step = 1, Nsteps
   if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
   V = V + Dt_2*F
@@ -78,6 +99,7 @@ do step = 1, Nsteps
   call md_compute_forces( mdp, L )
   V = V + Dt_2*F
 end do
+print*, "execution time = ", secnds(0.0) - tf, " s."
 call cpu_time( tf )
 print*, "neighbor list builds = ", md%builds
 print*, "pair time = ", md%time, " s."
@@ -85,17 +107,20 @@ print*, "execution time = ", tf - ti, " s."
 
 contains
 !---------------------------------------------------------------------------------------------------
-  subroutine read_data
-    integer  :: i, nseeds, seed
-    read(*,*); read(*,*) N
-    read(*,*); read(*,*) Rc
-    read(*,*); read(*,*) Rs
-    read(*,*); read(*,*) seed
-    read(*,*); read(*,*) Dt
-    read(*,*); read(*,*) Nsteps
-    read(*,*); read(*,*) Nprop
-    read(*,*); read(*,*) rho
-    read(*,*); read(*,*) Temp
+  subroutine read_data( file )
+    character(*), intent(in) :: file
+    integer  :: inp, i, nseeds, seed
+    open( newunit = inp, file = file, status = "old" )
+    read(inp,*); read(inp,*) N
+    read(inp,*); read(inp,*) Rc
+    read(inp,*); read(inp,*) Rs
+    read(inp,*); read(inp,*) seed
+    read(inp,*); read(inp,*) Dt
+    read(inp,*); read(inp,*) Nsteps
+    read(inp,*); read(inp,*) Nprop
+    read(inp,*); read(inp,*) rho
+    read(inp,*); read(inp,*) Temp
+    close(inp)
     call random_seed( size = nseeds )
     call random_seed( put = seed + 37*[(i-1,i=1,nseeds)] )
     Rc2 = Rc**2

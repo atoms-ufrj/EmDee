@@ -32,11 +32,9 @@ type tStruct
 end type tStruct
 
 type, bind(C) :: tStructData
-  integer     :: number
-  integer     :: max
+  integer     :: number = 0
+  integer     :: max = 0
   type(c_ptr) :: list
-  real(rb)    :: energy
-  real(rb)    :: virial
 end type tStructData
 
 contains
