@@ -54,7 +54,9 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: builds      ! Number of neighbor-list builds
 
-  type(tList) :: neighbor    ! List of neighbor atoms for pair interaction calculations
+  type(c_ptr) :: neighborLists
+
+!  type(tList) :: neighbor    ! List of neighbor atoms for pair interaction calculations
   type(tList) :: excluded    ! List of atom pairs excluded from the neighbor list
 
   real(rb)    :: time        ! Total time taken in force calculations
@@ -81,8 +83,6 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: ntypes      ! Number of atom types
   type(c_ptr) :: pairType    ! Model and parameters of each type of atom pair
-  real(rb)    :: pairEnergy  ! Potential energy due to pair interactions
-  real(rb)    :: pairVirial  ! Internal virial due to pair interactions
 
   type(tStructData) :: bond
   type(tStructData) :: angle
@@ -117,6 +117,7 @@ contains
     integer(ib),     pointer :: type_ptr(:)
     real(rb),        pointer :: charge_ptr(:)
     type(tModelPtr), pointer :: pairType(:,:)
+    type(tList),     pointer :: neighbor(:)
 
     integer(ib)    :: i, atoms_per_thread
     type(tListPtr) :: threadAtom
@@ -143,7 +144,7 @@ contains
     me%bond%list = malloc_int( 0 )
     me%angle%list = malloc_int( 0 )
 
-    call allocate_list( me%neighbor, extra, atoms )
+!    call allocate_list( me%neighbor, extra, atoms )
     call allocate_list( me%excluded, extra, atoms )
 
     me%nthreads = threads
@@ -154,6 +155,12 @@ contains
       threadAtom%first(i) = (i - 1)*atoms_per_thread + 1
       threadAtom%last(i) = min(i*atoms_per_thread, atoms )
     end forall
+
+    allocate( neighbor(threads) )
+    me%neighborLists = c_loc(neighbor)
+    do i = 1, threads
+      call allocate_list( neighbor(i), extra, atoms )
+    end do
 
     if (c_associated(indices)) then
       call c_f_pointer( indices, type_ptr, [atoms] )
@@ -328,6 +335,7 @@ contains
         stop
       end if
       if (M /= me%mcells) call make_cells( me, M )
+      Rs = Rs - floor(Rs)
       call find_pairs_and_compute( me, threadId, L, Rs, F, Energy, Virial )
       call copy_real( me%R, me%R0, me%nx3 )
       me%builds = me%builds + 1
@@ -634,17 +642,17 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs_and_compute( me, threadId, L, R, F, Energy, Virial )
+  subroutine find_pairs_and_compute( me, threadId, L, Rs, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
     integer,      intent(in)    :: threadId
-    real(rb),     intent(in)    :: L, R(3,me%natoms)
+    real(rb),     intent(in)    :: L, Rs(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
     integer(ib) :: i, j, k, m, n, icell, jcell, maxpairs, npairs, nlocal, kprev, mprev, itype, pos
     real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
     logical     :: include
     integer(ib) :: natoms(me%ncells), previous(me%ncells), atom(me%natoms)
-    real(rb)    :: Rs(3,me%natoms), Ri(3), Rij(3), Fi(3), Fij(3)
+    real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3)
     type(tListPtr) :: neighbor, excluded, threadAtom
 
     integer(ib), allocatable :: ilist(:)
@@ -654,12 +662,15 @@ contains
     integer(ib),     pointer :: type(:)
     real(rb),        pointer :: charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
+    type(tList),     pointer :: neighborLists(:), localList
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
-    call c_f_list( me%neighbor, neighbor )
+    call c_f_pointer( me%neighborLists, neighborLists, [me%nthreads] )
+    localList => neighborLists(threadId)
+    call c_f_list( localList, neighbor )
     call c_f_list( me%excluded, excluded )
     call c_f_list( me%threadAtom, threadAtom )
 
@@ -667,7 +678,6 @@ contains
     invL2 = invL*invL
     xRc2 = me%xRcSq*invL2
     Rc2 = me%RcSq*invL2
-    Rs = R - floor(R)
 
     call distribute_atoms( me%mcells, me%natoms, Rs, atom, me%ncells, previous, natoms )
 
@@ -675,11 +685,11 @@ contains
     maxpairs = (n*((2*nbcells + 1)*n - 1))/2
 
     npairs = 0
-    pos = 0
+    pos = threadAtom%first(threadId) - 1
     do icell = 1, me%ncells
 
-      if (me%neighbor%nitems < npairs + maxpairs) then
-        call resize_list( me%neighbor, neighbor, npairs + maxpairs + extra )
+      if (localList%nitems < npairs + maxpairs) then
+        call resize_list( localList, neighbor, npairs + maxpairs + extra )
       end if
 
       nlocal = natoms(icell)
@@ -711,7 +721,7 @@ contains
       end do
 
     end do
-    me%neighbor%count = npairs
+    localList%count = npairs
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine check_pair()
@@ -765,19 +775,22 @@ contains
     integer(ib),     pointer :: type(:), first(:), last(:), neighbor(:)
     real(rb),        pointer :: charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
+    type(tList),     pointer :: neighborLists(:), localList
 
     call c_f_list( me%threadAtom, threadAtom )
+    call c_f_pointer( me%neighborLists, neighborLists, [me%nthreads] )
+    localList => neighborLists(threadId)
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
-    call c_f_pointer( me%neighbor%first, first, [me%natoms] )
-    call c_f_pointer( me%neighbor%last, last, [me%natoms] )
-    call c_f_pointer( me%neighbor%item, neighbor, [me%neighbor%count] )
+    call c_f_pointer( localList%first, first, [me%natoms] )
+    call c_f_pointer( localList%last, last, [me%natoms] )
+    call c_f_pointer( localList%item, neighbor, [localList%count] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
     invL = one/L
     invL2 = invL*invL
     Rc2 = me%RcSq*invL2
-    do m = 1, me%natoms
+    do m = threadAtom%first(threadId), threadAtom%last(threadId)
       i = threadAtom%item(m)
       itype = type(i)
       Ri = Rs(:,i)
