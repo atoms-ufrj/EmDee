@@ -46,9 +46,7 @@ contains
     list%nobjects = nobjects
     list%nitems = nitems
     list%count  = 0
-    if (allocated(list%first)) then
-      deallocate( list%first, list%last, list%item )
-    end if
+    if (allocated(list%first)) deallocate( list%first, list%last, list%item )
     allocate( list%first(nobjects), list%last(nobjects), list%item(nitems) )
     list%first = 1_ib
     list%last = 0_ib

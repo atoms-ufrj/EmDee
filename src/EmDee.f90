@@ -55,16 +55,7 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: builds      ! Number of neighbor-list builds
 
-  type(c_ptr) :: neighbor
-  type(c_ptr) :: excluded
-
   real(rb)    :: time        ! Total time taken in force calculations
-
-  integer(ib) :: natoms      ! Number of atoms in the system
-  integer(ib) :: nx3         ! Three times the number of atoms
-  integer(ib) :: mcells      ! Number of cells at each dimension
-  integer(ib) :: ncells      ! Total number of cells
-  integer(ib) :: maxcells    ! Maximum number of cells
 
   real(rb)    :: Rc          ! Cut-off distance
   real(rb)    :: RcSq        ! Cut-off distance squared
@@ -72,13 +63,20 @@ type, bind(C) :: tEmDee
   real(rb)    :: xRcSq       ! Extended cutoff distance squared
   real(rb)    :: skinSq      ! Square of the neighbor list skin width
 
+  integer(ib) :: mcells      ! Number of cells at each dimension
+  integer(ib) :: ncells      ! Total number of cells
+  integer(ib) :: maxcells    ! Maximum number of cells
   type(c_ptr) :: cell        ! Array containing all neighbor cells of each cell
+  type(c_ptr) :: population
+  type(c_ptr) :: previous
 
+  integer(ib) :: natoms      ! Number of atoms in the system
   type(c_ptr) :: type        ! The type of each atom
   type(c_ptr) :: R0          ! The position of each atom at the latest neighbor list building
   type(c_ptr) :: R           ! Pointer to the coordinate of each atom
   type(c_ptr) :: F           ! Pointer to the resultant force over each atom
   type(c_ptr) :: charge      ! Pointer to the electric charge of each atom
+  type(c_ptr) :: atomCell
 
   integer(ib) :: ntypes      ! Number of atom types
   type(c_ptr) :: pairType    ! Model and parameters of each type of atom pair
@@ -93,6 +91,8 @@ type, bind(C) :: tEmDee
   integer(ib) :: nthreads    ! Number of parallel openmp threads
   type(c_ptr) :: threadAtom  ! List of atoms to be dealt with in each parallel thread
   type(c_ptr) :: threadCell  ! List of cells to be dealt with in each parallel thread
+  type(c_ptr) :: neighbor
+  type(c_ptr) :: excluded
 
 end type tEmDee
 
@@ -128,7 +128,6 @@ contains
     me%xRcSq = me%xRc**2
     me%skinSq = skin*skin
     me%natoms = atoms
-    me%nx3 = 3*atoms
     me%R = coords
     me%F = forces
     me%ntypes = types
@@ -137,8 +136,11 @@ contains
     me%maxcells = 0
     me%builds = 0
     me%time = zero
-    me%R0 = malloc_real( me%nx3, value = zero )
+    me%R0 = malloc_real( 3*me%natoms, value = zero )
+    me%atomCell = malloc_int( me%natoms )
     me%cell = malloc_int( 0 )
+    me%population = malloc_int( 0 )
+    me%previous = malloc_int( 0 )
     me%bond%list = malloc_int( 0 )
     me%angle%list = malloc_int( 0 )
     me%nthreads = threads
@@ -314,7 +316,6 @@ contains
     type(tEmDee), pointer :: me
     real(rb),     pointer :: R(:,:), F(:,:)
 
-    integer(ib), allocatable :: natoms(:), previous(:)
     real(rb),    allocatable :: Rs(:,:), Fs(:,:)
 
     call c_f_pointer( md, me )
@@ -337,10 +338,7 @@ contains
         stop
       end if
       if (M /= me%mcells) call make_cells( me, M )
-      allocate( natoms(me%ncells), previous(me%ncells) )
-      Rs = Rs - floor(Rs)
-      call distribute_atoms( me, Rs, previous, natoms )
-      call copy_real( me%R, me%R0, me%nx3 )
+      call copy_real( me%R, me%R0, 3*me%natoms )
       me%builds = me%builds + 1
     endif
 
@@ -349,7 +347,8 @@ contains
       integer :: thread
       thread = omp_get_thread_num() + 1
       if (buildList) then
-        call find_pairs_and_compute( me, thread, natoms, previous, L, Rs, Fs, Energy, Virial )
+        call distribute_atoms( me, thread, Rs )
+        call find_pairs_and_compute( me, thread, L, Rs, Fs, Energy, Virial )
       else
         call compute_pairs( me, thread, L, Rs, Fs, Energy, Virial )
       end if
@@ -399,34 +398,46 @@ contains
     type(tEmDee), intent(inout) :: me
     integer(ib),  intent(in)    :: M
 
-    integer(ib) :: MM, Mm1, k, ix, iy, iz, i, cells_per_thread
+    integer(ib) :: MM
+    integer(ib), pointer :: population(:), previous(:)
     type(tList), pointer :: threadCell
     type(tCell), pointer :: cell(:)
 
     call c_f_pointer( me%cell, cell, [me%maxcells] )
+    call c_f_pointer( me%threadCell, threadCell )
     MM = M*M
-    Mm1 = M - 1
     me%mcells = M
     me%ncells = M*MM
     if (me%ncells > me%maxcells) then
-      deallocate( cell )
-      allocate( cell(me%ncells) )
+      call c_f_pointer( me%population, population, [me%maxcells] )
+      call c_f_pointer( me%previous, previous, [me%maxcells] )
+      deallocate( cell, population, previous )
+      allocate( cell(me%ncells), population(me%ncells), previous(me%ncells) )
+      call threadCell % allocate( me%ncells, me%nthreads )
       me%maxcells = me%ncells
       me%cell = c_loc(cell(1))
+      me%population = c_loc(population(1))
+      me%previous = c_loc(previous(1))
     end if
 
-
-    call c_f_pointer( me%threadCell, threadCell )
-    call threadCell % allocate( me%ncells, me%nthreads )
-    cells_per_thread = (me%ncells + me%nthreads - 1)/me%nthreads
-    forall (i=1:me%nthreads)
-      threadCell%first(i) = (i - 1)*cells_per_thread + 1
-      threadCell%last(i) = min( i*cells_per_thread, me%ncells )
-    end forall
-
-    forall ( k = 1:nbcells, ix = 0:Mm1, iy = 0:Mm1, iz = 0:Mm1 )
-      cell(1+ix+iy*M+iz*MM)%neighbor(k) = 1+pbc(ix+nb(1,k))+pbc(iy+nb(2,k))*M+pbc(iz+nb(3,k))*MM
-    end forall
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread, icell, indx, k, ix, iy, iz, cells_per_thread
+      cells_per_thread = (me%ncells + me%nthreads - 1)/me%nthreads
+      thread = omp_get_thread_num() + 1
+      threadCell%first(thread) = (thread - 1)*cells_per_thread + 1
+      threadCell%last(thread) = min( thread*cells_per_thread, me%ncells )
+      do icell = threadCell%first(thread), threadCell%last(thread)
+        indx = icell - 1
+        iz = indx/MM
+        iy = (indx - iz*MM)/M
+        ix = indx - (iy*M + iz*MM)
+        forall (k=1:nbcells)
+          cell(icell)%neighbor(k) = 1 + pbc(ix+nb(1,k)) + pbc(iy+nb(2,k))*M + pbc(iz+nb(3,k))*MM
+        end forall
+      end do
+    end block
+    !$omp end parallel
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -445,43 +456,57 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine distribute_atoms( me, Rs, previous, natoms )
+  subroutine distribute_atoms( me, thread, Rs )
     type(tEmDee), intent(in)  :: me
+    integer(ib),  intent(in)  :: thread
     real(rb),     intent(in)  :: Rs(3,me%natoms)
-    integer(ib),  intent(out) :: previous(me%ncells), natoms(me%ncells)
 
-    integer(ib)    :: i, j, icell, ntotal, M, MM, thread
-    integer(ib)    :: next(me%natoms), head(me%ncells)
+    integer(ib) :: i, k, n, icell, M, first, last
+    integer(ib) :: icoord(3)
+    integer(ib), allocatable :: offset(:)
+    integer(ib), pointer :: atomCell(:), population(:), previous(:)
     type(tList), pointer :: threadAtom, threadCell
 
+    call c_f_pointer( me%atomCell, atomCell, [me%natoms] )
     call c_f_pointer( me%threadAtom, threadAtom )
     call c_f_pointer( me%threadCell, threadCell )
+    call c_f_pointer( me%population, population, [me%ncells] )
+    call c_f_pointer( me%previous, previous, [me%ncells] )
 
-    head = 0
-    natoms = 0
+    first = threadCell%first(thread)
+    last = threadCell%last(thread)
+
     M = me%mcells
-    MM = M*M
-    do i = 1, me%natoms
-      icell = 1 + int(M*Rs(1,i),ib) + M*int(M*Rs(2,i),ib) + MM*int(M*Rs(3,i),ib)
-      next(i) = head(icell)
-      head(icell) = i
-      natoms(icell) = natoms(icell) + 1
+    population(first:last) = 0
+    !$omp barrier
+    do i = threadAtom%first(thread), threadAtom%last(thread)
+      icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
+      icell = 1 + icoord(1) + M*(icoord(2) + M*icoord(3))
+      atomCell(i) = icell
+      !$omp atomic update
+      population(icell) = population(icell) + 1
     end do
+    !$omp barrier
 
-    ntotal = 0
-    do thread = 1, me%nthreads
-      threadAtom%first(thread) = ntotal + 1
-      do icell = threadCell%first(thread), threadCell%last(thread)
-        previous(icell) = ntotal
-        j = head(icell)
-        do while (j /= 0)
-          ntotal = ntotal + 1
-          threadAtom%item(ntotal) = j
-          j = next(j)
-        end do
-      end do
-      threadAtom%last(thread) = ntotal
+    n = sum(population(1:first-1))
+    threadAtom%first(thread) = n + 1
+    do icell = first, last
+      previous(icell) = n
+      n = n + population(icell)
     end do
+    threadAtom%last(thread) = n
+
+    allocate( offset(first:last) )
+    offset = previous(first:last)
+    do i = 1, me%natoms
+      icell = atomCell(i)
+      if ((icell >= first).and.(icell <= last)) then
+        k = offset(icell) + 1
+        threadAtom%item(k) = i
+        offset(icell) = k
+      end if
+    end do
+    !$omp barrier
 
   end subroutine distribute_atoms
 
@@ -673,10 +698,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine find_pairs_and_compute( me, thread, natoms, previous, L, Rs, F, Energy, Virial )
+  subroutine find_pairs_and_compute( me, thread, L, Rs, F, Energy, Virial )
     type(tEmDee), intent(inout) :: me
     integer,      intent(in)    :: thread
-    integer,      intent(inout) :: natoms(me%ncells), previous(me%ncells)
     real(rb),     intent(in)    :: L, Rs(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
@@ -686,11 +710,11 @@ contains
     integer(ib) :: atom(me%natoms)
     real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3)
 
-    integer(ib), allocatable :: ilist(:)
+    integer(ib), allocatable :: xlist(:)
 
     type(tModel),    pointer :: model
     type(tCell),     pointer :: cell(:)
-    integer(ib),     pointer :: type(:)
+    integer(ib),     pointer :: type(:), natoms(:), previous(:)
     real(rb),        pointer :: charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
     type(tList),     pointer :: threadAtom, threadCell, neighborLists(:), neighbor, excluded
@@ -700,12 +724,14 @@ contains
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
+    call c_f_pointer( me%population, natoms, [me%ncells] )
+    call c_f_pointer( me%previous, previous, [me%ncells] )
+
     call c_f_pointer( me%threadAtom, threadAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%excluded, excluded )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
     neighbor => neighborLists(thread)
-
 
     invL = one/L
     invL2 = invL*invL
@@ -718,11 +744,7 @@ contains
     npairs = 0
     atom = threadAtom%item
     do icell = threadCell%first(thread), threadCell%last(thread)
-
-      if (neighbor%nitems < npairs + maxpairs) then
-        call neighbor % resize( npairs + maxpairs + extra )
-      end if
-
+      if (neighbor%nitems < npairs + maxpairs) call neighbor % resize( npairs + maxpairs + extra )
       nlocal = natoms(icell)
       kprev = previous(icell)
       do k = 1, nlocal
@@ -732,7 +754,7 @@ contains
         icharge = charge(i)
         Ri = Rs(:,i)
         Fi = zero
-        ilist = excluded%item(excluded%first(i):excluded%last(i))
+        xlist = excluded%item(excluded%first(i):excluded%last(i))
         do m = k + 1, nlocal
           j = atom(kprev + m)
           call check_pair()
@@ -748,7 +770,6 @@ contains
         F(:,i) = F(:,i) + Fi
         neighbor%last(i) = npairs
       end do
-
     end do
     neighbor%count = npairs
     contains
@@ -761,7 +782,7 @@ contains
           r2 = sum(Rij*Rij)
           if (r2 < xRc2) then
             if (i < j) then
-              include = all(ilist /= j)
+              include = all(xlist /= j)
             else
               include = all(excluded%item(excluded%first(j):excluded%last(j)) /= i)
             end if

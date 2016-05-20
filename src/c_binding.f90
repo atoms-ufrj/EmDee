@@ -63,7 +63,7 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   subroutine realloc_int( ptr, size, new_size )
-    type(c_ptr), intent(inout) :: ptr
+    type(c_ptr),    intent(inout) :: ptr
     integer(c_int), intent(inout) :: size
     integer(c_int), intent(in)    :: new_size
 
