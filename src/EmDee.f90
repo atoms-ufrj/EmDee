@@ -89,7 +89,7 @@ type, bind(C) :: tEmDee
   real(rb)    :: Virial      ! Total internal virial of the system
 
   integer(ib) :: nthreads    ! Number of parallel openmp threads
-  type(c_ptr) :: threadAtom  ! List of atoms to be dealt with in each parallel thread
+  type(c_ptr) :: cellAtom    ! List of atoms belonging to each cell
   type(c_ptr) :: threadCell  ! List of cells to be dealt with in each parallel thread
   type(c_ptr) :: neighbor
   type(c_ptr) :: excluded
@@ -112,13 +112,13 @@ contains
     real(rb),    value :: rc, skin
     type(c_ptr), value :: indices, charges, coords, forces
 
-    integer(ib) :: i, atoms_per_thread
+    integer(ib) :: i
 
     type(tEmDee),    pointer :: me
     integer(ib),     pointer :: type_ptr(:)
     real(rb),        pointer :: charge_ptr(:)
     type(tModelPtr), pointer :: pairType(:,:)
-    type(tList),     pointer :: threadAtom, threadCell, neighbor(:), excluded
+    type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
 
     call c_f_pointer( md, me )
 
@@ -145,15 +145,10 @@ contains
     me%angle%list = malloc_int( 0 )
     me%nthreads = threads
 
-    ! Allocate memory for lists of atoms per parallel thread:
-    allocate( threadAtom )
-    me%threadAtom = c_loc( threadAtom )
-    call threadAtom % allocate( atoms, threads )
-    atoms_per_thread = (atoms + threads - 1)/threads
-    forall (i=1:threads)
-      threadAtom%first(i) = (i - 1)*atoms_per_thread + 1
-      threadAtom%last(i) = min(i*atoms_per_thread, atoms )
-    end forall
+    ! Allocate memory for list of atoms per cell:
+    allocate( cellAtom )
+    me%cellAtom = c_loc( cellAtom )
+    call cellAtom % allocate( atoms, 0 )
 
     ! Allocate memory for lists of cells per parallel thread:
     allocate( threadCell )
@@ -400,7 +395,7 @@ contains
 
     integer(ib) :: MM
     integer(ib), pointer :: population(:), previous(:)
-    type(tList), pointer :: threadCell
+    type(tList), pointer :: cellAtom, threadCell
     type(tCell), pointer :: cell(:)
 
     call c_f_pointer( me%cell, cell, [me%maxcells] )
@@ -409,13 +404,19 @@ contains
     me%mcells = M
     me%ncells = M*MM
     if (me%ncells > me%maxcells) then
+      call c_f_pointer( me%cellAtom, cellAtom )
+      deallocate( cell, cellAtom%first, cellAtom%last )
+      allocate( cell(me%ncells), cellAtom%first(me%ncells), cellAtom%last(me%ncells) )
+
       call c_f_pointer( me%population, population, [me%maxcells] )
       call c_f_pointer( me%previous, previous, [me%maxcells] )
-      deallocate( cell, population, previous )
-      allocate( cell(me%ncells), population(me%ncells), previous(me%ncells) )
+      deallocate( population, previous )
+      allocate( population(me%ncells), previous(me%ncells) )
       call threadCell % allocate( me%ncells, me%nthreads )
+
       me%maxcells = me%ncells
       me%cell = c_loc(cell(1))
+
       me%population = c_loc(population(1))
       me%previous = c_loc(previous(1))
     end if
@@ -461,14 +462,14 @@ contains
     integer(ib),  intent(in)  :: thread
     real(rb),     intent(in)  :: Rs(3,me%natoms)
 
-    integer(ib) :: i, k, n, icell, M, first, last
+    integer(ib) :: i, k, n, icell, M, first, last, atoms_per_thread
     integer(ib) :: icoord(3)
     integer(ib), allocatable :: offset(:)
     integer(ib), pointer :: atomCell(:), population(:), previous(:)
-    type(tList), pointer :: threadAtom, threadCell
+    type(tList), pointer :: cellAtom, threadCell
 
     call c_f_pointer( me%atomCell, atomCell, [me%natoms] )
-    call c_f_pointer( me%threadAtom, threadAtom )
+    call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%population, population, [me%ncells] )
     call c_f_pointer( me%previous, previous, [me%ncells] )
@@ -479,7 +480,8 @@ contains
     M = me%mcells
     population(first:last) = 0
     !$omp barrier
-    do i = threadAtom%first(thread), threadAtom%last(thread)
+    atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
+    do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
       icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
       icell = 1 + icoord(1) + M*(icoord(2) + M*icoord(3))
       atomCell(i) = icell
@@ -489,12 +491,12 @@ contains
     !$omp barrier
 
     n = sum(population(1:first-1))
-    threadAtom%first(thread) = n + 1
     do icell = first, last
+      cellAtom%first(icell) = n + 1
       previous(icell) = n
       n = n + population(icell)
+      cellAtom%last(icell) = n
     end do
-    threadAtom%last(thread) = n
 
     allocate( offset(first:last) )
     offset = previous(first:last)
@@ -502,7 +504,7 @@ contains
       icell = atomCell(i)
       if ((icell >= first).and.(icell <= last)) then
         k = offset(icell) + 1
-        threadAtom%item(k) = i
+        cellAtom%item(k) = i
         offset(icell) = k
       end if
     end do
@@ -717,7 +719,7 @@ contains
     integer(ib),     pointer :: type(:), natoms(:), previous(:)
     real(rb),        pointer :: charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
-    type(tList),     pointer :: threadAtom, threadCell, neighborLists(:), neighbor, excluded
+    type(tList),     pointer :: cellAtom, threadCell, neighborLists(:), neighbor, excluded
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%type, type, [me%natoms] )
@@ -727,7 +729,7 @@ contains
     call c_f_pointer( me%population, natoms, [me%ncells] )
     call c_f_pointer( me%previous, previous, [me%ncells] )
 
-    call c_f_pointer( me%threadAtom, threadAtom )
+    call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%excluded, excluded )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
@@ -742,7 +744,7 @@ contains
     maxpairs = (n*((2*nbcells + 1)*n - 1))/2
 
     npairs = 0
-    atom = threadAtom%item
+    atom = cellAtom%item
     do icell = threadCell%first(thread), threadCell%last(thread)
       if (neighbor%nitems < npairs + maxpairs) call neighbor % resize( npairs + maxpairs + extra )
       nlocal = natoms(icell)
@@ -810,13 +812,13 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine compute_pairs( me, threadId, L, Rs, F, Energy, Virial )
+  subroutine compute_pairs( me, thread, L, Rs, F, Energy, Virial )
     type(tEmDee), intent(in)    :: me
-    integer,      intent(in)    :: threadId
+    integer,      intent(in)    :: thread
     real(rb),     intent(in)    :: L, Rs(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
-    integer  :: i, j, k, m, itype
+    integer  :: i, j, k, m, itype, firstAtom, lastAtom
     real(rb) :: invL, invL2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
 
@@ -824,20 +826,23 @@ contains
     integer(ib),     pointer :: type(:)
     real(rb),        pointer :: charge(:)
     type(tModelPtr), pointer :: pairType(:,:)
-    type(tList),     pointer :: threadAtom, neighborLists(:), neighbor
+    type(tList),     pointer :: cellAtom, threadCell, neighborLists(:), neighbor
 
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
-    call c_f_pointer( me%threadAtom, threadAtom )
+    call c_f_pointer( me%cellAtom, cellAtom )
+    call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
-    neighbor => neighborLists(threadId)
+    neighbor => neighborLists(thread)
 
     invL = one/L
     invL2 = invL*invL
     Rc2 = me%RcSq*invL2
-    do m = threadAtom%first(threadId), threadAtom%last(threadId)
-      i = threadAtom%item(m)
+    firstAtom = cellAtom%first(threadCell%first(thread))
+    lastAtom = cellAtom%last(threadCell%last(thread))
+    do m = firstAtom, lastAtom
+      i = cellAtom%item(m)
       itype = type(i)
       Ri = Rs(:,i)
       Fi = zero
