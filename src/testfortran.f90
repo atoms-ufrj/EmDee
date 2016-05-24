@@ -93,11 +93,11 @@ print*, 0, md%Energy, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)
 do step = 1, Nsteps
-  if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
   V = V + Dt_2*F
   R = R + Dt*V
   call md_compute_forces( mdp, L )
   V = V + Dt_2*F
+  if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
 end do
 print*, "execution time = ", secnds(0.0) - tf, " s."
 call cpu_time( tf )
