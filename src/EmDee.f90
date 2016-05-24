@@ -52,45 +52,43 @@ type, bind(C) :: tCell
 end type tCell
 
 type, bind(C) :: tEmDee
+  integer(ib) :: builds         ! Number of neighbor-list builds
+  real(rb)    :: time           ! Total time taken in force calculations
+  real(rb)    :: Rc             ! Cut-off distance
+  real(rb)    :: RcSq           ! Cut-off distance squared
+  real(rb)    :: xRc            ! Extended cutoff distance (including skin)
+  real(rb)    :: xRcSq          ! Extended cutoff distance squared
+  real(rb)    :: skinSq         ! Square of the neighbor list skin width
 
-  integer(ib) :: builds       ! Number of neighbor-list builds
+  integer(ib) :: mcells         ! Number of cells at each dimension
+  integer(ib) :: ncells         ! Total number of cells
+  integer(ib) :: maxcells       ! Maximum number of cells
+  integer(ib) :: maxatoms
+  integer(ib) :: maxpairs       ! Maximum number of pairs containing all atoms of a cell
+  type(c_ptr) :: cell           ! Array containing all neighbor cells of each cell
 
-  real(rb)    :: time         ! Total time taken in force calculations
+  integer(ib) :: natoms         ! Number of atoms in the system
+  type(c_ptr) :: type           ! The type of each atom
+  type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
+  type(c_ptr) :: R              ! Pointer to the coordinate of each atom
+  type(c_ptr) :: F              ! Pointer to the resultant force over each atom
+  type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
 
-  real(rb)    :: Rc           ! Cut-off distance
-  real(rb)    :: RcSq         ! Cut-off distance squared
-  real(rb)    :: xRc          ! Extended cutoff distance (including skin)
-  real(rb)    :: xRcSq        ! Extended cutoff distance squared
-  real(rb)    :: skinSq       ! Square of the neighbor list skin width
+  integer(ib) :: ntypes         ! Number of atom types
+  type(c_ptr) :: pairType       ! Model and parameters of each type of atom pair
 
-  integer(ib) :: mcells       ! Number of cells at each dimension
-  integer(ib) :: ncells       ! Total number of cells
-  integer(ib) :: maxcells     ! Maximum number of cells
-  integer(ib) :: maxneighbors
-  type(c_ptr) :: cell         ! Array containing all neighbor cells of each cell
+  type(tStructData) :: bond     ! List of bonds
+  type(tStructData) :: angle    ! List of angles
+  type(tStructData) :: dihedral ! List of dihedrals
 
-  integer(ib) :: natoms       ! Number of atoms in the system
-  type(c_ptr) :: type         ! The type of each atom
-  type(c_ptr) :: R0           ! The position of each atom at the latest neighbor list building
-  type(c_ptr) :: R            ! Pointer to the coordinate of each atom
-  type(c_ptr) :: F            ! Pointer to the resultant force over each atom
-  type(c_ptr) :: charge       ! Pointer to the electric charge of each atom
+  real(rb)    :: Energy         ! Total potential energy of the system
+  real(rb)    :: Virial         ! Total internal virial of the system
 
-  integer(ib) :: ntypes       ! Number of atom types
-  type(c_ptr) :: pairType     ! Model and parameters of each type of atom pair
-
-  type(tStructData) :: bond
-  type(tStructData) :: angle
-  type(tStructData) :: dihedral
-
-  real(rb)    :: Energy       ! Total potential energy of the system
-  real(rb)    :: Virial       ! Total internal virial of the system
-
-  integer(ib) :: nthreads     ! Number of parallel openmp threads
-  type(c_ptr) :: cellAtom     ! List of atoms belonging to each cell
-  type(c_ptr) :: threadCell   ! List of cells to be dealt with in each parallel thread
-  type(c_ptr) :: neighbor
-  type(c_ptr) :: excluded
+  integer(ib) :: nthreads       ! Number of parallel openmp threads
+  type(c_ptr) :: cellAtom       ! List of atoms belonging to each cell
+  type(c_ptr) :: threadCell     ! List of cells to be dealt with in each parallel thread
+  type(c_ptr) :: neighbor       ! Pointer to neighbor lists
+  type(c_ptr) :: excluded       ! List of pairs excluded from the neighbor lists
 
 end type tEmDee
 
@@ -264,7 +262,9 @@ contains
       call c_f_pointer( me%excluded, excluded )
       n = excluded%count
       if (n == excluded%nitems) call excluded % resize( n + extra )
-      call add_item( min(i,j), max(i,j) )
+!      call add_item( min(i,j), max(i,j) )
+      call add_item( i, j )
+      call add_item( j, i )
       excluded%count = n
     end if
 
@@ -479,7 +479,8 @@ contains
 
     end block
     !$omp end parallel
-    me%maxneighbors = (maxNatoms*((2*nbcells + 1)*maxNatoms - 1))/2
+    me%maxatoms = maxNatoms
+    me%maxpairs = (maxNatoms*((2*nbcells + 1)*maxNatoms - 1))/2
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -692,9 +693,12 @@ contains
 
     integer(ib) :: i, j, k, m, n, icell, jcell, npairs, itype
     real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
-    logical     :: include
-    integer(ib) :: atom(me%natoms)
+!    logical     :: include
+    integer(ib) :: atom(me%maxpairs)
     real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3)
+
+    integer(ib) :: nlocal, ntotal, first, last, index(me%natoms)
+    logical(1)  :: include(0:me%maxpairs)
 
     integer(ib), allocatable :: xlist(:)
 
@@ -720,65 +724,74 @@ contains
     xRc2 = me%xRcSq*invL2
     Rc2 = me%RcSq*invL2
 
+    include = .true._1
+    index = 0_ib
     npairs = 0
-    atom = cellAtom%item
     do icell = threadCell%first(thread), threadCell%last(thread)
-      if (neighbor%nitems < npairs + me%maxneighbors) call neighbor % resize( npairs + me%maxneighbors + extra )
-      do k = cellAtom%first(icell), cellAtom%last(icell)
+
+      if (neighbor%nitems < npairs + me%maxpairs) then
+        call neighbor % resize( npairs + me%maxpairs + extra )
+      end if
+
+      first = cellAtom%first(icell)
+      last = cellAtom%last(icell)
+      nlocal = last - first + 1
+      atom(1:nlocal) = cellAtom%item(first:last)
+
+      ntotal = nlocal
+      do m = 1, nbcells
+        jcell = cell(icell)%neighbor(m)
+        first = cellAtom%first(jcell)
+        last = cellAtom%last(jcell)
+        n = ntotal + 1
+        ntotal = n + last - first
+        atom(n:ntotal) = cellAtom%item(first:last)
+      end do
+
+      forall (m=1:ntotal) index(atom(m)) = m
+      do k = 1, nlocal
         i = atom(k)
         neighbor%first(i) = npairs + 1
         itype = type(i)
         icharge = charge(i)
         Ri = Rs(:,i)
         Fi = zero
-        xlist = excluded%item(excluded%first(i):excluded%last(i))
-        do m = k + 1, cellAtom%last(icell)
-          j = atom(m)
-          call check_pair()
-        end do
-        do n = 1, nbcells
-          jcell = cell(icell)%neighbor(n)
-          do m = cellAtom%first(jcell), cellAtom%last(jcell)
+        xlist = index(excluded%item(excluded%first(i):excluded%last(i)))
+        include(xlist) = .false._1
+        do m = k + 1, ntotal
+          if (include(m)) then
             j = atom(m)
-            call check_pair()
-          end do
-        end do
-        F(:,i) = F(:,i) + Fi
-        neighbor%last(i) = npairs
-      end do
-    end do
-    neighbor%count = npairs
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine check_pair()
-        model => pairType(itype,type(j))%model
-        if (associated(model)) then
-          Rij = Ri - Rs(:,j)
-          Rij = Rij - nint(Rij)
-          r2 = sum(Rij*Rij)
-          if (r2 < xRc2) then
-            if (i < j) then
-              include = all(xlist /= j)
-            else
-              include = all(excluded%item(excluded%first(j):excluded%last(j)) /= i)
-            end if
-            if (include) then
-              npairs = npairs + 1
-              neighbor%item(npairs) = j
-              if (r2 < Rc2) then
-                invR2 = invL2/r2
-                jcharge = charge(j)
-                call compute_pair()
-                Energy = Energy + Eij
-                Virial = Virial + Wij
-                Fij = Wij*invR2*Rij
-                Fi = Fi + Fij
-                F(:,j) = F(:,j) - Fij
+            model => pairType(itype,type(j))%model
+            if (associated(model)) then
+              Rij = Ri - Rs(:,j)
+              Rij = Rij - nint(Rij)
+              r2 = sum(Rij*Rij)
+              if (r2 < xRc2) then
+                npairs = npairs + 1
+                neighbor%item(npairs) = j
+                if (r2 < Rc2) then
+                  invR2 = invL2/r2
+                  jcharge = charge(j)
+                  call compute_pair()
+                  Energy = Energy + Eij
+                  Virial = Virial + Wij
+                  Fij = Wij*invR2*Rij
+                  Fi = Fi + Fij
+                  F(:,j) = F(:,j) - Fij
+                end if
               end if
             end if
           end if
-        end if
-      end subroutine check_pair
+        end do
+        F(:,i) = F(:,i) + Fi
+        neighbor%last(i) = npairs
+        include(xlist) = .true._1
+      end do      
+      index(atom(1:ntotal)) = 0_ib
+
+    end do
+    neighbor%count = npairs
+    contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_pair.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
