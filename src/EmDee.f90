@@ -70,16 +70,14 @@ type, bind(C) :: tEmDee
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: type           ! The type of each atom
   type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
-  type(c_ptr) :: R              ! Pointer to the coordinate of each atom
-  type(c_ptr) :: F              ! Pointer to the resultant force over each atom
   type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
 
   integer(ib) :: ntypes         ! Number of atom types
   type(c_ptr) :: pairType       ! Model and parameters of each type of atom pair
 
-  type(tStructData) :: bond     ! List of bonds
-  type(tStructData) :: angle    ! List of angles
-  type(tStructData) :: dihedral ! List of dihedrals
+  type(c_ptr) :: bonds          ! List of bonds
+  type(c_ptr) :: angles         ! List of angles
+  type(c_ptr) :: dihedrals      ! List of dihedrals
 
   real(rb)    :: Energy         ! Total potential energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
@@ -101,12 +99,11 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  subroutine md_initialize( md, threads, rc, skin, atoms, types, indices, charges, &
-                            coords, forces ) bind(C)
+  subroutine md_initialize( md, threads, rc, skin, atoms, types, indices, charges ) bind(C)
     type(c_ptr), value :: md
     integer(ib), value :: threads, atoms, types
     real(rb),    value :: rc, skin
-    type(c_ptr), value :: indices, charges, coords, forces
+    type(c_ptr), value :: indices, charges
 
     integer(ib) :: i
 
@@ -124,8 +121,6 @@ contains
     me%xRcSq = me%xRc**2
     me%skinSq = skin*skin
     me%natoms = atoms
-    me%R = coords
-    me%F = forces
     me%ntypes = types
     me%mcells = 0
     me%ncells = 0
@@ -134,9 +129,10 @@ contains
     me%time = zero
     me%R0 = malloc_real( 3*me%natoms, value = zero )
     me%cell = malloc_int( 0 )
-    me%bond%list = malloc_int( 0 )
-    me%angle%list = malloc_int( 0 )
     me%nthreads = threads
+    me%bonds = c_null_ptr
+    me%angles = c_null_ptr
+    me%dihedrals = c_null_ptr
 
     ! Allocate memory for list of atoms per cell:
     allocate( cellAtom )
@@ -205,7 +201,7 @@ contains
     type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
-    call add_bonded_struc( me%bond, i, j, 0, 0, model )
+    call add_bonded_struc( me%bonds, i, j, 0, 0, model )
     call md_exclude_pair( md, i, j )
 
   end subroutine md_add_bond
@@ -220,7 +216,7 @@ contains
     type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
-    call add_bonded_struc( me%angle, i, j, k, 0, model )
+    call add_bonded_struc( me%angles, i, j, k, 0, model )
     call md_exclude_pair( md, i, j )
     call md_exclude_pair( md, i, k )
     call md_exclude_pair( md, j, k )
@@ -237,7 +233,7 @@ contains
     type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
-    call add_bonded_struc( me%dihedral, i, j, k, l, model )
+    call add_bonded_struc( me%dihedrals, i, j, k, l, model )
     call md_exclude_pair( md, i, j )
     call md_exclude_pair( md, i, k )
     call md_exclude_pair( md, i, l )
@@ -295,8 +291,8 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_compute_forces( md, L ) bind(C)
-    type(c_ptr), value :: md
+  subroutine md_compute_forces( md, forces, coords, L ) bind(C)
+    type(c_ptr), value :: md, forces, coords
     real(rb),    value :: L
 
     integer(ib)    :: M
@@ -304,15 +300,16 @@ contains
     logical        :: buildList
 
     type(tEmDee), pointer :: me
-    real(rb),     pointer :: R(:,:), F(:,:)
+    real(rb),     pointer :: R(:,:), F(:,:), R0(:,:)
 
     real(rb),    allocatable :: Rs(:,:), Fs(:,:)
 
     call c_f_pointer( md, me )
-    call c_f_pointer( me%F, F, [3,me%natoms] )
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-
     me%time = me%time - omp_get_wtime()
+
+    call c_f_pointer( forces, F, [3,me%natoms] )
+    call c_f_pointer( coords, R, [3,me%natoms] )
+    call c_f_pointer( me%R0, R0, [3,me%natoms] )
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
     Rs = (one/L)*R
@@ -320,7 +317,7 @@ contains
     Energy = zero
     Virial = zero
 
-    buildList = maximum_approach_sq( me ) > me%skinSq
+    buildList = maximum_approach_sq( me%natoms, R - R0 ) > me%skinSq
     if (buildList) then
       M = floor(ndiv*L/me%xRc)
       if (M < 5) then
@@ -328,22 +325,22 @@ contains
         stop
       end if
       call distribute_atoms( me, M, Rs )
-      call copy_real( me%R, me%R0, 3*me%natoms )
+      R0 = R
       me%builds = me%builds + 1
     endif
 
     !$omp parallel num_threads(me%nthreads) reduction(+:Fs,Energy,Virial)
     block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
+      integer :: thr
+      thr = omp_get_thread_num() + 1
       if (buildList) then
-        call find_pairs_and_compute( me, thread, L, Rs, Fs, Energy, Virial )
+        call find_pairs_and_compute( me, thr, L, Rs, Fs, Energy, Virial )
       else
-        call compute_pairs( me, thread, L, Rs, Fs, Energy, Virial )
+        call compute_pairs( me, thr, L, Rs, Fs, Energy, Virial )
       end if
-      if (me%bond%number /= 0) call compute_bonds( me, thread, L, Rs, Fs, Energy, Virial )
-      if (me%angle%number /= 0) call compute_angles( me, thread, L, Rs, Fs, Energy, Virial )
-      if (me%dihedral%number /= 0) call compute_dihedrals( me, thread, L, Rs, Fs, Energy, Virial )
+      if (c_associated(me%bonds)) call compute_bonds( me, thr, L, Rs, Fs, Energy, Virial )
+      if (c_associated(me%angles)) call compute_angles( me, thr, L, Rs, Fs, Energy, Virial )
+      if (c_associated(me%dihedrals)) call compute_dihedrals( me, thr, L, Rs, Fs, Energy, Virial )
     end block
     !$omp end parallel
 
@@ -359,19 +356,17 @@ contains
 !                              A U X I L I A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  real(rb) function maximum_approach_sq( me )
-    type(tEmDee), intent(in) :: me
-
+  real(rb) function maximum_approach_sq( N, delta )
+    integer(ib), intent(in) :: N
+    real(rb),    intent(in) :: delta(3,N)
+ 
     integer(ib) :: i
     real(rb)    :: maximum, next, deltaSq
-    real(rb), pointer :: R(:,:), R0(:,:)
 
-    call c_f_pointer( me%R, R, [3,me%natoms] )
-    call c_f_pointer( me%R0, R0, [3,me%natoms] )
-    maximum = sum((R(:,1) - R0(:,1))**2)
+    maximum = sum(delta(:,1)**2)
     next = maximum
-    do i = 2, me%natoms
-      deltaSq = sum((R(:,i) - R0(:,i))**2)
+    do i = 2, N
+      deltaSq = sum(delta(:,i)**2)
       if (deltaSq > maximum) then
         next = maximum
         maximum = deltaSq
@@ -509,20 +504,20 @@ contains
     real(rb)    :: invL, d, E, mdEdr
     real(rb)    :: Rij(3), Fij(3)
 
-    type(tModel),  pointer :: model
-    type(tStruct), pointer :: bond(:)
+    type(tModel),      pointer :: model
+    type(tStructData), pointer :: bonds
 
-    call c_f_pointer( me%bond%list, bond, [me%bond%number] )
+    call c_f_pointer( me%bonds, bonds )
 
     invL = one/L
-    nbonds = (me%bond%number + me%nthreads - 1)/me%nthreads
-    do m = (threadId - 1)*nbonds + 1, min( me%bond%number, threadId*nbonds )
-      i = bond(m)%i
-      j = bond(m)%j
+    nbonds = (bonds%number + me%nthreads - 1)/me%nthreads
+    do m = (threadId - 1)*nbonds + 1, min( bonds%number, threadId*nbonds )
+      i = bonds%item(m)%i
+      j = bonds%item(m)%j
       Rij = R(:,i) - R(:,j)
       Rij = Rij - nint(Rij)
       d = L*sqrt(sum(Rij*Rij))
-      model => bond(m)%model
+      model => bonds%item(m)%model
       call compute_bond
       Energy = Energy + E
       Virial = Virial + mdEdr*d
@@ -549,17 +544,17 @@ contains
     real(rb)    :: aa, bb, ab, axb, theta, Ea, Fa
     real(rb)    :: Rj(3), Fi(3), Fk(3), a(3), b(3)
 
-    type(tModel),  pointer :: model
-    type(tStruct), pointer :: angle(:)
+    type(tModel),      pointer :: model
+    type(tStructData), pointer :: angles
 
-    call c_f_pointer( me%angle%list, angle, [me%angle%number] )
+    call c_f_pointer( me%angles, angles )
 
-    nangles = (me%angle%number + me%nthreads - 1)/me%nthreads
-    do m = (threadId - 1)*nangles + 1, min( me%angle%number, threadId*nangles )
-      i = angle(m)%i
-      j = angle(m)%j
-      k = angle(m)%k
-      model => angle(m)%model
+    nangles = (angles%number + me%nthreads - 1)/me%nthreads
+    do m = (threadId - 1)*nangles + 1, min( angles%number, threadId*nangles )
+      i = angles%item(m)%i
+      j = angles%item(m)%j
+      k = angles%item(m)%k
+      model => angles%item(m)%model
       Rj = R(:,j)
       a = R(:,i) - Rj
       b = R(:,k) - Rj
@@ -601,22 +596,23 @@ contains
     real(rb)    :: normRkj, normX, a, b, phi
     real(rb)    :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
 
-    integer(ib),     pointer :: type(:)
-    real(rb),        pointer :: charge(:)
-    type(tModel),    pointer :: model
-    type(tStruct),   pointer :: dihedral(:), d
-    type(tModelPtr), pointer :: pairType(:,:)
+    integer(ib),       pointer :: type(:)
+    real(rb),          pointer :: charge(:)
+    type(tModel),      pointer :: model
+    type(tStruct),     pointer :: d
+    type(tStructData), pointer :: dihedrals
+    type(tModelPtr),   pointer :: pairType(:,:)
 
-    call c_f_pointer( me%dihedral%list, dihedral, [me%dihedral%number] )
+    call c_f_pointer( me%dihedrals, dihedrals )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%type, type, [me%natoms] )
     call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
 
     invL2 = one/(L*L)
     Rc2 = me%RcSq*invL2
-    ndihedrals = (me%dihedral%number + me%nthreads - 1)/me%nthreads
-    do m = (threadId - 1)*ndihedrals + 1, min( me%dihedral%number, threadId*ndihedrals )
-      d => dihedral(m)
+    ndihedrals = (dihedrals%number + me%nthreads - 1)/me%nthreads
+    do m = (threadId - 1)*ndihedrals + 1, min( dihedrals%number, threadId*ndihedrals )
+      d => dihedrals%item(m)
       Rj = R(:,d%j)
       Rk = R(:,d%k)
       rij = R(:,d%i) - Rj
@@ -691,14 +687,11 @@ contains
     real(rb),     intent(in)    :: L, Rs(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
-    integer(ib) :: i, j, k, m, n, icell, jcell, npairs, itype
+    integer(ib) :: i, j, k, m, n, icell, jcell, npairs, itype, nlocal, ntotal, first, last
     real(rb)    :: invL, invL2, xRc2, Rc2, r2, invR2, Eij, Wij, icharge, jcharge
-!    logical     :: include
-    integer(ib) :: atom(me%maxpairs)
+    logical     :: include(0:me%maxpairs)
+    integer(ib) :: atom(me%maxpairs), index(me%natoms)
     real(rb)    :: Ri(3), Rij(3), Fi(3), Fij(3)
-
-    integer(ib) :: nlocal, ntotal, first, last, index(me%natoms)
-    logical(1)  :: include(0:me%maxpairs)
 
     integer(ib), allocatable :: xlist(:)
 
@@ -724,8 +717,8 @@ contains
     xRc2 = me%xRcSq*invL2
     Rc2 = me%RcSq*invL2
 
-    include = .true._1
-    index = 0_ib
+    include = .true.
+    index = 0
     npairs = 0
     do icell = threadCell%first(thread), threadCell%last(thread)
 
@@ -757,14 +750,14 @@ contains
         Ri = Rs(:,i)
         Fi = zero
         xlist = index(excluded%item(excluded%first(i):excluded%last(i)))
-        include(xlist) = .false._1
+        include(xlist) = .false.
         do m = k + 1, ntotal
           if (include(m)) then
             j = atom(m)
             model => pairType(itype,type(j))%model
             if (associated(model)) then
               Rij = Ri - Rs(:,j)
-              Rij = Rij - nint(Rij)
+              Rij = Rij - anint(Rij)
               r2 = sum(Rij*Rij)
               if (r2 < xRc2) then
                 npairs = npairs + 1
@@ -785,9 +778,9 @@ contains
         end do
         F(:,i) = F(:,i) + Fi
         neighbor%last(i) = npairs
-        include(xlist) = .true._1
+        include(xlist) = .true.
       end do      
-      index(atom(1:ntotal)) = 0_ib
+      index(atom(1:ntotal)) = 0
 
     end do
     neighbor%count = npairs
@@ -837,7 +830,7 @@ contains
       do k = neighbor%first(i), neighbor%last(i)
         j = neighbor%item(k)
         Rij = Ri - Rs(:,j)
-        Rij = Rij - nint(Rij)
+        Rij = Rij - anint(Rij)
         r2 = sum(Rij*Rij)
         if (r2 < Rc2) then
           invR2 = invL2/r2

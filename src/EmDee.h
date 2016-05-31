@@ -4,76 +4,75 @@ typedef struct {
   double p2;
   double p3;
   double p4;
+  double f14;
 } tModel;
 
 typedef struct {
-  int i;
-  int j;
-  tModel model;
-} tBond;
 
-typedef struct {
-  int i;
-  int j;
-  tModel model;
-} tAngle;
+  int builds;            // Number of neighbor-list builds
+  double time;           // Total time taken in force calculations
+  double Rc;             // Cut-off distance
+  double RcSq;           // Cut-off distance squared
+  double xRc;            // Extended cutoff distance (including skin)
+  double xRcSq;          // Extended cutoff distance squared
+  double skinSq;         // Square of the neighbor list skin width
 
-typedef struct {
-  int neighbor[62];
-} tCell;
+  int mcells;            // Number of cells at each dimension
+  int ncells;            // Total number of cells
+  int maxcells;          // Maximum number of cells
+  int maxatoms;
+  int maxpairs;          // Maximum number of pairs containing all atoms of a cell
+  void *cell;            // Array containing all neighbor cells of each cell
 
-typedef struct {
-  int nitems;
-  int count;
-  int *first;
-  int *last;
-  int *item;
-} tList;
+  int natoms;            // Number of atoms in the system
+  int *type;             // The type of each atom
+  double *R0;            // The position of each atom at the latest neighbor list building
+  double *charge;        // Pointer to the electric charge of each atom
 
-typedef struct {
-  int builds;        // Number of neighbor-list builds
+  int ntypes;            // Number of atom types
+  void *pairType;        // Model and parameters of each type of atom pair
+ 
+  void *bond;            // List of bonds
+  void *angle;           // List of angles
+  void *dihedral;        // List of dihedrals
 
-  tList neighbor;
-  tList exclude;
+  double Energy;         // Total potential energy of the system
+  double Virial;         // Total internal virial of the system
 
-  double time;
-
-  int natoms;        // Number of atoms
-  int nx3;           // Three times the number of atoms
-  int mcells;        // Number of cells at each dimension
-  int ncells;        // Total number of cells
-  int maxcells;      // Maximum number of cells
-
-  double Rc;         // Cut-off distance
-  double RcSq;       // Cut-off distance squared
-  double xRc;        // Extended cutoff distance (including skin)
-  double xRcSq;      // Extended cutoff distance squared
-  double skinSq;     // Square of the neighbor list skin width
-
-  tCell *cell;
-
-  int *type;         // Atom types
-  double *R0;        // Atom positions at list building
-  double *R;         // Pointer to dynamic atom positions
-  double *F;
-
-  int ntypes;
-  tModel *pairType;
-
-  int nbonds;
-  tBond *bond;
-
-  double Energy;
-  double Virial;
+  int nthreads;          // Number of parallel openmp threads
+  void *cellAtom;        // List of atoms belonging to each cell
+  void *threadCell;      // List of cells to be dealt with in each parallel thread
+  void *neighbor;        // Pointer to neighbor lists
+  void *excluded;        // List of pairs excluded from the neighbor lists
 
 } tEmDee;
 
-void md_initialize( tEmDee *me, double rc, double skin, int atoms, int types,
-                    int *type_index, double *coords, double *forces );
-void md_set_pair( tEmDee *me, int i, int j, tModel model );
-void md_compute_forces( tEmDee *me, double L );
+void md_initialize( tEmDee *me, int threads, double rc, double skin, int atoms, int types,
+                    int *indices, double *charges );
 
+void md_set_pair( tEmDee *md, int itype, int jtype, tModel *model );
 
-tModel lennard_jones( double sigma, double epsilon );
-tModel shifted_force_lennard_jones( double sigma, double epsilon, double rc );
+void md_add_bond( tEmDee *md, int i, int j, tModel *model );
+
+void md_add_angle( tEmDee *md, int i, int j, int k, tModel *model );
+
+void md_add_dihedral( tEmDee *md, int i, int j, int k, int l, tModel *model );
+
+void md_exclude_pair( tEmDee *md, int i, int j );
+
+void md_compute_forces( tEmDee *md, double *forces, double *coords, double L );
+
+tModel pair_lj( double sigma, double epsilon );
+
+tModel pair_lj_sf( double sigma, double epsilon, double cutoff );
+
+tModel pair_lj_coul_sf( double sigma, double epsilon, double permittivity, double cutoff );
+
+tModel bond_harmonic( double k, double r0 );
+
+tModel bond_morse( double D, double alpha, double r0 );
+
+tModel angle_harmonic( double k, double theta0 );
+
+tModel dihedral_harmonic( double k, double phi0 );
 

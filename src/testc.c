@@ -16,7 +16,7 @@ typedef struct {
 
 double drand()   /* uniform distribution, (0..1] */
 {
-  return (rand()+1.0)/(RAND_MAX+1.0);
+  return (rand() + 1.0)/(RAND_MAX + 1.0);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -28,26 +28,30 @@ double random_normal()  /* normal distribution, centered on 0, std dev 1 */
 
 //--------------------------------------------------------------------------------------------------
 
-void read_data( simpar *par )
+void read_data( simpar *par, char *filename )
 {
+  FILE *file;
+  file = fopen(filename,"r");
   #define readline \
-    if (fgets(line, sizeof(line), stdin)) \
-    if (!fgets(line, sizeof(line), stdin)) { \
+    if (fgets(line, sizeof(line), file)) \
+    if (!fgets(line, sizeof(line), file)) { \
       printf("ERROR: could not read data."); \
       exit(0); \
     }
   double InvRc2, InvRc6, InvRc12;
   char line[256];
-  readline; sscanf( line, "%d", &par->N );
-  readline; sscanf( line, "%lf", &par->Rc );
-  readline; sscanf( line, "%lf", &par->Rs );
-  readline; sscanf( line, "%d",  &par->seed );
-  readline; sscanf( line, "%lf", &par->Dt );
-  readline; sscanf( line, "%d",  &par->Npassos );
-  readline; sscanf( line, "%d",  &par->Nprop );
-  readline; sscanf( line, "%lf", &par->rho );
-  readline; sscanf( line, "%lf", &par->Temp );
-  readline; sscanf( line, "%lf", &par->Press );
+  if (file != NULL) {
+    readline; sscanf( line, "%d", &par->N );
+    readline; sscanf( line, "%lf", &par->Rc );
+    readline; sscanf( line, "%lf", &par->Rs );
+    readline; sscanf( line, "%d",  &par->seed );
+    readline; sscanf( line, "%lf", &par->Dt );
+    readline; sscanf( line, "%d",  &par->Npassos );
+    readline; sscanf( line, "%d",  &par->Nprop );
+    readline; sscanf( line, "%lf", &par->rho );
+    readline; sscanf( line, "%lf", &par->Temp );
+    readline; sscanf( line, "%lf", &par->Press );
+  }
   #undef readline
   par->Rc2 = par->Rc*par->Rc;
   par->L = pow(par->N/par->rho,1.0/3.0);
@@ -99,25 +103,39 @@ void create_configuration( simpar *par )
 
 //--------------------------------------------------------------------------------------------------
 
-int main()
-{
+int main( int argc, char *argv[] )  {
+  int threads;
+  char *filename;
+  if (argc == 2) {
+    threads = 1;
+    filename = argv[1];
+  }
+  else if (argc == 3) {
+    threads = atoi(argv[1]);
+    filename = argv[2];
+  }
+  else {
+    printf("Usage: testc [number-of-threads] input-file\n");
+    exit(EXIT_FAILURE);
+  }
   simpar par;
-  read_data( &par );
+  read_data( &par, filename );
   create_configuration( &par );
   tEmDee md;
-  md_initialize( &md, par.Rc, par.Rs, par.N, 1, NULL, par.R, par.F );
-  md_set_pair( &md, 1, 1, lennard_jones( 1.0, 1.0 ) );
-  md_compute_forces( &md, par.L );
+  md_initialize( &md, threads, par.Rc, par.Rs, par.N, 1, NULL, NULL );
+  tModel lj = pair_lj( 1.0, 1.0 );   
+  md_set_pair( &md, 1, 1, &lj );
+  md_compute_forces( &md, par.F, par.R, par.L );
   printf("%d %lf %lf\n", 0, md.Energy, md.Virial);
   clock_t start = clock();
   for (int passo = 1; passo <= par.Npassos; passo++) {
     if (passo % par.Nprop == 0) printf("%d %lf %lf\n", passo, md.Energy, md.Virial);
-    for (int i = 0; i < md.nx3; i++) {
+    for (int i = 0; i < 3*md.natoms; i++) {
       par.V[i] += par.Dt_2*par.F[i];
       par.R[i] += par.Dt*par.V[i];
     }
-    md_compute_forces( &md, par.L );
-    for (int i = 0; i < md.nx3; i++)
+    md_compute_forces( &md, par.F, par.R, par.L );
+    for (int i = 0; i < 3*md.natoms; i++)
       par.V[i] += par.Dt_2*par.F[i];
   }
   clock_t diff = clock() - start;

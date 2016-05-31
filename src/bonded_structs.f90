@@ -31,10 +31,10 @@ type tStruct
   type(tModel), pointer :: model => null()
 end type tStruct
 
-type, bind(C) :: tStructData
-  integer     :: number = 0
-  integer     :: max = 0
-  type(c_ptr) :: list
+type tStructData
+  integer :: number = 0
+  integer :: max = 0
+  type(tStruct), allocatable :: item(:)
 end type tStructData
 
 contains
@@ -42,26 +42,30 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   subroutine add_bonded_struc( struct, i, j, k, l, model )
-    type(tStructData), intent(inout) :: struct
-    integer(ib),       intent(in)    :: i, j, k, l
-    type(c_ptr),       intent(in)    :: model
+    type(c_ptr), intent(inout) :: struct
+    integer(ib), intent(in)    :: i, j, k, l
+    type(c_ptr), intent(in)    :: model
 
-    type(tStruct), pointer :: old(:), new(:)
+    type(tStructData), pointer :: ptr
+    type(tStruct), allocatable :: new(:)
 
-    if (struct%number + 1 > struct%max) then
-      call c_f_pointer( struct%list, old, [struct%max] )
-      allocate( new(struct%max+extra) )
-      new(1:struct%number) = old(1:struct%number)
-      deallocate( old )
-      struct%list = c_loc(new(1))
+    if (c_associated(struct)) then
+      call c_f_pointer( struct, ptr )
     else
-      call c_f_pointer( struct%list, new, [struct%number+1] )
+      allocate( ptr )
+      allocate( ptr%item(0) )
+      struct = c_loc(ptr)
     end if
-    struct%number = struct%number + 1
-    new(struct%number) = tStruct( i, j, k, l )
-    call c_f_pointer( model, new(struct%number)%model )
 
-    nullify( new )
+    if (ptr%number == ptr%max) then
+      allocate( new(ptr%max+extra) )
+      new(1:ptr%number) = ptr%item
+      deallocate( ptr%item )
+      call move_alloc( new, ptr%item )
+    end if
+    ptr%number = ptr%number + 1
+    ptr%item(ptr%number) = tStruct( i, j, k, l )
+    call c_f_pointer( model, ptr%item(ptr%number)%model )
   end subroutine add_bonded_struc
 
 !---------------------------------------------------------------------------------------------------

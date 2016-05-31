@@ -1,3 +1,5 @@
+using EmDee
+
 function main()
 
 N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp = read_data()
@@ -7,7 +9,10 @@ Dt_2 = 0.5*Dt
 
 R, V = generate_configuration( seed, N, L, Temp )
 
+md = EmDee.tEmDee()
+F = Array(Float64,N,3)
 
+EmDee.initialize!( md, 1, Rc, Rs, N, 1, [1], zeros(N), R, F )
 
 end
 

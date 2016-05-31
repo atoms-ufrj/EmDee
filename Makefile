@@ -23,7 +23,7 @@ clean:
 	rm -rf $(LIBDIR)
 	rm -f $(BINDIR)/testfortran $(BINDIR)/testc
 
-test: testfortran
+test: testfortran testc
 
 testc: $(BINDIR)/testc
 

@@ -53,7 +53,7 @@ end if
 call read_data( file = line )
 call create_configuration
 mdp = c_loc(md)
-call md_initialize( mdp, threads, Rc, Rs, N, 1, c_null_ptr, c_null_ptr, c_loc(R(1,1)), c_loc(F(1,1)) )
+call md_initialize( mdp, threads, Rc, Rs, N, 1, c_null_ptr, c_null_ptr )
 
 lj = pair_lj( 1.0_rb, 1.0_rb )
 call md_set_pair( c_loc(md), 1, 1, c_loc(lj) )
@@ -88,14 +88,14 @@ call md_add_bond( mdp, 4, 5, c_loc(bond) )
 !print*, "execution time = ", secnds(0.0) - tf, " s."
 !stop
 
-call md_compute_forces( mdp, L )
+call md_compute_forces( mdp, c_loc(F), c_loc(R), L )
 print*, 0, md%Energy, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)
 do step = 1, Nsteps
   V = V + Dt_2*F
   R = R + Dt*V
-  call md_compute_forces( mdp, L )
+  call md_compute_forces( mdp, c_loc(F), c_loc(R), L )
   V = V + Dt_2*F
   if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
 end do
