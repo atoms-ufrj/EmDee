@@ -1,20 +1,36 @@
 using EmDee
 
+#---------------------------------------------------------------------------------------------------
+
 function main()
 
-N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp = read_data()
+  N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp = read_data()
 
-L = (N/rho)^(1.0/3.0)
-Dt_2 = 0.5*Dt
+  L = (N/rho)^(1.0/3.0)
+  Dt_2 = 0.5*Dt
 
-R, V = generate_configuration( seed, N, L, Temp )
+  md = EmDee.tEmDee()
+  EmDee.initialize!( md, 2, Rc, Rs, N, 1, fill(Int(1),N) )
+  lj = EmDee.pair_lj( 1.0, 1.0 )
+  EmDee.set_pair!( md, 1, 1, lj )
 
-md = EmDee.tEmDee()
-F = Array(Float64,N,3)
-
-EmDee.initialize!( md, 1, Rc, Rs, N, 1, [1], zeros(N), R, F )
+  R, V = generate_configuration( seed, N, L, Temp )
+  F = Array(Float64,3,N)
+  EmDee.compute_forces( md, F, R, L )
+  println(0, " ", md.Energy, " ", md.Virial)
+  for step = 1:1000
+    V = V + Dt_2*F
+    R = R + Dt*V
+    EmDee.compute_forces( md, F, R, L )
+    V = V + Dt_2*F
+    if mod(step,50) == 0
+      println(step, " ", md.Energy, " ", md.Virial)
+    end
+  end
 
 end
+
+#---------------------------------------------------------------------------------------------------
 
 function read_data()
   readline(); N = parse(Int,chomp(readline()))
@@ -28,6 +44,8 @@ function read_data()
   readline(); Temp = parse(Float64,chomp(readline()))
   return N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp
 end
+
+#---------------------------------------------------------------------------------------------------
 
 function generate_configuration( seed, N, L, Temp )
   R = Array(Float64,3,N)
@@ -49,6 +67,8 @@ function generate_configuration( seed, N, L, Temp )
   V = sqrt(Temp*(3*N-3)/sum(V.*V))*V
   return R, V
 end
+
+#---------------------------------------------------------------------------------------------------
 
 main()
 

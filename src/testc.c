@@ -122,7 +122,7 @@ int main( int argc, char *argv[] )  {
   read_data( &par, filename );
   create_configuration( &par );
   tEmDee md;
-  md_initialize( &md, threads, par.Rc, par.Rs, par.N, 1, NULL, NULL );
+  md_initialize( &md, threads, par.Rc, par.Rs, par.N, 1, NULL );
   tModel lj = pair_lj( 1.0, 1.0 );   
   md_set_pair( &md, 1, 1, &lj );
   md_compute_forces( &md, par.F, par.R, par.L );

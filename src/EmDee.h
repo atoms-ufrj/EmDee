@@ -48,7 +48,9 @@ typedef struct {
 } tEmDee;
 
 void md_initialize( tEmDee *me, int threads, double rc, double skin, int atoms, int types,
-                    int *indices, double *charges );
+                    int *indices );
+
+void md_set_charges( tEmDee *md, double *charges );
 
 void md_set_pair( tEmDee *md, int itype, int jtype, tModel *model );
 

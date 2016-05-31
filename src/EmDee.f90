@@ -99,17 +99,16 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  subroutine md_initialize( md, threads, rc, skin, atoms, types, indices, charges ) bind(C)
+  subroutine md_initialize( md, threads, rc, skin, atoms, types, indices ) bind(C)
     type(c_ptr), value :: md
     integer(ib), value :: threads, atoms, types
     real(rb),    value :: rc, skin
-    type(c_ptr), value :: indices, charges
+    type(c_ptr), value :: indices
 
     integer(ib) :: i
 
     type(tEmDee),    pointer :: me
     integer(ib),     pointer :: type_ptr(:)
-    real(rb),        pointer :: charge_ptr(:)
     type(tModelPtr), pointer :: pairType(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
 
@@ -133,6 +132,7 @@ contains
     me%bonds = c_null_ptr
     me%angles = c_null_ptr
     me%dihedrals = c_null_ptr
+    me%charge = malloc_real( atoms, value = zero )
 
     ! Allocate memory for list of atoms per cell:
     allocate( cellAtom )
@@ -162,17 +162,22 @@ contains
       me%type = malloc_int( atoms, value = 1 )
     end if
 
-    if (c_associated(charges)) then
-      call c_f_pointer( charges, charge_ptr, [atoms] )
-      me%charge = malloc_real( atoms, array = charge_ptr )
-    else
-      me%charge = malloc_real( atoms, value = zero )
-    end if
-
     allocate( pairType(types,types) )
     me%pairType = c_loc(pairType(1,1))
 
   end subroutine md_initialize
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine md_set_charges( md, charges )
+    type(c_ptr), value :: md, charges
+
+    type(tEmDee), pointer :: me
+
+    call c_f_pointer( md, me )
+    call copy_real( charges, me%charge, me%natoms )
+
+  end subroutine md_set_charges
 
 !---------------------------------------------------------------------------------------------------
 

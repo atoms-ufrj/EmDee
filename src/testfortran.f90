@@ -53,7 +53,7 @@ end if
 call read_data( file = line )
 call create_configuration
 mdp = c_loc(md)
-call md_initialize( mdp, threads, Rc, Rs, N, 1, c_null_ptr, c_null_ptr )
+call md_initialize( mdp, threads, Rc, Rs, N, 1, c_null_ptr )
 
 lj = pair_lj( 1.0_rb, 1.0_rb )
 call md_set_pair( c_loc(md), 1, 1, c_loc(lj) )
