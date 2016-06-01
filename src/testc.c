@@ -121,9 +121,8 @@ int main( int argc, char *argv[] )  {
   simpar par;
   read_data( &par, filename );
   create_configuration( &par );
-  tEmDee md;
-  md_initialize( &md, threads, par.Rc, par.Rs, par.N, 1, NULL );
-  tModel lj = pair_lj( 1.0, 1.0 );   
+  tEmDee md = md_system( threads, par.Rc, par.Rs, par.N, NULL );
+  md_model lj = pair_lj( 1.0, 1.0 );   
   md_set_pair( &md, 1, 1, &lj );
   md_compute_forces( &md, par.F, par.R, par.L );
   printf("%d %lf %lf\n", 0, md.Energy, md.Virial);

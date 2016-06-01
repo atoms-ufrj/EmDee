@@ -5,7 +5,7 @@ typedef struct {
   double p3;
   double p4;
   double f14;
-} tModel;
+} md_model;
 
 typedef struct {
 
@@ -47,34 +47,33 @@ typedef struct {
 
 } tEmDee;
 
-void md_initialize( tEmDee *me, int threads, double rc, double skin, int atoms, int types,
-                    int *indices );
+tEmDee md_system( int threads, double rc, double skin, int N, int *types );
 
 void md_set_charges( tEmDee *md, double *charges );
 
-void md_set_pair( tEmDee *md, int itype, int jtype, tModel *model );
+void md_set_pair( tEmDee *md, int itype, int jtype, md_model *model );
 
-void md_add_bond( tEmDee *md, int i, int j, tModel *model );
+void md_add_bond( tEmDee *md, int i, int j, md_model *model );
 
-void md_add_angle( tEmDee *md, int i, int j, int k, tModel *model );
+void md_add_angle( tEmDee *md, int i, int j, int k, md_model *model );
 
-void md_add_dihedral( tEmDee *md, int i, int j, int k, int l, tModel *model );
+void md_add_dihedral( tEmDee *md, int i, int j, int k, int l, md_model *model );
 
 void md_exclude_pair( tEmDee *md, int i, int j );
 
 void md_compute_forces( tEmDee *md, double *forces, double *coords, double L );
 
-tModel pair_lj( double sigma, double epsilon );
+md_model pair_lj( double sigma, double epsilon );
 
-tModel pair_lj_sf( double sigma, double epsilon, double cutoff );
+md_model pair_lj_sf( double sigma, double epsilon, double cutoff );
 
-tModel pair_lj_coul_sf( double sigma, double epsilon, double permittivity, double cutoff );
+md_model pair_lj_coul_sf( double sigma, double epsilon, double permittivity, double cutoff );
 
-tModel bond_harmonic( double k, double r0 );
+md_model bond_harmonic( double k, double r0 );
 
-tModel bond_morse( double D, double alpha, double r0 );
+md_model bond_morse( double D, double alpha, double r0 );
 
-tModel angle_harmonic( double k, double theta0 );
+md_model angle_harmonic( double k, double theta0 );
 
-tModel dihedral_harmonic( double k, double phi0 );
+md_model dihedral_harmonic( double k, double phi0 );
 

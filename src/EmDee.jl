@@ -1,6 +1,6 @@
 module EmDee
 
-type tModel
+type md_model
   model::Int32
   p1::Float64
   p2::Float64
@@ -22,11 +22,11 @@ type tEmDee
   mcells::Int32           # Number of cells at each dimension
   ncells::Int32           # Total number of cells
   maxcells::Int32         # Maximum number of cells
-  maxatoms::Int32
-  maxpairs::Int32         # Maximum number of pairs containing all atoms of a cell
+  maxatoms::Int32         # Maximum number of atoms in a cell
+  maxpairs::Int32         # Maximum number of pairs formed by all atoms of a cell
   cell::Ptr{Void}         # Array containing all neighbor cells of each cell
 
-  natoms::Int32           # Number of atoms in the system
+  natoms::Int32           # Number of atoms in the tEmDee
   atomType::Ptr{Int32}    # The type of each atom
   R0::Ptr{Float64}        # The position of each atom at the latest neighbor list building
   charge::Ptr{Float64}    # Pointer to the electric charge of each atom
@@ -38,8 +38,8 @@ type tEmDee
   angle::Ptr{Void}        # List of angles
   dihedral::Ptr{Void}     # List of dihedrals
 
-  Energy::Float64         # Total potential energy of the system
-  Virial::Float64         # Total internal virial of the system
+  Energy::Float64         # Total potential energy of the tEmDee
+  Virial::Float64         # Total internal virial of the tEmDee
 
   nthreads::Int32         # Number of parallel openmp threads
   cellAtom::Ptr{Void}     # List of atoms belonging to each cell
@@ -49,28 +49,22 @@ type tEmDee
 
 end
 
-tEmDee() = tEmDee(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
-
 #---------------------------------------------------------------------------------------------------
 
-function initialize!( md::tEmDee, threads::Int, rc::Real, skin::Real, atoms::Int, types::Int,
-                      indices::Array{Int,1} )
-
-  ccall( (:md_initialize, "libemdee"), Void,
-         (Ptr{Void}, Int32, Float64, Float64, Int32, Int32, Ptr{Int32}),
-         pointer_from_objref(md), threads, rc, skin, atoms, types, Array{Int32,1}(indices) )
-
+function system( threads::Int, rc::Real, skin::Real, atoms::Int, types::Array{Int,1} )
+  return ccall( (:md_system, "libemdee"), tEmDee,
+                (Int32, Float64, Float64, Int32, Ptr{Int32}),
+                threads, rc, skin, atoms, Array{Int32,1}(types) )
 end
 
 #---------------------------------------------------------------------------------------------------
 
-function set_pair!( md::tEmDee, itype::Int, jtype::Int, model::tModel )
+function set_pair( md::tEmDee, itype::Int, jtype::Int, model::md_model )
   ccall( (:md_set_pair, "libemdee"), Void, (Ptr{Void}, Int32, Int32, Ptr{Void}),
          pointer_from_objref(md), itype, jtype, pointer_from_objref(model) )
 end
 
 #---------------------------------------------------------------------------------------------------
-
 
 function compute_forces( md::tEmDee, forces::Array{Float64,2}, coords::Array{Float64,2}, L::Real )
   ccall( (:md_compute_forces, "libemdee"), Void, (Ptr{Void}, Ptr{Float64}, Ptr{Float64}, Float64),
@@ -80,7 +74,7 @@ end
 #---------------------------------------------------------------------------------------------------
 
 function pair_lj( sigma::Real, epsilon::Real )
-  return ccall( (:pair_lj, "libemdee"), tModel, (Float64, Float64), sigma, epsilon )
+  return ccall( (:pair_lj, "libemdee"), md_model, (Float64, Float64), sigma, epsilon )
 end
 
 #---------------------------------------------------------------------------------------------------

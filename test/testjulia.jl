@@ -1,3 +1,5 @@
+#!/usr/local/bin/julia
+
 using EmDee
 
 #---------------------------------------------------------------------------------------------------
@@ -9,16 +11,15 @@ function main()
   L = (N/rho)^(1.0/3.0)
   Dt_2 = 0.5*Dt
 
-  md = EmDee.tEmDee()
-  EmDee.initialize!( md, 2, Rc, Rs, N, 1, fill(Int(1),N) )
+  md = EmDee.system( 2, Rc, Rs, N, fill(Int(1),N) )
   lj = EmDee.pair_lj( 1.0, 1.0 )
-  EmDee.set_pair!( md, 1, 1, lj )
+  EmDee.set_pair( md, 1, 1, lj )
 
   R, V = generate_configuration( seed, N, L, Temp )
   F = Array(Float64,3,N)
   EmDee.compute_forces( md, F, R, L )
   println(0, " ", md.Energy, " ", md.Virial)
-  for step = 1:1000
+  for step = 1:Nsteps
     V = V + Dt_2*F
     R = R + Dt*V
     EmDee.compute_forces( md, F, R, L )
@@ -27,6 +28,7 @@ function main()
       println(step, " ", md.Energy, " ", md.Virial)
     end
   end
+  println("Pair time = ",md.time," s.")
 
 end
 

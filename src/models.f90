@@ -23,15 +23,15 @@ use c_binding
 
 implicit none
 
-type, bind(C) :: tModel
+type, bind(C) :: md_model
   integer(ib) :: id
   real(rb)    :: p1, p2, p3, p4
   real(rb)    :: f14 = 0.0_rb
-end type tModel
+end type md_model
 
-type tModelPtr
-  type(tModel), pointer :: model => null()
-end type tModelPtr
+type model_ptr
+  type(md_model), pointer :: model => null()
+end type model_ptr
 
 integer(ib), parameter :: mLJ       = 1, &
                           mLJSF     = 2, &
@@ -45,14 +45,14 @@ contains
 !                                      P A I R     M O D E L S
 !===================================================================================================
 
-  type(tModel) function pair_lj( sigma, epsilon ) bind(C)
+  type(md_model) function pair_lj( sigma, epsilon ) bind(C)
     real(rb), value :: sigma, epsilon
-    pair_lj = tModel( mLJ, sigma*sigma, 4.0_rb*epsilon, 0.0_rb, 0.0_rb )
+    pair_lj = md_model( mLJ, sigma*sigma, 4.0_rb*epsilon, 0.0_rb, 0.0_rb )
   end function pair_lj
 
 !---------------------------------------------------------------------------------------------------
 
-  type(tModel) function pair_lj_sf( sigma, epsilon, cutoff ) bind(C)
+  type(md_model) function pair_lj_sf( sigma, epsilon, cutoff ) bind(C)
     real(rb), value :: sigma, epsilon, cutoff
     real(rb) :: sr6, sr12, eps4, Ec, Fc
     sr6 = (sigma/cutoff)**6
@@ -60,12 +60,12 @@ contains
     eps4 = 4.0_rb*epsilon
     Ec = eps4*(sr12 - sr6)
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-    pair_lj_sf = tModel( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+    pair_lj_sf = md_model( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
   end function pair_lj_sf
 
 !---------------------------------------------------------------------------------------------------
 
-  type(tModel) function pair_lj_coul_sf( sigma, epsilon, permittivity, cutoff ) bind(C)
+  type(md_model) function pair_lj_coul_sf( sigma, epsilon, permittivity, cutoff ) bind(C)
     real(rb), value :: sigma, epsilon, permittivity, cutoff
     real(rb) :: sr6, sr12, eps4, Ec, Fc
     sr6 = (sigma/cutoff)**6
@@ -73,41 +73,41 @@ contains
     eps4 = 4.0_rb*epsilon
     Ec = eps4*(sr12 - sr6)
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-    pair_lj_coul_sf = tModel( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+    pair_lj_coul_sf = md_model( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
   end function pair_lj_coul_sf
 
 !===================================================================================================
 !                                      B O N D     M O D E L S
 !===================================================================================================
 
-  type(tModel) function bond_harmonic( k, r0 ) bind(C)
+  type(md_model) function bond_harmonic( k, r0 ) bind(C)
     real(rb), value :: k, r0
-    bond_harmonic = tModel( mHARMOMIC, r0, -k, 0.5_rb*k, 0.0_rb )
+    bond_harmonic = md_model( mHARMOMIC, r0, -k, 0.5_rb*k, 0.0_rb )
   end function bond_harmonic
 
 !---------------------------------------------------------------------------------------------------
 
-  type(tModel) function bond_morse( D, alpha, r0 ) bind(C)
+  type(md_model) function bond_morse( D, alpha, r0 ) bind(C)
     real(rb), value :: D, alpha, r0
-    bond_morse = tModel( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
+    bond_morse = md_model( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
   end function bond_morse
 
 !===================================================================================================
 !                                    A N G L E     M O D E L S
 !===================================================================================================
 
-  type(tModel) function angle_harmonic( k, theta0 ) bind(C)
+  type(md_model) function angle_harmonic( k, theta0 ) bind(C)
     real(rb), value :: k, theta0
-    angle_harmonic = tModel( mHARMOMIC, theta0, -k, 0.5_rb*k, 0.0_rb )
+    angle_harmonic = md_model( mHARMOMIC, theta0, -k, 0.5_rb*k, 0.0_rb )
   end function angle_harmonic
 
 !===================================================================================================
 !                                 D I H E D R A L     M O D E L S
 !===================================================================================================
 
-  type(tModel) function dihedral_harmonic( k, phi0 ) bind(C)
+  type(md_model) function dihedral_harmonic( k, phi0 ) bind(C)
     real(rb), value :: k, phi0
-    dihedral_harmonic = tModel( mHARMOMIC, phi0, -k, 0.5_rb*k, 0.0_rb )
+    dihedral_harmonic = md_model( mHARMOMIC, phi0, -k, 0.5_rb*k, 0.0_rb )
   end function dihedral_harmonic
 
 !---------------------------------------------------------------------------------------------------
