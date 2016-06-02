@@ -28,7 +28,8 @@ type tEmDee
   charge::Ptr{Float64}    # Pointer to the electric charge of each atom
 
   ntypes::Int32           # Number of atom types
-  pairType::Ptr{Void}     # Model and parameters of each type of atom pair
+  pairParams::Ptr{Void}   # Model parameters of each type of atom pair
+  pairData::Ptr{Void}     # Model data of each type of atom pair
 
   bond::Ptr{Void}         # List of bonds
   angle::Ptr{Void}        # List of angles

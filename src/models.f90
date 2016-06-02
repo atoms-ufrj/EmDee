@@ -28,14 +28,23 @@ type, bind(C) :: md_model
   type(c_ptr) :: params
 end type md_model
 
+integer, parameter, private :: sl = 40
+
 type md_data
-  character(40) :: name
-  character(7), allocatable :: param(:)
-  real(rb),     allocatable :: value(:)
+  character(sl) :: name
+  character(sl), allocatable :: param(:)
+  real(rb),      allocatable :: value(:)
 end type md_data
 
+integer(ib), parameter :: mNONE     = 0, &  ! No model
+                          mLJ       = 1, &  ! Lennard-Jones model
+                          mLJSF     = 2, &  ! Lennard-Jones (Shifted-Force) model
+                          mLJCOULSF = 3, &  ! Lennard-Jones/Coulomb (Shifted-Force) model
+                          mHARMOMIC = 4, &  ! Harmonic model
+                          mMORSE    = 5     ! Morse model
+
 type md_params
-  integer(ib) :: id
+  integer(ib) :: id = mNONE
   real(rb)    :: p1 = 0.0_rb
   real(rb)    :: p2 = 0.0_rb
   real(rb)    :: p3 = 0.0_rb
@@ -46,11 +55,9 @@ type param_ptr
   type(md_params), pointer :: model => null()
 end type param_ptr
 
-integer(ib), parameter :: mLJ       = 1, &
-                          mLJSF     = 2, &
-                          mLJCOULSF = 3, &
-                          mHARMOMIC = 4, &
-                          mMORSE    = 5
+type data_ptr
+  type(md_data), pointer :: data => null()
+end type data_ptr
 
 contains
 

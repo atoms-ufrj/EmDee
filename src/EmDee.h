@@ -26,8 +26,9 @@ typedef struct {
   double *charge;        // Pointer to the electric charge of each atom
 
   int ntypes;            // Number of atom types
-  void *pairType;        // Model and parameters of each type of atom pair
- 
+  void *pairParams;      // Model parameters of each type of atom pair
+  void *pairData;        // Model data of each type of atom pair
+
   void *bond;            // List of bonds
   void *angle;           // List of angles
   void *dihedral;        // List of dihedrals
@@ -48,6 +49,8 @@ tEmDee md_system( int threads, double rc, double skin, int N, int *types );
 void md_set_charges( tEmDee *md, double *charges );
 
 void md_set_pair( tEmDee *md, int itype, int jtype, md_model *model );
+
+void md_apply_mixing_rules( tEmDee *md );
 
 void md_add_bond( tEmDee *md, int i, int j, md_model *model );
 

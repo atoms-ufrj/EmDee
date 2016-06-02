@@ -74,7 +74,8 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
 
   integer(ib) :: ntypes         ! Number of atom types
-  type(c_ptr) :: pairType       ! Model and parameters of each type of atom pair
+  type(c_ptr) :: pairData       ! Model data of each type of atom pair
+  type(c_ptr) :: pairParams     ! Model parameters of each type of atom pair
 
   type(c_ptr) :: bonds          ! List of bonds
   type(c_ptr) :: angles         ! List of angles
@@ -109,7 +110,8 @@ contains
     integer(ib) :: i
 
     integer(ib),     pointer :: type_ptr(:)
-    type(param_ptr), pointer :: pairType(:,:)
+    type(data_ptr),  pointer :: pairData(:,:)
+    type(param_ptr), pointer :: pairParams(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
 
     ! Set up immutable entities:
@@ -165,8 +167,9 @@ contains
     me%excluded = c_loc( excluded )
     call excluded % allocate( extra, N )
 
-    allocate( pairType(me%ntypes,me%ntypes) )
-    me%pairType = c_loc(pairType(1,1))
+    allocate( pairParams(me%ntypes,me%ntypes), pairData(me%ntypes,me%ntypes) )
+    me%pairParams = c_loc(pairParams(1,1))
+    me%pairData = c_loc(pairData(1,1))
 
   end function md_system
 
@@ -190,16 +193,30 @@ contains
     type(c_ptr), value :: model
 
     type(tEmDee),    pointer :: me
-    type(param_ptr), pointer :: pairType(:,:)
+    type(data_ptr),  pointer :: pairData(:,:)
+    type(param_ptr), pointer :: pairParams(:,:)
     type(md_model),  pointer :: pmodel
 
     call c_f_pointer( md, me )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairData, pairData, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
     call c_f_pointer( model, pmodel )
-    call c_f_pointer( pmodel%params, pairType(itype,jtype)%model )
-    if (itype /= jtype) call c_f_pointer( pmodel%params, pairType(jtype,itype)%model )
+
+    call c_f_pointer( pmodel%data, pairData(itype,jtype)%data )
+    call c_f_pointer( pmodel%params, pairParams(itype,jtype)%model )
+    if (itype /= jtype) then
+      call c_f_pointer( pmodel%data, pairData(jtype,itype)%data )
+      call c_f_pointer( pmodel%params, pairParams(jtype,itype)%model )
+    end if
 
   end subroutine md_set_pair
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine md_apply_mixing_rules( md ) bind(C)
+    type(c_ptr), value :: md
+
+  end subroutine md_apply_mixing_rules
 
 !---------------------------------------------------------------------------------------------------
 
@@ -613,12 +630,12 @@ contains
     type(md_params),   pointer :: model
     type(tStruct),     pointer :: d
     type(tStructData), pointer :: dihedrals
-    type(param_ptr),   pointer :: pairType(:,:)
+    type(param_ptr),   pointer :: pairParams(:,:)
 
     call c_f_pointer( me%dihedrals, dihedrals )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
 
     invL2 = one/(L*L)
     Rc2 = me%RcSq*invL2
@@ -662,7 +679,7 @@ contains
         r2 = sum(rij*rij)
         if (r2 < me%RcSq) then
           invR2 = invL2/r2
-          model => pairType(atomType(d%i),atomType(d%l))%model
+          model => pairParams(atomType(d%i),atomType(d%l))%model
           icharge = charge(d%i)
           jcharge = charge(d%l)
           call compute_pair()
@@ -711,13 +728,13 @@ contains
     type(tCell),     pointer :: cell(:)
     integer(ib),     pointer :: atomType(:)
     real(rb),        pointer :: charge(:)
-    type(param_ptr), pointer :: pairType(:,:)
+    type(param_ptr), pointer :: pairParams(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighborLists(:), neighbor, excluded
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
     call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%excluded, excluded )
@@ -766,7 +783,7 @@ contains
         do m = k + 1, ntotal
           if (include(m)) then
             j = atom(m)
-            model => pairType(itype,atomType(j))%model
+            model => pairParams(itype,atomType(j))%model
             if (associated(model)) then
               Rij = Ri - Rs(:,j)
               Rij = Rij - anint(Rij)
@@ -816,12 +833,12 @@ contains
     type(md_params), pointer :: model
     integer(ib),     pointer :: atomType(:)
     real(rb),        pointer :: charge(:)
-    type(param_ptr), pointer :: pairType(:,:)
+    type(param_ptr), pointer :: pairParams(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighborLists(:), neighbor
 
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
-    call c_f_pointer( me%pairType, pairType, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
     call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
@@ -845,7 +862,7 @@ contains
         r2 = sum(Rij*Rij)
         if (r2 < Rc2) then
           invR2 = invL2/r2
-          model => pairType(itype,atomType(j))%model
+          model => pairParams(itype,atomType(j))%model
           call compute_pair()
           Energy = Energy + Eij
           Virial = Virial + Wij
