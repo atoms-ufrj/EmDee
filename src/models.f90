@@ -24,14 +24,27 @@ use c_binding
 implicit none
 
 type, bind(C) :: md_model
-  integer(ib) :: id
-  real(rb)    :: p1, p2, p3, p4
-  real(rb)    :: f14 = 0.0_rb
+  type(c_ptr) :: data
+  type(c_ptr) :: params
 end type md_model
 
-type model_ptr
-  type(md_model), pointer :: model => null()
-end type model_ptr
+type md_data
+  character(40) :: name
+  character(7), allocatable :: param(:)
+  real(rb),     allocatable :: value(:)
+end type md_data
+
+type md_params
+  integer(ib) :: id
+  real(rb)    :: p1 = 0.0_rb
+  real(rb)    :: p2 = 0.0_rb
+  real(rb)    :: p3 = 0.0_rb
+  real(rb)    :: p4 = 0.0_rb
+end type md_params
+
+type param_ptr
+  type(md_params), pointer :: model => null()
+end type param_ptr
 
 integer(ib), parameter :: mLJ       = 1, &
                           mLJSF     = 2, &
@@ -47,7 +60,8 @@ contains
 
   type(md_model) function pair_lj( sigma, epsilon ) bind(C)
     real(rb), value :: sigma, epsilon
-    pair_lj = md_model( mLJ, sigma*sigma, 4.0_rb*epsilon, 0.0_rb, 0.0_rb )
+    pair_lj%data = set_data( "Lennard-Jones", ["sigma  ","epsilon"], [sigma, epsilon] )
+    pair_lj%params = set_params( mLJ, sigma*sigma, 4.0_rb*epsilon )
   end function pair_lj
 
 !---------------------------------------------------------------------------------------------------
@@ -55,25 +69,29 @@ contains
   type(md_model) function pair_lj_sf( sigma, epsilon, cutoff ) bind(C)
     real(rb), value :: sigma, epsilon, cutoff
     real(rb) :: sr6, sr12, eps4, Ec, Fc
+    pair_lj_sf%data = set_data( "Lennard-Jones (Shifted-Force)", &
+                                ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
     Ec = eps4*(sr12 - sr6)
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-    pair_lj_sf = md_model( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+    pair_lj_sf%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
   end function pair_lj_sf
 
 !---------------------------------------------------------------------------------------------------
 
-  type(md_model) function pair_lj_coul_sf( sigma, epsilon, permittivity, cutoff ) bind(C)
-    real(rb), value :: sigma, epsilon, permittivity, cutoff
+  type(md_model) function pair_lj_coul_sf( sigma, epsilon, cutoff ) bind(C)
+    real(rb), value :: sigma, epsilon, cutoff
     real(rb) :: sr6, sr12, eps4, Ec, Fc
+    pair_lj_coul_sf%data = set_data( "Lennard-Jones/Coulomb (Shifted-Force)", &
+                                     ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
     Ec = eps4*(sr12 - sr6)
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-    pair_lj_coul_sf = md_model( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+    pair_lj_coul_sf%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
   end function pair_lj_coul_sf
 
 !===================================================================================================
@@ -82,14 +100,16 @@ contains
 
   type(md_model) function bond_harmonic( k, r0 ) bind(C)
     real(rb), value :: k, r0
-    bond_harmonic = md_model( mHARMOMIC, r0, -k, 0.5_rb*k, 0.0_rb )
+    bond_harmonic%data = set_data( "Harmonic", ["k ", "r0"], [k, r0] )
+    bond_harmonic%params = set_params( mHARMOMIC, r0, -k, 0.5_rb*k )
   end function bond_harmonic
 
 !---------------------------------------------------------------------------------------------------
 
   type(md_model) function bond_morse( D, alpha, r0 ) bind(C)
     real(rb), value :: D, alpha, r0
-    bond_morse = md_model( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
+    bond_morse%data = set_data( "Morse", ["D    ", "alpha", "r0   "], [D, alpha, r0] )
+    bond_morse%params = set_params( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
   end function bond_morse
 
 !===================================================================================================
@@ -98,7 +118,8 @@ contains
 
   type(md_model) function angle_harmonic( k, theta0 ) bind(C)
     real(rb), value :: k, theta0
-    angle_harmonic = md_model( mHARMOMIC, theta0, -k, 0.5_rb*k, 0.0_rb )
+    angle_harmonic%data = set_data( "Harmonic", ["k     ", "theta0"], [k, theta0] )
+    angle_harmonic%params = set_params( mHARMOMIC, theta0, -k, 0.5_rb*k )
   end function angle_harmonic
 
 !===================================================================================================
@@ -107,9 +128,48 @@ contains
 
   type(md_model) function dihedral_harmonic( k, phi0 ) bind(C)
     real(rb), value :: k, phi0
-    dihedral_harmonic = md_model( mHARMOMIC, phi0, -k, 0.5_rb*k, 0.0_rb )
+    dihedral_harmonic%data = set_data( "Harmonic", ["k   ", "phi0"], [k, phi0] )
+    dihedral_harmonic%params = set_params( mHARMOMIC, 0.0_rb, phi0, -k, 0.5_rb*k )
   end function dihedral_harmonic
 
+!===================================================================================================
+!                             A U X I L I A R Y     P R O C E D U R E S
+!===================================================================================================
+
+  function set_params( id, p1, p2, p3, p4 ) result( params )
+    integer(ib), intent(in)           :: id
+    real(rb),    intent(in), optional :: p1, p2, p3, p4
+    type(c_ptr)                       :: params
+
+    type(md_params), pointer :: ptr
+
+    allocate( ptr )
+    ptr%id = id
+    if (present(p1)) ptr%p1 = p1
+    if (present(p2)) ptr%p2 = p2
+    if (present(p3)) ptr%p3 = p3
+    if (present(p4)) ptr%p4 = p4
+    params = c_loc(ptr)
+
+  end function set_params
+
 !---------------------------------------------------------------------------------------------------
+
+  function set_data( name, params, values ) result( data )
+    character(*), intent(in) :: name, params(:)
+    real(rb),     intent(in) :: values(:)
+    type(c_ptr)              :: data
+
+    type(md_data), pointer :: ptr
+
+    allocate( ptr )
+    ptr%name = name
+    ptr%param = params
+    ptr%value = values
+    data = c_loc(ptr)
+
+  end function set_data
+
+!===================================================================================================
 
 end module models

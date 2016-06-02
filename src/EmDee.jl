@@ -1,12 +1,8 @@
 module EmDee
 
 type md_model
-  model::Int32
-  p1::Float64
-  p2::Float64
-  p3::Float64
-  p4::Float64
-  f14::Float64
+  data::Ptr{Void}
+  params::Ptr{Void}
 end
 
 type tEmDee

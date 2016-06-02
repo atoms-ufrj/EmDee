@@ -22,7 +22,7 @@
 subroutine compute_dihedral()
   select case (model%id)
     case (mHARMOMIC)
-      call harmonic( Ed, Fd, phi - model%p1, model%p2, model%p3 )
+      call harmonic( Ed, Fd, phi - model%p2, model%p3, model%p4 )
   end select
 end subroutine compute_dihedral
 

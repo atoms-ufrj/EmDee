@@ -1,10 +1,6 @@
 typedef struct {
-  int model;
-  double p1;
-  double p2;
-  double p3;
-  double p4;
-  double f14;
+  void *data;
+  void *params;
 } md_model;
 
 typedef struct {
