@@ -30,7 +30,7 @@ real(rb), pointer :: R(:,:), V(:,:), F(:,:)
 integer(ib) :: step
 real(rb)    :: ti, tf
 type(tEmDee), target :: md
-type(md_model), target :: lj, bond
+type(EmDee_model), target :: lj, bond
 
 integer :: i, j, argcount, threads
 character(256) :: line
@@ -52,24 +52,24 @@ end if
 call read_data( file = line )
 call create_configuration
 
-md = md_system( threads, Rc, Rs, N, c_null_ptr )
+md = EmDee_system( threads, Rc, Rs, N, c_null_ptr )
 
-lj = pair_lj( 1.0_rb, 1.0_rb )
-call md_set_pair( c_loc(md), 1, 1, c_loc(lj) )
+lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
+call EmDee_set_pair( c_loc(md), 1, 1, c_loc(lj) )
 
 !print*, match( [1,7,5,3,2,4,8,6], [2,3,4,8])
 !stop
 
 do i = 1, N-1
   do j = i+1, N
-    if (abs(i-j) < 10) call md_exclude_pair( c_loc(md), i, j )
+    if (abs(i-j) < 10) call EmDee_exclude_pair( c_loc(md), i, j )
   end do
 end do
 
-bond = bond_harmonic( 1.0_rb, 1.0_rb )
-call md_add_bond( c_loc(md), 1, 2, c_loc(bond) )
-call md_add_bond( c_loc(md), 2, 3, c_loc(bond) )
-call md_add_bond( c_loc(md), 4, 5, c_loc(bond) )
+bond = EmDee_bond_harmonic( 1.0_rb, 1.0_rb )
+call EmDee_add_bond( c_loc(md), 1, 2, c_loc(bond) )
+call EmDee_add_bond( c_loc(md), 2, 3, c_loc(bond) )
+call EmDee_add_bond( c_loc(md), 4, 5, c_loc(bond) )
 
 !call c_f_pointer( md%excluded%first, first, [md%natoms])
 !call c_f_pointer( md%excluded%last, last, [md%natoms])
@@ -87,14 +87,14 @@ call md_add_bond( c_loc(md), 4, 5, c_loc(bond) )
 !print*, "execution time = ", secnds(0.0) - tf, " s."
 !stop
 
-call md_compute_forces( c_loc(md), c_loc(F), c_loc(R), L )
+call EmDee_compute_forces( c_loc(md), c_loc(F), c_loc(R), L )
 print*, 0, md%Energy, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)
 do step = 1, Nsteps
   V = V + Dt_2*F
   R = R + Dt*V
-  call md_compute_forces( c_loc(md), c_loc(F), c_loc(R), L )
+  call EmDee_compute_forces( c_loc(md), c_loc(F), c_loc(R), L )
   V = V + Dt_2*F
   if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
 end do

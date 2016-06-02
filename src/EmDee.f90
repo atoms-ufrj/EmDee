@@ -103,10 +103,12 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  type(tEmDee) function md_system( threads, rc, skin, N, types ) result( me ) bind(C)
+  function EmDee_system( threads, rc, skin, N, types ) result( me ) bind(C,name="EmDee_system")
+
     integer(ib), value :: threads, N
     real(rb),    value :: rc, skin
     type(c_ptr), value :: types
+    type(tEmDee)       :: me
 
     integer(ib),     pointer :: type_ptr(:)
     type(model_ptr), pointer :: pairModel(:,:)
@@ -168,11 +170,11 @@ contains
     me%pairModel = c_loc(pairModel(1,1))
     me%pairParams = c_loc(pairParams(1,1))
 
-  end function md_system
+  end function EmDee_system
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_set_charges( md, charges )
+  subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
     type(c_ptr), value :: md, charges
 
     type(tEmDee), pointer :: me
@@ -183,19 +185,19 @@ contains
     deallocate( chargesPtr )
     me%charge = charges
 
-  end subroutine md_set_charges
+  end subroutine EmDee_set_charges
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_set_pair( md, itype, jtype, model ) bind(C)
+  subroutine EmDee_set_pair( md, itype, jtype, model ) bind(C,name="EmDee_set_pair")
     type(c_ptr), value :: md
     integer(ib), value :: itype, jtype
     type(c_ptr), value :: model
 
-    type(tEmDee),    pointer :: me
-    type(model_ptr), pointer :: pairModel(:,:)
-    type(param_ptr), pointer :: pairParams(:,:)
-    type(md_model),  pointer :: modelPtr
+    type(tEmDee),      pointer :: me
+    type(model_ptr),   pointer :: pairModel(:,:)
+    type(param_ptr),   pointer :: pairParams(:,:)
+    type(EmDee_Model), pointer :: modelPtr
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
@@ -209,20 +211,20 @@ contains
       call c_f_pointer( modelPtr%params, pairParams(jtype,itype)%params )
     end if
 
-  end subroutine md_set_pair
+  end subroutine EmDee_set_pair
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_apply_mixing_rules( md ) bind(C)
+  subroutine EmDee_apply_mixing_rules( md ) bind(C,name="EmDee_apply_mixing_rules")
     type(c_ptr), value :: md
 
     integer(ib) :: i, j
 
-    type(tEmDee),    pointer :: me
-    type(model_ptr), pointer :: pairModel(:,:)
-    type(param_ptr), pointer :: pairParams(:,:)
-    type(md_model),  pointer :: ijmodel
-    type(md_params), pointer :: ijparams
+    type(tEmDee),      pointer :: me
+    type(model_ptr),   pointer :: pairModel(:,:)
+    type(param_ptr),   pointer :: pairParams(:,:)
+    type(EmDee_Model), pointer :: ijmodel
+    type(md_params),   pointer :: ijparams
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
@@ -241,11 +243,11 @@ contains
       end do
     end do
 
-  end subroutine md_apply_mixing_rules
+  end subroutine EmDee_apply_mixing_rules
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_exclude_pair( md, i, j ) bind(C)
+  subroutine EmDee_exclude_pair( md, i, j ) bind(C,name="EmDee_exclude_pair")
     type(c_ptr), value :: md
     integer(ib), value :: i, j
 
@@ -286,69 +288,69 @@ contains
         n = n + 1
       end subroutine add_item
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine md_exclude_pair
+  end subroutine EmDee_exclude_pair
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_add_bond( md, i, j, model ) bind(C)
+  subroutine EmDee_add_bond( md, i, j, model ) bind(C,name="EmDee_add_bond")
     type(c_ptr), value :: md
     integer(ib), value :: i, j
     type(c_ptr), value :: model
 
-    type(tEmDee),   pointer :: me
-    type(md_model), pointer :: pmodel
+    type(tEmDee),      pointer :: me
+    type(EmDee_Model), pointer :: pmodel
 
     call c_f_pointer( md, me )
     call c_f_pointer( model, pmodel )
     call add_bonded_struc( me%bonds, i, j, 0, 0, pmodel%params )
-    call md_exclude_pair( md, i, j )
+    call EmDee_exclude_pair( md, i, j )
 
-  end subroutine md_add_bond
+  end subroutine EmDee_add_bond
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_add_angle( md, i, j, k, model ) bind(C)
+  subroutine EmDee_add_angle( md, i, j, k, model ) bind(C,name="EmDee_add_angle")
     type(c_ptr), value :: md
     integer(ib), value :: i, j, k
     type(c_ptr), value :: model
 
-    type(tEmDee),   pointer :: me
-    type(md_model), pointer :: pmodel
+    type(tEmDee),      pointer :: me
+    type(EmDee_Model), pointer :: pmodel
 
     call c_f_pointer( md, me )
     call c_f_pointer( model, pmodel )
     call add_bonded_struc( me%angles, i, j, k, 0, pmodel%params )
-    call md_exclude_pair( md, i, j )
-    call md_exclude_pair( md, i, k )
-    call md_exclude_pair( md, j, k )
+    call EmDee_exclude_pair( md, i, j )
+    call EmDee_exclude_pair( md, i, k )
+    call EmDee_exclude_pair( md, j, k )
 
-  end subroutine md_add_angle
+  end subroutine EmDee_add_angle
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_add_dihedral( md, i, j, k, l, model ) bind(C)
+  subroutine EmDee_add_dihedral( md, i, j, k, l, model ) bind(C,name="EmDee_add_dihedral")
     type(c_ptr), value :: md
     integer(ib), value :: i, j, k, l
     type(c_ptr), value :: model
 
-    type(tEmDee),   pointer :: me
-    type(md_model), pointer :: pmodel
+    type(tEmDee),      pointer :: me
+    type(EmDee_Model), pointer :: pmodel
 
     call c_f_pointer( md, me )
     call c_f_pointer( model, pmodel )
     call add_bonded_struc( me%dihedrals, i, j, k, l, pmodel%params )
-    call md_exclude_pair( md, i, j )
-    call md_exclude_pair( md, i, k )
-    call md_exclude_pair( md, i, l )
-    call md_exclude_pair( md, j, k )
-    call md_exclude_pair( md, j, l )
-    call md_exclude_pair( md, k, l )
+    call EmDee_exclude_pair( md, i, j )
+    call EmDee_exclude_pair( md, i, k )
+    call EmDee_exclude_pair( md, i, l )
+    call EmDee_exclude_pair( md, j, k )
+    call EmDee_exclude_pair( md, j, l )
+    call EmDee_exclude_pair( md, k, l )
 
-  end subroutine md_add_dihedral
+  end subroutine EmDee_add_dihedral
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine md_compute_forces( md, forces, coords, L ) bind(C)
+  subroutine EmDee_compute_forces( md, forces, coords, L ) bind(C,name="EmDee_compute_forces")
     type(c_ptr), value :: md, forces, coords
     real(rb),    value :: L
 
@@ -359,7 +361,7 @@ contains
     type(tEmDee), pointer :: me
     real(rb),     pointer :: R(:,:), F(:,:), R0(:,:)
 
-    real(rb),    allocatable :: Rs(:,:), Fs(:,:)
+    real(rb), allocatable :: Rs(:,:), Fs(:,:)
 
     call c_f_pointer( md, me )
     me%time = me%time - omp_get_wtime()
@@ -404,7 +406,7 @@ contains
 
     me%time = me%time + omp_get_wtime()
 
-  end subroutine md_compute_forces
+  end subroutine EmDee_compute_forces
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S

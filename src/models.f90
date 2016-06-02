@@ -23,10 +23,10 @@ use c_binding
 
 implicit none
 
-type, bind(C) :: md_model
+type, bind(C) :: EmDee_Model
   type(c_ptr) :: data
   type(c_ptr) :: params
-end type md_model
+end type EmDee_Model
 
 integer, parameter, private :: sl = 40
 
@@ -56,7 +56,7 @@ type param_ptr
 end type param_ptr
 
 type model_ptr
-  type(md_model), pointer :: model => null()
+  type(EmDee_Model), pointer :: model => null()
 end type model_ptr
 
 private :: set_data, set_params
@@ -67,23 +67,27 @@ contains
 !                                      P A I R     M O D E L S
 !===================================================================================================
 
-  type(md_model) function pair_lj( sigma, epsilon ) result( model ) bind(C)
-    real(rb), value :: sigma, epsilon
+  function EmDee_pair_lj( sigma, epsilon ) result(model) &
+                                           bind(C,name="EmDee_pair_lj")
+    real(rb), value   :: sigma, epsilon
+    type(EmDee_Model) :: model
 
-    model%data = set_data( "Lennard-Jones", ["sigma  ","epsilon"], [sigma, epsilon] )
+    model%data = set_data( "Lennard-Jones", [character(sl)::"sigma","epsilon"], [sigma, epsilon] )
     model%params = set_params( mLJ, sigma*sigma, 4.0_rb*epsilon )
 
-  end function pair_lj
+  end function EmDee_pair_lj
 
 !---------------------------------------------------------------------------------------------------
 
-  type(md_model) function pair_lj_sf( sigma, epsilon, cutoff ) result( model ) bind(C)
+  function EmDee_pair_lj_sf( sigma, epsilon, cutoff ) result( model ) &
+                                                      bind(C,name="EmDee_pair_lj_sf")
     real(rb), value :: sigma, epsilon, cutoff
+    type(EmDee_Model) :: model
 
     real(rb) :: sr6, sr12, eps4, Ec, Fc
 
     model%data = set_data( "Lennard-Jones (Shifted-Force)", &
-                           ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
+                           [character(sl)::"sigma","epsilon", "cutoff"], [sigma, epsilon, cutoff] )
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
@@ -91,17 +95,19 @@ contains
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
     model%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
 
-  end function pair_lj_sf
+  end function EmDee_pair_lj_sf
 
 !---------------------------------------------------------------------------------------------------
 
-  type(md_model) function pair_lj_coul_sf( sigma, epsilon, cutoff ) result( model ) bind(C)
+  function EmDee_pair_lj_coul_sf( sigma, epsilon, cutoff ) result( model ) &
+                                                           bind(C,name="EmDee_pair_lj_coul_sf")
     real(rb), value :: sigma, epsilon, cutoff
+    type(EmDee_Model) :: model
 
     real(rb) :: sr6, sr12, eps4, Ec, Fc
 
     model%data = set_data( "Lennard-Jones/Coulomb (Shifted-Force)", &
-                           ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
+                           [character(sl)::"sigma","epsilon", "cutoff"], [sigma, epsilon, cutoff] )
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
@@ -109,15 +115,15 @@ contains
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
     model%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
 
-  end function pair_lj_coul_sf
+  end function EmDee_pair_lj_coul_sf
 
 !===================================================================================================
 !                                     M I X I N G     R U L E S
 !===================================================================================================
 
   function cross_interaction( imodel, jmodel ) result( ij )
-    type(md_model), pointer, intent(in) :: imodel, jmodel
-    type(md_model), pointer             :: ij
+    type(EmDee_Model), pointer, intent(in) :: imodel, jmodel
+    type(EmDee_Model), pointer             :: ij
 
     type(md_data),   pointer :: idata, jdata
     type(md_params), pointer :: iparams, jparams
@@ -132,13 +138,13 @@ contains
         select case (iparams%id)
           case (mLJ)
             allocate( ij )
-            ij = pair_lj( arithmetic(1), geometric(2) )
+            ij = EmDee_pair_lj( arithmetic(1), geometric(2) )
           case (mLJSF)
             allocate( ij )
-            ij = pair_lj_sf( arithmetic(1), geometric(2), arithmetic(3) )
+            ij = EmDee_pair_lj_sf( arithmetic(1), geometric(2), arithmetic(3) )
           case (mLJCOULSF)
             allocate( ij )
-            ij = pair_lj_coul_sf( arithmetic(1), geometric(2), arithmetic(3) )
+            ij = EmDee_pair_lj_coul_sf( arithmetic(1), geometric(2), arithmetic(3) )
         end select
       end if
     end if
@@ -161,47 +167,55 @@ contains
 !                                      B O N D     M O D E L S
 !===================================================================================================
 
-  type(md_model) function bond_harmonic( k, r0 ) result( model ) bind(C)
+  function EmDee_bond_harmonic( k, r0 ) result( model ) &
+                                        bind(C,name="EmDee_bond_harmonic")
     real(rb), value :: k, r0
+    type(EmDee_Model) :: model
 
-    model%data = set_data( "Harmonic", ["k ", "r0"], [k, r0] )
+    model%data = set_data( "Harmonic", [character(sl)::"k", "r0"], [k, r0] )
     model%params = set_params( mHARMOMIC, r0, -k, 0.5_rb*k )
 
-  end function bond_harmonic
+  end function EmDee_bond_harmonic
 
 !---------------------------------------------------------------------------------------------------
 
-  type(md_model) function bond_morse( D, alpha, r0 ) result( model ) bind(C)
+  function EmDee_bond_morse( D, alpha, r0 ) result( model ) &
+                                            bind(C,name="EmDee_bond_morse")
     real(rb), value :: D, alpha, r0
+    type(EmDee_Model) :: model
 
-    model%data = set_data( "Morse", ["D    ", "alpha", "r0   "], [D, alpha, r0] )
+    model%data = set_data( "Morse", [character(sl)::"D", "alpha", "r0"], [D, alpha, r0] )
     model%params = set_params( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
 
-  end function bond_morse
+  end function EmDee_bond_morse
 
 !===================================================================================================
 !                                    A N G L E     M O D E L S
 !===================================================================================================
 
-  type(md_model) function angle_harmonic( k, theta0 ) result( model ) bind(C)
+  function EmDee_angle_harmonic( k, theta0 ) result( model ) &
+                                             bind(C,name="EmDee_angle_harmonic")
     real(rb), value :: k, theta0
+    type(EmDee_Model) :: model
 
-    model%data = set_data( "Harmonic", ["k     ", "theta0"], [k, theta0] )
+    model%data = set_data( "Harmonic", [character(sl)::"k", "theta0"], [k, theta0] )
     model%params = set_params( mHARMOMIC, theta0, -k, 0.5_rb*k )
 
-  end function angle_harmonic
+  end function EmDee_angle_harmonic
 
 !===================================================================================================
 !                                 D I H E D R A L     M O D E L S
 !===================================================================================================
 
-  type(md_model) function dihedral_harmonic( k, phi0 ) result( model ) bind(C)
+  function EmDee_dihedral_harmonic( k, phi0 ) result( model ) &
+                                              bind(C,name="EmDee_dihedral_harmonic")
     real(rb), value :: k, phi0
+    type(EmDee_Model) :: model
 
-    model%data = set_data( "Harmonic", ["k   ", "phi0"], [k, phi0] )
+    model%data = set_data( "Harmonic", [character(sl)::"k", "phi0"], [k, phi0] )
     model%params = set_params( mHARMOMIC, 0.0_rb, phi0, -k, 0.5_rb*k )
 
-  end function dihedral_harmonic
+  end function EmDee_dihedral_harmonic
 
 !===================================================================================================
 !                             A U X I L I A R Y     P R O C E D U R E S

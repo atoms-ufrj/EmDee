@@ -1,7 +1,7 @@
 typedef struct {
   void *data;
   void *params;
-} md_model;
+} EmDee_Model;
 
 typedef struct {
 
@@ -44,35 +44,35 @@ typedef struct {
 
 } tEmDee;
 
-tEmDee md_system( int threads, double rc, double skin, int N, int *types );
+tEmDee EmDee_system( int threads, double rc, double skin, int N, int *types );
 
-void md_set_charges( tEmDee *md, double *charges );
+void EmDee_set_charges( tEmDee *md, double *charges );
 
-void md_set_pair( tEmDee *md, int itype, int jtype, md_model *model );
+void EmDee_set_pair( tEmDee *md, int itype, int jtype, EmDee_Model *model );
 
-void md_apply_mixing_rules( tEmDee *md );
+void EmDee_apply_mixing_rules( tEmDee *md );
 
-void md_add_bond( tEmDee *md, int i, int j, md_model *model );
+void EmDee_add_bond( tEmDee *md, int i, int j, EmDee_Model *model );
 
-void md_add_angle( tEmDee *md, int i, int j, int k, md_model *model );
+void EmDee_add_angle( tEmDee *md, int i, int j, int k, EmDee_Model *model );
 
-void md_add_dihedral( tEmDee *md, int i, int j, int k, int l, md_model *model );
+void EmDee_add_dihedral( tEmDee *md, int i, int j, int k, int l, EmDee_Model *model );
 
-void md_exclude_pair( tEmDee *md, int i, int j );
+void EmDee_exclude_pair( tEmDee *md, int i, int j );
 
-void md_compute_forces( tEmDee *md, double *forces, double *coords, double L );
+void EmDee_compute_forces( tEmDee *md, double *forces, double *coords, double L );
 
-md_model pair_lj( double sigma, double epsilon );
+EmDee_Model EmDee_pair_lj( double sigma, double epsilon );
 
-md_model pair_lj_sf( double sigma, double epsilon, double cutoff );
+EmDee_Model EmDee_pair_lj_sf( double sigma, double epsilon, double cutoff );
 
-md_model pair_lj_coul_sf( double sigma, double epsilon, double permittivity, double cutoff );
+EmDee_Model EmDee_pair_lj_coul_sf( double sigma, double epsilon, double cutoff );
 
-md_model bond_harmonic( double k, double r0 );
+EmDee_Model EmDee_bond_harmonic( double k, double r0 );
 
-md_model bond_morse( double D, double alpha, double r0 );
+EmDee_Model EmDee_bond_morse( double D, double alpha, double r0 );
 
-md_model angle_harmonic( double k, double theta0 );
+EmDee_Model EmDee_angle_harmonic( double k, double theta0 );
 
-md_model dihedral_harmonic( double k, double phi0 );
+EmDee_Model EmDee_dihedral_harmonic( double k, double phi0 );
 
