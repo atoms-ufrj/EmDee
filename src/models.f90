@@ -45,19 +45,21 @@ integer(ib), parameter :: mNONE     = 0, &  ! No model
 
 type md_params
   integer(ib) :: id = mNONE
-  real(rb)    :: p1 = 0.0_rb
-  real(rb)    :: p2 = 0.0_rb
-  real(rb)    :: p3 = 0.0_rb
-  real(rb)    :: p4 = 0.0_rb
+  real(rb) :: p1 = 0.0_rb
+  real(rb) :: p2 = 0.0_rb
+  real(rb) :: p3 = 0.0_rb
+  real(rb) :: p4 = 0.0_rb
 end type md_params
 
 type param_ptr
-  type(md_params), pointer :: model => null()
+  type(md_params), pointer :: params => null()
 end type param_ptr
 
-type data_ptr
-  type(md_data), pointer :: data => null()
-end type data_ptr
+type model_ptr
+  type(md_model), pointer :: model => null()
+end type model_ptr
+
+private :: set_data, set_params
 
 contains
 
@@ -65,83 +67,162 @@ contains
 !                                      P A I R     M O D E L S
 !===================================================================================================
 
-  type(md_model) function pair_lj( sigma, epsilon ) bind(C)
+  type(md_model) function pair_lj( sigma, epsilon ) result( model ) bind(C)
     real(rb), value :: sigma, epsilon
-    pair_lj%data = set_data( "Lennard-Jones", ["sigma  ","epsilon"], [sigma, epsilon] )
-    pair_lj%params = set_params( mLJ, sigma*sigma, 4.0_rb*epsilon )
+
+    model%data = set_data( "Lennard-Jones", ["sigma  ","epsilon"], [sigma, epsilon] )
+    model%params = set_params( mLJ, sigma*sigma, 4.0_rb*epsilon )
+
   end function pair_lj
 
 !---------------------------------------------------------------------------------------------------
 
-  type(md_model) function pair_lj_sf( sigma, epsilon, cutoff ) bind(C)
+  type(md_model) function pair_lj_sf( sigma, epsilon, cutoff ) result( model ) bind(C)
     real(rb), value :: sigma, epsilon, cutoff
+
     real(rb) :: sr6, sr12, eps4, Ec, Fc
-    pair_lj_sf%data = set_data( "Lennard-Jones (Shifted-Force)", &
-                                ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
+
+    model%data = set_data( "Lennard-Jones (Shifted-Force)", &
+                           ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
     Ec = eps4*(sr12 - sr6)
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-    pair_lj_sf%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+    model%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+
   end function pair_lj_sf
 
 !---------------------------------------------------------------------------------------------------
 
-  type(md_model) function pair_lj_coul_sf( sigma, epsilon, cutoff ) bind(C)
+  type(md_model) function pair_lj_coul_sf( sigma, epsilon, cutoff ) result( model ) bind(C)
     real(rb), value :: sigma, epsilon, cutoff
+
     real(rb) :: sr6, sr12, eps4, Ec, Fc
-    pair_lj_coul_sf%data = set_data( "Lennard-Jones/Coulomb (Shifted-Force)", &
-                                     ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
+
+    model%data = set_data( "Lennard-Jones/Coulomb (Shifted-Force)", &
+                           ["sigma  ","epsilon", "cutoff "], [sigma, epsilon, cutoff] )
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
     Ec = eps4*(sr12 - sr6)
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-    pair_lj_coul_sf%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+    model%params = set_params( mLJSF, sigma**2, eps4, Fc, -(Ec + Fc*cutoff) )
+
   end function pair_lj_coul_sf
+
+!===================================================================================================
+!                                     M I X I N G     R U L E S
+!===================================================================================================
+
+  function cross_interaction( imodel, jmodel ) result( ij )
+    type(md_model), pointer, intent(in) :: imodel, jmodel
+    type(md_model), pointer             :: ij
+
+    type(md_data),   pointer :: idata, jdata
+    type(md_params), pointer :: iparams, jparams
+
+    ij => null()
+    if (associated(imodel).and.associated(jmodel)) then
+      call c_f_pointer( imodel%data, idata )
+      call c_f_pointer( jmodel%data, jdata )
+      call c_f_pointer( imodel%params, iparams )
+      call c_f_pointer( jmodel%params, jparams )
+      if (iparams%id == jparams%id) then
+        select case (iparams%id)
+          case (mLJ)
+            allocate( ij )
+            ij = pair_lj( arithmetic(1), geometric(2) )
+          case (mLJSF)
+            allocate( ij )
+            ij = pair_lj_sf( arithmetic(1), geometric(2), arithmetic(3) )
+          case (mLJCOULSF)
+            allocate( ij )
+            ij = pair_lj_coul_sf( arithmetic(1), geometric(2), arithmetic(3) )
+        end select
+      end if
+    end if
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      real(rb) function arithmetic( k )
+        integer(ib), intent(in) :: k
+        arithmetic = 0.5_rb*(idata%value(k) + jdata%value(k))
+      end function arithmetic
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      real(rb) function geometric( k )
+        integer(ib), intent(in) :: k
+        geometric = sqrt(idata%value(k)*jdata%value(k))
+      end function geometric
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end function cross_interaction
 
 !===================================================================================================
 !                                      B O N D     M O D E L S
 !===================================================================================================
 
-  type(md_model) function bond_harmonic( k, r0 ) bind(C)
+  type(md_model) function bond_harmonic( k, r0 ) result( model ) bind(C)
     real(rb), value :: k, r0
-    bond_harmonic%data = set_data( "Harmonic", ["k ", "r0"], [k, r0] )
-    bond_harmonic%params = set_params( mHARMOMIC, r0, -k, 0.5_rb*k )
+
+    model%data = set_data( "Harmonic", ["k ", "r0"], [k, r0] )
+    model%params = set_params( mHARMOMIC, r0, -k, 0.5_rb*k )
+
   end function bond_harmonic
 
 !---------------------------------------------------------------------------------------------------
 
-  type(md_model) function bond_morse( D, alpha, r0 ) bind(C)
+  type(md_model) function bond_morse( D, alpha, r0 ) result( model ) bind(C)
     real(rb), value :: D, alpha, r0
-    bond_morse%data = set_data( "Morse", ["D    ", "alpha", "r0   "], [D, alpha, r0] )
-    bond_morse%params = set_params( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
+
+    model%data = set_data( "Morse", ["D    ", "alpha", "r0   "], [D, alpha, r0] )
+    model%params = set_params( mMORSE, r0, -alpha, D, -2.0_rb*D*alpha )
+
   end function bond_morse
 
 !===================================================================================================
 !                                    A N G L E     M O D E L S
 !===================================================================================================
 
-  type(md_model) function angle_harmonic( k, theta0 ) bind(C)
+  type(md_model) function angle_harmonic( k, theta0 ) result( model ) bind(C)
     real(rb), value :: k, theta0
-    angle_harmonic%data = set_data( "Harmonic", ["k     ", "theta0"], [k, theta0] )
-    angle_harmonic%params = set_params( mHARMOMIC, theta0, -k, 0.5_rb*k )
+
+    model%data = set_data( "Harmonic", ["k     ", "theta0"], [k, theta0] )
+    model%params = set_params( mHARMOMIC, theta0, -k, 0.5_rb*k )
+
   end function angle_harmonic
 
 !===================================================================================================
 !                                 D I H E D R A L     M O D E L S
 !===================================================================================================
 
-  type(md_model) function dihedral_harmonic( k, phi0 ) bind(C)
+  type(md_model) function dihedral_harmonic( k, phi0 ) result( model ) bind(C)
     real(rb), value :: k, phi0
-    dihedral_harmonic%data = set_data( "Harmonic", ["k   ", "phi0"], [k, phi0] )
-    dihedral_harmonic%params = set_params( mHARMOMIC, 0.0_rb, phi0, -k, 0.5_rb*k )
+
+    model%data = set_data( "Harmonic", ["k   ", "phi0"], [k, phi0] )
+    model%params = set_params( mHARMOMIC, 0.0_rb, phi0, -k, 0.5_rb*k )
+
   end function dihedral_harmonic
 
 !===================================================================================================
 !                             A U X I L I A R Y     P R O C E D U R E S
 !===================================================================================================
+
+  function set_data( name, params, values ) result( data )
+    character(*), intent(in) :: name, params(:)
+    real(rb),     intent(in) :: values(:)
+    type(c_ptr)              :: data
+
+    type(md_data), pointer :: ptr
+
+    allocate( ptr )
+    ptr%name = name
+    ptr%param = params
+    ptr%value = values
+    data = c_loc(ptr)
+
+  end function set_data
+
+!---------------------------------------------------------------------------------------------------
 
   function set_params( id, p1, p2, p3, p4 ) result( params )
     integer(ib), intent(in)           :: id
@@ -159,23 +240,6 @@ contains
     params = c_loc(ptr)
 
   end function set_params
-
-!---------------------------------------------------------------------------------------------------
-
-  function set_data( name, params, values ) result( data )
-    character(*), intent(in) :: name, params(:)
-    real(rb),     intent(in) :: values(:)
-    type(c_ptr)              :: data
-
-    type(md_data), pointer :: ptr
-
-    allocate( ptr )
-    ptr%name = name
-    ptr%param = params
-    ptr%value = values
-    data = c_loc(ptr)
-
-  end function set_data
 
 !===================================================================================================
 

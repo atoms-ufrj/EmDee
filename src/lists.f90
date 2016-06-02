@@ -39,7 +39,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine tList_allocate( list, nitems, nobjects )
+  elemental subroutine tList_allocate( list, nitems, nobjects )
     class(tList), intent(inout) :: list
     integer(ib),  intent(in)    :: nitems, nobjects
 

@@ -17,6 +17,8 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TO DO: explicitly determine by-ref or by-value definitions in set_pair, add_bond, etc.
+
 module EmDee
 
 use omp_lib
@@ -74,7 +76,7 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
 
   integer(ib) :: ntypes         ! Number of atom types
-  type(c_ptr) :: pairData       ! Model data of each type of atom pair
+  type(c_ptr) :: pairModel      ! Model of each type of atom pair
   type(c_ptr) :: pairParams     ! Model parameters of each type of atom pair
 
   type(c_ptr) :: bonds          ! List of bonds
@@ -101,16 +103,13 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  function md_system( threads, rc, skin, N, types ) result( me ) bind(C)
+  type(tEmDee) function md_system( threads, rc, skin, N, types ) result( me ) bind(C)
     integer(ib), value :: threads, N
     real(rb),    value :: rc, skin
     type(c_ptr), value :: types
-    type(tEmDee)       :: me
-
-    integer(ib) :: i
 
     integer(ib),     pointer :: type_ptr(:)
-    type(data_ptr),  pointer :: pairData(:,:)
+    type(model_ptr), pointer :: pairModel(:,:)
     type(param_ptr), pointer :: pairParams(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
 
@@ -158,18 +157,16 @@ contains
     ! Allocate memory for neighbor lists:
     allocate( neighbor(threads) )
     me%neighbor = c_loc(neighbor)
-    do i = 1, threads
-      call neighbor(i) % allocate( extra, N )
-    end do
+    call neighbor % allocate( extra, N )
 
     ! Allocate memory for the list of pairs excluded from the neighbor lists:
     allocate( excluded )
     me%excluded = c_loc( excluded )
     call excluded % allocate( extra, N )
 
-    allocate( pairParams(me%ntypes,me%ntypes), pairData(me%ntypes,me%ntypes) )
+    allocate( pairModel(me%ntypes,me%ntypes), pairParams(me%ntypes,me%ntypes) )
+    me%pairModel = c_loc(pairModel(1,1))
     me%pairParams = c_loc(pairParams(1,1))
-    me%pairData = c_loc(pairData(1,1))
 
   end function md_system
 
@@ -179,9 +176,12 @@ contains
     type(c_ptr), value :: md, charges
 
     type(tEmDee), pointer :: me
+    real(rb),     pointer :: chargesPtr(:)
 
     call c_f_pointer( md, me )
-    call copy_real( charges, me%charge, me%natoms )
+    call c_f_pointer( me%charge, chargesPtr, [me%natoms] )
+    deallocate( chargesPtr )
+    me%charge = charges
 
   end subroutine md_set_charges
 
@@ -193,20 +193,20 @@ contains
     type(c_ptr), value :: model
 
     type(tEmDee),    pointer :: me
-    type(data_ptr),  pointer :: pairData(:,:)
+    type(model_ptr), pointer :: pairModel(:,:)
     type(param_ptr), pointer :: pairParams(:,:)
-    type(md_model),  pointer :: pmodel
+    type(md_model),  pointer :: modelPtr
 
     call c_f_pointer( md, me )
-    call c_f_pointer( me%pairData, pairData, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
     call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
-    call c_f_pointer( model, pmodel )
+    call c_f_pointer( model, modelPtr )
 
-    call c_f_pointer( pmodel%data, pairData(itype,jtype)%data )
-    call c_f_pointer( pmodel%params, pairParams(itype,jtype)%model )
+    call c_f_pointer( model, pairModel(itype,jtype)%model )
+    call c_f_pointer( modelPtr%params, pairParams(itype,jtype)%params )
     if (itype /= jtype) then
-      call c_f_pointer( pmodel%data, pairData(jtype,itype)%data )
-      call c_f_pointer( pmodel%params, pairParams(jtype,itype)%model )
+      call c_f_pointer( model, pairModel(jtype,itype)%model )
+      call c_f_pointer( modelPtr%params, pairParams(jtype,itype)%params )
     end if
 
   end subroutine md_set_pair
@@ -215,6 +215,31 @@ contains
 
   subroutine md_apply_mixing_rules( md ) bind(C)
     type(c_ptr), value :: md
+
+    integer(ib) :: i, j
+
+    type(tEmDee),    pointer :: me
+    type(model_ptr), pointer :: pairModel(:,:)
+    type(param_ptr), pointer :: pairParams(:,:)
+    type(md_model),  pointer :: ijmodel
+    type(md_params), pointer :: ijparams
+
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
+
+    do i = 1, me%ntypes - 1
+      do j = i + 1, me%ntypes
+        if (.not.associated(pairModel(i,j)%model)) then
+          ijmodel = cross_interaction( pairModel(i,i)%model, pairModel(j,j)%model )
+          call c_f_pointer( ijmodel%params, ijparams )
+          pairModel(i,j)%model => ijmodel
+          pairModel(j,i)%model => ijmodel
+          pairParams(i,j)%params => ijparams
+          pairParams(j,i)%params => ijparams
+        end if
+      end do
+    end do
 
   end subroutine md_apply_mixing_rules
 
@@ -679,7 +704,7 @@ contains
         r2 = sum(rij*rij)
         if (r2 < me%RcSq) then
           invR2 = invL2/r2
-          model => pairParams(atomType(d%i),atomType(d%l))%model
+          model => pairParams(atomType(d%i),atomType(d%l))%params
           icharge = charge(d%i)
           jcharge = charge(d%l)
           call compute_pair()
@@ -783,7 +808,7 @@ contains
         do m = k + 1, ntotal
           if (include(m)) then
             j = atom(m)
-            model => pairParams(itype,atomType(j))%model
+            model => pairParams(itype,atomType(j))%params
             if (associated(model)) then
               Rij = Ri - Rs(:,j)
               Rij = Rij - anint(Rij)
@@ -862,7 +887,7 @@ contains
         r2 = sum(Rij*Rij)
         if (r2 < Rc2) then
           invR2 = invL2/r2
-          model => pairParams(itype,atomType(j))%model
+          model => pairParams(itype,atomType(j))%params
           call compute_pair()
           Energy = Energy + Eij
           Virial = Virial + Wij
