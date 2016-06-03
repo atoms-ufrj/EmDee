@@ -17,8 +17,6 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TO DO: explicitly determine by-ref or by-value definitions in set_pair, add_bond, etc.
-
 module EmDee
 
 use omp_lib
@@ -74,6 +72,7 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: atomType       ! The type of each atom
   type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
   type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
+  integer(ib) :: chargeFlag     ! 
 
   integer(ib) :: ntypes         ! Number of atom types
   type(c_ptr) :: pairModel      ! Model of each type of atom pair
@@ -146,6 +145,7 @@ contains
     me%angles = c_null_ptr
     me%dihedrals = c_null_ptr
     me%charge = malloc_real( N, value = zero )
+    me%chargeFlag = 0
 
     ! Allocate memory for list of atoms per cell:
     allocate( cellAtom )
@@ -181,8 +181,11 @@ contains
     real(rb),     pointer :: chargesPtr(:)
 
     call c_f_pointer( md, me )
-    call c_f_pointer( me%charge, chargesPtr, [me%natoms] )
-    deallocate( chargesPtr )
+    if (me%chargeFlag == 0) then
+      call c_f_pointer( me%charge, chargesPtr, [me%natoms] )
+      deallocate( chargesPtr )
+      me%chargeFlag = 1
+    end if
     me%charge = charges
 
   end subroutine EmDee_set_charges
@@ -194,6 +197,9 @@ contains
     integer(ib), value :: itype, jtype
     type(c_ptr), value :: model
 
+    integer(ib) :: k
+    logical :: keep
+
     type(tEmDee),      pointer :: me
     type(model_ptr),   pointer :: pairModel(:,:)
     type(param_ptr),   pointer :: pairParams(:,:)
@@ -204,46 +210,45 @@ contains
     call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
     call c_f_pointer( model, modelPtr )
 
-    call c_f_pointer( model, pairModel(itype,jtype)%model )
-    call c_f_pointer( modelPtr%params, pairParams(itype,jtype)%params )
-    if (itype /= jtype) then
-      call c_f_pointer( model, pairModel(jtype,itype)%model )
-      call c_f_pointer( modelPtr%params, pairParams(jtype,itype)%params )
-    end if
-
-  end subroutine EmDee_set_pair
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine EmDee_apply_mixing_rules( md ) bind(C,name="EmDee_apply_mixing_rules")
-    type(c_ptr), value :: md
-
-    integer(ib) :: i, j
-
-    type(tEmDee),      pointer :: me
-    type(model_ptr),   pointer :: pairModel(:,:)
-    type(param_ptr),   pointer :: pairParams(:,:)
-    type(EmDee_Model), pointer :: ijmodel
-    type(md_params),   pointer :: ijparams
-
-    call c_f_pointer( md, me )
-    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
-    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
-
-    do i = 1, me%ntypes - 1
-      do j = i + 1, me%ntypes
-        if (.not.associated(pairModel(i,j)%model)) then
-          ijmodel = cross_interaction( pairModel(i,i)%model, pairModel(j,j)%model )
-          call c_f_pointer( ijmodel%params, ijparams )
-          pairModel(i,j)%model => ijmodel
-          pairModel(j,i)%model => ijmodel
-          pairParams(i,j)%params => ijparams
-          pairParams(j,i)%params => ijparams
+    if (itype == jtype) then
+      call associate( itype, itype, modelPtr )
+      do k = 1, me%ntypes
+        if (k /= itype) then
+          keep = associated(pairModel(itype,k)%model)
+          if (keep) keep = pairModel(itype,k)%model%external == 1
+          if (.not.keep) call replace( itype, k, cross_pair( modelPtr, pairModel(k,k)%model ) )
         end if
       end do
-    end do
+    else
+      call replace( itype, jtype, modelPtr )
+    end if
 
-  end subroutine EmDee_apply_mixing_rules
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine associate( i, j, model )
+        integer(ib),                intent(in) :: i, j
+        type(EmDee_Model), pointer, intent(in) :: model
+        if (associated(model)) then
+          pairModel(i,j)%model => model
+          call c_f_pointer( model%params, pairParams(i,j)%params )
+        else
+          nullify( pairModel(i,j)%model, pairParams(i,j)%params )
+        end if
+      end subroutine associate
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine replace( i, j, model )
+        integer(ib),                intent(in) :: i, j
+        type(EmDee_Model), pointer, intent(in) :: model
+        type(EmDee_Model), pointer :: ijmodel
+        ijmodel = pairModel(i,j)%model
+        if (associated(ijmodel)) then
+          if (ijmodel%external == 0) deallocate( ijmodel )
+        end if
+        call associate( i, j, model )
+        call associate( j, i, model )
+      end subroutine replace
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine EmDee_set_pair
 
 !---------------------------------------------------------------------------------------------------
 

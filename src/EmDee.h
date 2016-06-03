@@ -24,6 +24,7 @@ typedef struct {
   int *type;             // The type of each atom
   double *R0;            // The position of each atom at the latest neighbor list building
   double *charge;        // Pointer to the electric charge of each atom
+  int chargeFlag;
 
   int ntypes;            // Number of atom types
   void *pairParams;      // Model parameters of each type of atom pair

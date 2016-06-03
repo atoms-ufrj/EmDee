@@ -26,6 +26,7 @@ type tEmDee
   atomType::Ptr{Int32}    # The type of each atom
   R0::Ptr{Float64}        # The position of each atom at the latest neighbor list building
   charge::Ptr{Float64}    # Pointer to the electric charge of each atom
+  chargeFlag::Int32
 
   ntypes::Int32           # Number of atom types
   pairParams::Ptr{Void}   # Model parameters of each type of atom pair

@@ -26,6 +26,7 @@ implicit none
 type, bind(C) :: EmDee_Model
   type(c_ptr) :: data
   type(c_ptr) :: params
+  integer(ib) :: external = 1
 end type EmDee_Model
 
 integer, parameter, private :: sl = 40
@@ -121,35 +122,41 @@ contains
 !                                     M I X I N G     R U L E S
 !===================================================================================================
 
-  function cross_interaction( imodel, jmodel ) result( ij )
+  function cross_pair( imodel, jmodel ) result( ij )
     type(EmDee_Model), pointer, intent(in) :: imodel, jmodel
     type(EmDee_Model), pointer             :: ij
 
     type(md_data),   pointer :: idata, jdata
     type(md_params), pointer :: iparams, jparams
 
-    ij => null()
     if (associated(imodel).and.associated(jmodel)) then
       call c_f_pointer( imodel%data, idata )
       call c_f_pointer( jmodel%data, jdata )
       call c_f_pointer( imodel%params, iparams )
       call c_f_pointer( jmodel%params, jparams )
-      if (iparams%id == jparams%id) then
-        select case (iparams%id)
-          case (mLJ)
-            allocate( ij )
-            ij = EmDee_pair_lj( arithmetic(1), geometric(2) )
-          case (mLJSF)
-            allocate( ij )
-            ij = EmDee_pair_lj_sf( arithmetic(1), geometric(2), arithmetic(3) )
-          case (mLJCOULSF)
-            allocate( ij )
-            ij = EmDee_pair_lj_coul_sf( arithmetic(1), geometric(2), arithmetic(3) )
-        end select
+
+      allocate( ij )
+      if (match(mLJ,mLJ)) then
+        ij = EmDee_pair_lj( arithmetic(1), geometric(2) )
+      else if (match(mLJSF,mLJSF).or.match(mLJSF,mLJCOULSF)) then
+        ij = EmDee_pair_lj_sf( arithmetic(1), geometric(2), arithmetic(3) )
+      else if (match(mLJCOULSF,mLJCOULSF)) then
+        ij = EmDee_pair_lj_coul_sf( arithmetic(1), geometric(2), arithmetic(3) )
+      else
+        deallocate( ij )
+        ij => null()
       end if
+    else
+      ij => null()
     end if
 
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      logical function match( a, b )
+        integer(ib), intent(in) :: a, b
+        match = ((iparams%id == a).and.(jparams%id == b)) .or. &
+                ((iparams%id == b).and.(jparams%id == a))
+      end function match
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       real(rb) function arithmetic( k )
         integer(ib), intent(in) :: k
@@ -161,7 +168,7 @@ contains
         geometric = sqrt(idata%value(k)*jdata%value(k))
       end function geometric
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end function cross_interaction
+  end function cross_pair
 
 !===================================================================================================
 !                                      B O N D     M O D E L S
