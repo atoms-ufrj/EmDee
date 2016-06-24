@@ -29,6 +29,7 @@ implicit none
 
 real(rb), parameter, private :: zero  = 0.0_rb,                 &
                                 one   = 1.0_rb,                 &
+                                two   = 2.0_rb,                 &
                                 third = 0.33333333333333333_rb, &
                                 pi    = 3.14159265358979324_rb, &
                                 piBy2 = 0.5_rb*pi
@@ -60,6 +61,8 @@ type, bind(C) :: tEmDee
   real(rb)    :: xRc            ! Extended cutoff distance (including skin)
   real(rb)    :: xRcSq          ! Extended cutoff distance squared
   real(rb)    :: skinSq         ! Square of the neighbor list skin width
+  real(rb)    :: eshift         ! Energy shifting factor for Coulombic interactions
+  real(rb)    :: fshift         ! Force shifting factor for Coulombic interactions
 
   integer(ib) :: mcells         ! Number of cells at each dimension
   integer(ib) :: ncells         ! Total number of cells
@@ -71,8 +74,9 @@ type, bind(C) :: tEmDee
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: atomType       ! The type of each atom
   type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
+
+  integer(ib) :: coulomb        ! Flag for coulombic interactions
   type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
-  integer(ib) :: chargeFlag     ! 
 
   integer(ib) :: ntypes         ! Number of atom types
   type(c_ptr) :: pairModel      ! Model of each type of atom pair
@@ -122,6 +126,8 @@ contains
     me%xRcSq = me%xRc**2
     me%skinSq = skin*skin
     me%natoms = N
+    me%fshift = one/me%RcSq
+    me%eshift = -two/me%Rc
 
     if (c_associated(types)) then
       call c_f_pointer( types, type_ptr, [N] )
@@ -144,8 +150,8 @@ contains
     me%bonds = c_null_ptr
     me%angles = c_null_ptr
     me%dihedrals = c_null_ptr
+    me%coulomb = 0
     me%charge = malloc_real( N, value = zero )
-    me%chargeFlag = 0
 
     ! Allocate memory for list of atoms per cell:
     allocate( cellAtom )
@@ -177,16 +183,29 @@ contains
   subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
     type(c_ptr), value :: md, charges
 
-    type(tEmDee), pointer :: me
-    real(rb),     pointer :: chargesPtr(:)
+    integer :: i, j
+
+    type(tEmDee),    pointer :: me
+    real(rb),        pointer :: chargesPtr(:)
+    type(param_ptr), pointer :: pairParams(:,:)
+    type(md_params), pointer :: params
 
     call c_f_pointer( md, me )
-    if (me%chargeFlag == 0) then
+    if (me%coulomb == 0) then
       call c_f_pointer( me%charge, chargesPtr, [me%natoms] )
       deallocate( chargesPtr )
-      me%chargeFlag = 1
+      me%coulomb = 1
     end if
+
     me%charge = charges
+
+    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
+    do i = 1, me%ntypes
+      do j = 1, me%ntypes
+        params => pairParams(i,j)%params
+        if (associated(params)) params%id = mCOULOMB + mod(params%id,mCOULOMB)
+      end do
+    end do
 
   end subroutine EmDee_set_charges
 
@@ -203,7 +222,7 @@ contains
     type(tEmDee),      pointer :: me
     type(model_ptr),   pointer :: pairModel(:,:)
     type(param_ptr),   pointer :: pairParams(:,:)
-    type(EmDee_Model), pointer :: modelPtr
+    type(EmDee_Model), pointer :: modelPtr, crossModel
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
@@ -211,12 +230,15 @@ contains
     call c_f_pointer( model, modelPtr )
 
     if (itype == jtype) then
-      call associate( itype, itype, modelPtr )
+      call associate_model( itype, itype, modelPtr )
       do k = 1, me%ntypes
         if (k /= itype) then
           keep = associated(pairModel(itype,k)%model)
           if (keep) keep = pairModel(itype,k)%model%external == 1
-          if (.not.keep) call replace( itype, k, cross_pair( modelPtr, pairModel(k,k)%model ) )
+          if (.not.keep) then
+            crossModel => cross_pair( modelPtr, pairModel(k,k)%model )
+            call replace( itype, k, crossModel )
+          end if
         end if
       end do
     else
@@ -225,27 +247,30 @@ contains
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine associate( i, j, model )
-        integer(ib),                intent(in) :: i, j
-        type(EmDee_Model), pointer, intent(in) :: model
+      subroutine associate_model( i, j, model )
+        integer(ib),                intent(in)    :: i, j
+        type(EmDee_Model), pointer, intent(inout) :: model
         if (associated(model)) then
           pairModel(i,j)%model => model
           call c_f_pointer( model%params, pairParams(i,j)%params )
+          if (me%coulomb == 1) then
+            pairParams(i,j)%params%id = mCOULOMB + mod(pairParams(i,j)%params%id,mCOULOMB)
+          end if
         else
           nullify( pairModel(i,j)%model, pairParams(i,j)%params )
         end if
-      end subroutine associate
+      end subroutine associate_model
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine replace( i, j, model )
-        integer(ib),                intent(in) :: i, j
-        type(EmDee_Model), pointer, intent(in) :: model
+        integer(ib),                intent(in)    :: i, j
+        type(EmDee_Model), pointer, intent(inout) :: model
         type(EmDee_Model), pointer :: ijmodel
         ijmodel = pairModel(i,j)%model
         if (associated(ijmodel)) then
           if (ijmodel%external == 0) deallocate( ijmodel )
         end if
-        call associate( i, j, model )
-        call associate( j, i, model )
+        call associate_model( i, j, model )
+        call associate_model( j, i, model )
       end subroutine replace
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_set_pair
@@ -651,8 +676,8 @@ contains
     real(rb),     intent(in)    :: L, R(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Energy, Virial
 
-    integer(ib) :: m, ndihedrals
-    real(rb)    :: invL2, Rc2, Ed, Fd, r2, invR2, Eij, Wij, icharge, jcharge
+    integer(ib) :: m, ndihedrals, i, j
+    real(rb)    :: invL2, Rc2, Ed, Fd, r2, invR2, Eij, Wij, icharge
     real(rb)    :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb)    :: normRkj, normX, a, b, phi
     real(rb)    :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
@@ -707,21 +732,22 @@ contains
       Energy = Energy + Ed
       Virial = Virial + L*sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
       if (model%p1 /= zero) then
+        i = d%i
+        j = d%l
         rij = rij + rlk - rkj
         r2 = sum(rij*rij)
         if (r2 < me%RcSq) then
           invR2 = invL2/r2
-          model => pairParams(atomType(d%i),atomType(d%l))%params
-          icharge = charge(d%i)
-          jcharge = charge(d%l)
+          model => pairParams(atomType(i),atomType(j))%params
+          icharge = charge(i)
           call compute_pair()
           Eij = model%p1*Eij
           Wij = model%p1*Wij
           Energy = Energy + Eij
           Virial = Virial + Wij
           Fij = Wij*invR2*rij
-          F(:,d%i) = F(:,d%i) + Fij
-          F(:,d%l) = F(:,d%l) - Fij
+          F(:,i) = F(:,i) + Fij
+          F(:,j) = F(:,j) - Fij
         end if
       end if
     end do

@@ -1,9 +1,12 @@
 module EmDee
 
-type Model
+immutable Model
   data::Ptr{Void}
   params::Ptr{Void}
+  external::Int32
 end
+
+Model() = Model(C_NULL,C_NULL,Int32(0))
 
 type tEmDee
 
@@ -14,6 +17,8 @@ type tEmDee
   xRc::Float64            # Extended cutoff distance (including skin)
   xRcSq::Float64          # Extended cutoff distance squared
   skinSq::Float64         # Square of the neighbor list skin width
+  eshift::Float64         # Energy shifting factor for Coulombic interactions
+  fshift::Float64         # Force shifting factor for Coulombic interactions
 
   mcells::Int32           # Number of cells at each dimension
   ncells::Int32           # Total number of cells
@@ -25,8 +30,9 @@ type tEmDee
   natoms::Int32           # Number of atoms in the system
   atomType::Ptr{Int32}    # The type of each atom
   R0::Ptr{Float64}        # The position of each atom at the latest neighbor list building
+
+  coulomb::Int32          # Flag for coulombic interactions
   charge::Ptr{Float64}    # Pointer to the electric charge of each atom
-  chargeFlag::Int32
 
   ntypes::Int32           # Number of atom types
   pairParams::Ptr{Void}   # Model parameters of each type of atom pair
@@ -65,16 +71,38 @@ end
 #---------------------------------------------------------------------------------------------------
 
 function compute_forces( md::tEmDee, forces::Array{Float64,2}, coords::Array{Float64,2}, L::Real )
-  ccall( (:EmDee_compute_forces, "libemdee"), Void, (Ptr{Void}, Ptr{Float64}, Ptr{Float64}, Float64),
+  ccall( (:EmDee_compute_forces, "libemdee"),
+         Void,
+         (Ptr{Void}, Ptr{Float64}, Ptr{Float64}, Float64),
          pointer_from_objref(md), forces, coords, L )
 end
 
 #---------------------------------------------------------------------------------------------------
-
-function pair_lj( sigma::Real, epsilon::Real )
-  return ccall( (:EmDee_pair_lj, "libemdee"), Model, (Float64, Float64), sigma, epsilon )
-end
-
+#                                            M O D E L S
 #---------------------------------------------------------------------------------------------------
-
+function pair_lj( σ::Number, ɛ::Number )
+  return ccall( (:EmDee_pair_lj, "libemdee"), Model, (Float64, Float64), σ, ɛ )
+end
+#---------------------------------------------------------------------------------------------------
+function pair_lj_sf( σ::Number, ɛ::Number, cutoff::Number )
+  return ccall( (:EmDee_pair_lj_sf, "libemdee"), Model,
+                (Float64, Float64, Float64), σ, ɛ, cutoff )
+end
+#---------------------------------------------------------------------------------------------------
+function bond_harmonic( k::Number, r0::Number )
+  return ccall( (:EmDee_bond_harmonic, "libemdee"), Model, (Float64, Float64), k, r0 )
+end
+#---------------------------------------------------------------------------------------------------
+function bond_morse( D::Number, α::Number, r0::Number )
+  return ccall( (:EmDee_bond_morse, "libemdee"), Model, (Float64, Float64, Float64), D, α, r0 )
+end
+#---------------------------------------------------------------------------------------------------
+function angle_harmonic( k::Number, θ0::Number )
+  return ccall( (:EmDee_angle_harmonic, "libemdee"), Model, (Float64, Float64), k, θ0 )
+end
+#---------------------------------------------------------------------------------------------------
+function dihedral_harmonic( k::Number, ϕ0::Number )
+  return ccall( (:EmDee_dihedral_harmonic, "libemdee"), Model, (Float64, Float64), k, ϕ0 )
+end
+#---------------------------------------------------------------------------------------------------
 end

@@ -1,6 +1,7 @@
 typedef struct {
   void *data;
   void *params;
+  int external;
 } EmDee_Model;
 
 typedef struct {
@@ -12,6 +13,8 @@ typedef struct {
   double xRc;            // Extended cutoff distance (including skin)
   double xRcSq;          // Extended cutoff distance squared
   double skinSq;         // Square of the neighbor list skin width
+  double eshift;         // Energy shifting factor for Coulombic interactions
+  double fshift;         // Force shifting factor for Coulombic interactions
 
   int mcells;            // Number of cells at each dimension
   int ncells;            // Total number of cells
@@ -23,8 +26,9 @@ typedef struct {
   int natoms;            // Number of atoms in the system
   int *type;             // The type of each atom
   double *R0;            // The position of each atom at the latest neighbor list building
+
+  int coulomb;           // Flag for coulombic interactions
   double *charge;        // Pointer to the electric charge of each atom
-  int chargeFlag;
 
   int ntypes;            // Number of atom types
   void *pairParams;      // Model parameters of each type of atom pair
@@ -66,8 +70,6 @@ void EmDee_compute_forces( tEmDee *md, double *forces, double *coords, double L 
 EmDee_Model EmDee_pair_lj( double sigma, double epsilon );
 
 EmDee_Model EmDee_pair_lj_sf( double sigma, double epsilon, double cutoff );
-
-EmDee_Model EmDee_pair_lj_coul_sf( double sigma, double epsilon, double cutoff );
 
 EmDee_Model EmDee_bond_harmonic( double k, double r0 );
 
