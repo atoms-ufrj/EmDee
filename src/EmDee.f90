@@ -269,7 +269,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine EmDee_exclude_pair( md, i, j ) bind(C,name="EmDee_exclude_pair")
+  subroutine EmDee_ignore_pair( md, i, j ) bind(C,name="EmDee_ignore_pair")
     type(c_ptr), value :: md
     integer(ib), value :: i, j
 
@@ -310,7 +310,7 @@ contains
         n = n + 1
       end subroutine add_item
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine EmDee_exclude_pair
+  end subroutine EmDee_ignore_pair
 
 !---------------------------------------------------------------------------------------------------
 
@@ -323,7 +323,7 @@ contains
 
     call c_f_pointer( md, me )
     call add_bonded_struc( me%bonds, i, j, 0, 0, model )
-    call EmDee_exclude_pair( md, i, j )
+    call EmDee_ignore_pair( md, i, j )
 
   end subroutine EmDee_add_bond
 
@@ -338,9 +338,9 @@ contains
 
     call c_f_pointer( md, me )
     call add_bonded_struc( me%angles, i, j, k, 0, model )
-    call EmDee_exclude_pair( md, i, j )
-    call EmDee_exclude_pair( md, i, k )
-    call EmDee_exclude_pair( md, j, k )
+    call EmDee_ignore_pair( md, i, j )
+    call EmDee_ignore_pair( md, i, k )
+    call EmDee_ignore_pair( md, j, k )
 
   end subroutine EmDee_add_angle
 
@@ -355,18 +355,18 @@ contains
 
     call c_f_pointer( md, me )
     call add_bonded_struc( me%dihedrals, i, j, k, l, model )
-    call EmDee_exclude_pair( md, i, j )
-    call EmDee_exclude_pair( md, i, k )
-    call EmDee_exclude_pair( md, i, l )
-    call EmDee_exclude_pair( md, j, k )
-    call EmDee_exclude_pair( md, j, l )
-    call EmDee_exclude_pair( md, k, l )
+    call EmDee_ignore_pair( md, i, j )
+    call EmDee_ignore_pair( md, i, k )
+    call EmDee_ignore_pair( md, i, l )
+    call EmDee_ignore_pair( md, j, k )
+    call EmDee_ignore_pair( md, j, l )
+    call EmDee_ignore_pair( md, k, l )
 
   end subroutine EmDee_add_dihedral
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine EmDee_compute_forces( md, forces, coords, L ) bind(C,name="EmDee_compute_forces")
+  subroutine EmDee_compute( md, forces, coords, L ) bind(C,name="EmDee_compute")
     type(c_ptr), value :: md, forces, coords
     real(rb),    value :: L
 
@@ -422,7 +422,7 @@ contains
 
     me%time = me%time + omp_get_wtime()
 
-  end subroutine EmDee_compute_forces
+  end subroutine EmDee_compute
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S

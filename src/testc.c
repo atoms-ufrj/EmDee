@@ -124,7 +124,7 @@ int main( int argc, char *argv[] )  {
   tEmDee md = EmDee_system( threads, par.Rc, par.Rs, par.N, NULL );
   EmDee_Model lj = EmDee_pair_lj( 1.0, 1.0 );   
   EmDee_set_pair( &md, 1, 1, &lj );
-  EmDee_compute_forces( &md, par.F, par.R, par.L );
+  EmDee_compute( &md, par.F, par.R, par.L );
   printf("%d %lf %lf\n", 0, md.Energy, md.Virial);
   clock_t start = clock();
   for (int passo = 1; passo <= par.Npassos; passo++) {
@@ -133,7 +133,7 @@ int main( int argc, char *argv[] )  {
       par.V[i] += par.Dt_2*par.F[i];
       par.R[i] += par.Dt*par.V[i];
     }
-    EmDee_compute_forces( &md, par.F, par.R, par.L );
+    EmDee_compute( &md, par.F, par.R, par.L );
     for (int i = 0; i < 3*md.natoms; i++)
       par.V[i] += par.Dt_2*par.F[i];
   }

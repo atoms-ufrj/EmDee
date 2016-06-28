@@ -73,39 +73,84 @@ end
 
 #---------------------------------------------------------------------------------------------------
 
-function compute_forces( md::tEmDee, forces::Array{Float64,2}, coords::Array{Float64,2}, L::Real )
-  ccall( (:EmDee_compute_forces, "libemdee"),
-         Void,
-         (Ptr{Void}, Ptr{Float64}, Ptr{Float64}, Float64),
+function set_charges( md::tEmDee, charges::Array{Float64,1} )
+  ccall( (:EmDee_set_charges, "libemdee"), Void, (Ptr{Void}, Ptr{Float64}),
+         pointer_from_objref(md), pointer_from_objref(charges) )
+end
+
+#---------------------------------------------------------------------------------------------------
+
+function add_bond( md::tEmDee, i::Int, j::Int, model::Model )
+  ccall( (:EmDee_add_bond, "libemdee"), Void, (Ptr{Void}, Int32, Int32, Ptr{Void}),
+         pointer_from_objref(md), i, j, pointer_from_objref(model) )
+end
+
+#---------------------------------------------------------------------------------------------------
+
+function add_angle( md::tEmDee, i::Int, j::Int, k::Int, model::Model )
+  ccall( (:EmDee_add_angle, "libemdee"), Void, (Ptr{Void}, Int32, Int32, Int32, Ptr{Void}),
+         pointer_from_objref(md), i, j, k, pointer_from_objref(model) )
+end
+
+#---------------------------------------------------------------------------------------------------
+
+function add_dihedral( md::tEmDee, i::Int, j::Int, k::Int, l::Int32, model::Model )
+  ccall( (:EmDee_add_dihedral, "libemdee"), Void, (Ptr{Void}, Int32, Int32, Int32, Int32, Ptr{Void}),
+         pointer_from_objref(md), i, j, k, l, pointer_from_objref(model) )
+end
+
+#---------------------------------------------------------------------------------------------------
+
+function ignore_pair( md::tEmDee, i::Int, j::Int )
+  ccall( (:EmDee_ignore_pair, "libemdee"), Void, (Ptr{Void}, Int32, Int32),
+         pointer_from_objref(md), i, j )
+end
+
+#---------------------------------------------------------------------------------------------------
+
+function compute( md::tEmDee, forces::Array{Float64,2}, coords::Array{Float64,2}, L::Real )
+  ccall( (:EmDee_compute, "libemdee"), Void, (Ptr{Void}, Ptr{Float64}, Ptr{Float64}, Float64),
          pointer_from_objref(md), forces, coords, L )
 end
 
 #---------------------------------------------------------------------------------------------------
 #                                            M O D E L S
 #---------------------------------------------------------------------------------------------------
-function pair_lj( σ::Number, ɛ::Number )
-  return ccall( (:EmDee_pair_lj, "libemdee"), Model, (Float64, Float64), σ, ɛ )
+
+function pair_lj( ɛ::Number, σ::Number )
+  return ccall( (:EmDee_pair_lj, "libemdee"), Model, (Float64, Float64), ɛ, σ )
 end
+
 #---------------------------------------------------------------------------------------------------
-function pair_lj_sf( σ::Number, ɛ::Number, cutoff::Number )
-  return ccall( (:EmDee_pair_lj_sf, "libemdee"), Model,
-                (Float64, Float64, Float64), σ, ɛ, cutoff )
+
+function pair_lj_sf( ɛ::Number, σ::Number, rc::Number )
+  return ccall( (:EmDee_pair_lj_sf, "libemdee"), Model, (Float64, Float64, Float64), ɛ, σ, rc )
 end
+
 #---------------------------------------------------------------------------------------------------
-function bond_harmonic( k::Number, r0::Number )
-  return ccall( (:EmDee_bond_harmonic, "libemdee"), Model, (Float64, Float64), k, r0 )
+
+function bond_harmonic( k::Number, r₀::Number )
+  return ccall( (:EmDee_bond_harmonic, "libemdee"), Model, (Float64, Float64), k, r₀ )
 end
+
 #---------------------------------------------------------------------------------------------------
-function bond_morse( D::Number, α::Number, r0::Number )
-  return ccall( (:EmDee_bond_morse, "libemdee"), Model, (Float64, Float64, Float64), D, α, r0 )
+
+function bond_morse( D::Number, α::Number, r₀::Number )
+  return ccall( (:EmDee_bond_morse, "libemdee"), Model, (Float64, Float64, Float64), D, α, r₀ )
 end
+
 #---------------------------------------------------------------------------------------------------
-function angle_harmonic( k::Number, θ0::Number )
-  return ccall( (:EmDee_angle_harmonic, "libemdee"), Model, (Float64, Float64), k, θ0 )
+
+function angle_harmonic( k::Number, θ₀::Number )
+  return ccall( (:EmDee_angle_harmonic, "libemdee"), Model, (Float64, Float64), k, θ₀ )
 end
+
 #---------------------------------------------------------------------------------------------------
-function dihedral_harmonic( k::Number, ϕ0::Number )
-  return ccall( (:EmDee_dihedral_harmonic, "libemdee"), Model, (Float64, Float64), k, ϕ0 )
+
+function dihedral_harmonic( k::Number, ϕ₀::Number )
+  return ccall( (:EmDee_dihedral_harmonic, "libemdee"), Model, (Float64, Float64), k, ϕ₀ )
 end
+
 #---------------------------------------------------------------------------------------------------
+
 end

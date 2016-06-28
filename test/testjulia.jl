@@ -17,12 +17,12 @@ function main()
 
   R, V = generate_configuration( seed, N, L, Temp )
   F = Array(Float64,3,N)
-  EmDee.compute_forces( md, F, R, L )
+  EmDee.compute( md, F, R, L )
   println(0, " ", md.Energy, " ", md.Virial)
   for step = 1:Nsteps
     V = V + Dt_2*F
     R = R + Dt*V
-    EmDee.compute_forces( md, F, R, L )
+    EmDee.compute( md, F, R, L )
     V = V + Dt_2*F
     if mod(step,50) == 0
       println(step, " ", md.Energy, " ", md.Virial)

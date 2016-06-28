@@ -55,17 +55,15 @@ void EmDee_set_charges( tEmDee *md, double *charges );
 
 void EmDee_set_pair( tEmDee *md, int itype, int jtype, EmDee_Model *model );
 
-void EmDee_apply_mixing_rules( tEmDee *md );
-
 void EmDee_add_bond( tEmDee *md, int i, int j, EmDee_Model *model );
 
 void EmDee_add_angle( tEmDee *md, int i, int j, int k, EmDee_Model *model );
 
 void EmDee_add_dihedral( tEmDee *md, int i, int j, int k, int l, EmDee_Model *model );
 
-void EmDee_exclude_pair( tEmDee *md, int i, int j );
+void EmDee_ignore_pair( tEmDee *md, int i, int j );
 
-void EmDee_compute_forces( tEmDee *md, double *forces, double *coords, double L );
+void EmDee_compute( tEmDee *md, double *forces, double *coords, double L );
 
 EmDee_Model EmDee_pair_lj( double sigma, double epsilon );
 

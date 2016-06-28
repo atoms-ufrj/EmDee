@@ -62,7 +62,7 @@ call EmDee_set_pair( c_loc(md), 1, 1, c_loc(lj) )
 
 do i = 1, N-1
   do j = i+1, N
-    if (abs(i-j) < 10) call EmDee_exclude_pair( c_loc(md), i, j )
+    if (abs(i-j) < 10) call EmDee_ignore_pair( c_loc(md), i, j )
   end do
 end do
 
@@ -87,14 +87,14 @@ call EmDee_add_bond( c_loc(md), 4, 5, c_loc(bond) )
 !print*, "execution time = ", secnds(0.0) - tf, " s."
 !stop
 
-call EmDee_compute_forces( c_loc(md), c_loc(F), c_loc(R), L )
+call EmDee_compute( c_loc(md), c_loc(F), c_loc(R), L )
 print*, 0, md%Energy, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)
 do step = 1, Nsteps
   V = V + Dt_2*F
   R = R + Dt*V
-  call EmDee_compute_forces( c_loc(md), c_loc(F), c_loc(R), L )
+  call EmDee_compute( c_loc(md), c_loc(F), c_loc(R), L )
   V = V + Dt_2*F
   if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
 end do
