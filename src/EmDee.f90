@@ -80,7 +80,6 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: ntypes         ! Number of atom types
   type(c_ptr) :: pairModel      ! Model of each type of atom pair
-  type(c_ptr) :: pairParams     ! Model parameters of each type of atom pair
 
   type(c_ptr) :: bonds          ! List of bonds
   type(c_ptr) :: angles         ! List of angles
@@ -115,10 +114,9 @@ contains
 
     integer(ib),     pointer :: type_ptr(:)
     type(model_ptr), pointer :: pairModel(:,:)
-    type(param_ptr), pointer :: pairParams(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
 
-    ! Set up immutable entities:
+    ! Set up fixed entities:
     me%nthreads = threads
     me%Rc = rc
     me%RcSq = rc*rc
@@ -172,9 +170,8 @@ contains
     me%excluded = c_loc( excluded )
     call excluded % allocate( extra, N )
 
-    allocate( pairModel(me%ntypes,me%ntypes), pairParams(me%ntypes,me%ntypes) )
+    allocate( pairModel(me%ntypes,me%ntypes) )
     me%pairModel = c_loc(pairModel(1,1))
-    me%pairParams = c_loc(pairParams(1,1))
 
   end function EmDee_system
 
@@ -185,10 +182,10 @@ contains
 
     integer :: i, j
 
-    type(tEmDee),    pointer :: me
-    real(rb),        pointer :: chargesPtr(:)
-    type(param_ptr), pointer :: pairParams(:,:)
-    type(md_params), pointer :: params
+    type(tEmDee),      pointer :: me
+    real(rb),          pointer :: chargesPtr(:)
+    type(model_ptr),   pointer :: pairModel(:,:)
+    type(EmDee_Model), pointer :: model
 
     call c_f_pointer( md, me )
     if (me%coulomb == 0) then
@@ -199,11 +196,11 @@ contains
 
     me%charge = charges
 
-    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
     do i = 1, me%ntypes
       do j = 1, me%ntypes
-        params => pairParams(i,j)%params
-        if (associated(params)) params%id = mCOULOMB + mod(params%id,mCOULOMB)
+        model => pairModel(i,j)%model
+        if (associated(model)) model%id = mCOULOMB + mod(model%id,mCOULOMB)
       end do
     end do
 
@@ -221,12 +218,10 @@ contains
 
     type(tEmDee),      pointer :: me
     type(model_ptr),   pointer :: pairModel(:,:)
-    type(param_ptr),   pointer :: pairParams(:,:)
     type(EmDee_Model), pointer :: modelPtr, crossModel
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
-    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
     call c_f_pointer( model, modelPtr )
 
     if (itype == jtype) then
@@ -251,13 +246,10 @@ contains
         integer(ib),                intent(in)    :: i, j
         type(EmDee_Model), pointer, intent(inout) :: model
         if (associated(model)) then
+          if (me%coulomb == 1) model%id = mCOULOMB + mod(model%id,mCOULOMB)
           pairModel(i,j)%model => model
-          call c_f_pointer( model%params, pairParams(i,j)%params )
-          if (me%coulomb == 1) then
-            pairParams(i,j)%params%id = mCOULOMB + mod(pairParams(i,j)%params%id,mCOULOMB)
-          end if
         else
-          nullify( pairModel(i,j)%model, pairParams(i,j)%params )
+          nullify( pairModel(i,j)%model )
         end if
       end subroutine associate_model
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -328,11 +320,9 @@ contains
     type(c_ptr), value :: model
 
     type(tEmDee),      pointer :: me
-    type(EmDee_Model), pointer :: pmodel
 
     call c_f_pointer( md, me )
-    call c_f_pointer( model, pmodel )
-    call add_bonded_struc( me%bonds, i, j, 0, 0, pmodel%params )
+    call add_bonded_struc( me%bonds, i, j, 0, 0, model )
     call EmDee_exclude_pair( md, i, j )
 
   end subroutine EmDee_add_bond
@@ -345,11 +335,9 @@ contains
     type(c_ptr), value :: model
 
     type(tEmDee),      pointer :: me
-    type(EmDee_Model), pointer :: pmodel
 
     call c_f_pointer( md, me )
-    call c_f_pointer( model, pmodel )
-    call add_bonded_struc( me%angles, i, j, k, 0, pmodel%params )
+    call add_bonded_struc( me%angles, i, j, k, 0, model )
     call EmDee_exclude_pair( md, i, j )
     call EmDee_exclude_pair( md, i, k )
     call EmDee_exclude_pair( md, j, k )
@@ -364,11 +352,9 @@ contains
     type(c_ptr), value :: model
 
     type(tEmDee),      pointer :: me
-    type(EmDee_Model), pointer :: pmodel
 
     call c_f_pointer( md, me )
-    call c_f_pointer( model, pmodel )
-    call add_bonded_struc( me%dihedrals, i, j, k, l, pmodel%params )
+    call add_bonded_struc( me%dihedrals, i, j, k, l, model )
     call EmDee_exclude_pair( md, i, j )
     call EmDee_exclude_pair( md, i, k )
     call EmDee_exclude_pair( md, i, l )
@@ -590,7 +576,7 @@ contains
     real(rb)    :: invL, d, E, mdEdr
     real(rb)    :: Rij(3), Fij(3)
 
-    type(md_params),   pointer :: model
+    type(EmDee_Model), pointer :: model
     type(tStructData), pointer :: bonds
 
     call c_f_pointer( me%bonds, bonds )
@@ -601,7 +587,7 @@ contains
       i = bonds%item(m)%i
       j = bonds%item(m)%j
       Rij = R(:,i) - R(:,j)
-      Rij = Rij - nint(Rij)
+      Rij = Rij - anint(Rij)
       d = L*sqrt(sum(Rij*Rij))
       model => bonds%item(m)%model
       call compute_bond
@@ -630,7 +616,7 @@ contains
     real(rb)    :: aa, bb, ab, axb, theta, Ea, Fa
     real(rb)    :: Rj(3), Fi(3), Fk(3), a(3), b(3)
 
-    type(md_params),   pointer :: model
+    type(EmDee_Model), pointer :: model
     type(tStructData), pointer :: angles
 
     call c_f_pointer( me%angles, angles )
@@ -644,8 +630,8 @@ contains
       Rj = R(:,j)
       a = R(:,i) - Rj
       b = R(:,k) - Rj
-      a = a - nint(a)
-      b = b - nint(b)
+      a = a - anint(a)
+      b = b - anint(b)
       aa = sum(a*a)
       bb = sum(b*b)
       ab = sum(a*b)
@@ -684,15 +670,15 @@ contains
 
     integer(ib),       pointer :: atomType(:)
     real(rb),          pointer :: charge(:)
-    type(md_params),   pointer :: model
     type(tStruct),     pointer :: d
     type(tStructData), pointer :: dihedrals
-    type(param_ptr),   pointer :: pairParams(:,:)
+    type(EmDee_Model), pointer :: model
+    type(model_ptr),   pointer :: pairModel(:,:)
 
     call c_f_pointer( me%dihedrals, dihedrals )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
-    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
 
     invL2 = one/(L*L)
     Rc2 = me%RcSq*invL2
@@ -704,9 +690,9 @@ contains
       rij = R(:,d%i) - Rj
       rkj = Rk - Rj
       rlk = R(:,d%l) - Rk
-      rij = rij - nint(rij)
-      rkj = rkj - nint(rkj)
-      rlk = rlk - nint(rlk)
+      rij = rij - anint(rij)
+      rkj = rkj - anint(rkj)
+      rlk = rlk - anint(rlk)
       normRkj = sqrt(sum(rkj*rkj))
       z = rkj/normRkj
       x = rij - sum(rij*z)*z
@@ -738,7 +724,7 @@ contains
         r2 = sum(rij*rij)
         if (r2 < me%RcSq) then
           invR2 = invL2/r2
-          model => pairParams(atomType(i),atomType(j))%params
+          model => pairModel(atomType(i),atomType(j))%model
           icharge = charge(i)
           call compute_pair()
           Eij = model%p1*Eij
@@ -782,17 +768,17 @@ contains
 
     integer(ib), allocatable :: xlist(:)
 
-    type(md_params), pointer :: model
-    type(tCell),     pointer :: cell(:)
-    integer(ib),     pointer :: atomType(:)
-    real(rb),        pointer :: charge(:)
-    type(param_ptr), pointer :: pairParams(:,:)
-    type(tList),     pointer :: cellAtom, threadCell, neighborLists(:), neighbor, excluded
+    type(tCell),       pointer :: cell(:)
+    integer(ib),       pointer :: atomType(:)
+    real(rb),          pointer :: charge(:)
+    type(EmDee_Model), pointer :: model
+    type(model_ptr),   pointer :: pairModel(:,:)
+    type(tList),       pointer :: cellAtom, threadCell, neighborLists(:), neighbor, excluded
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
-    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
     call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%excluded, excluded )
@@ -841,7 +827,7 @@ contains
         do m = k + 1, ntotal
           if (include(m)) then
             j = atom(m)
-            model => pairParams(itype,atomType(j))%params
+            model => pairModel(itype,atomType(j))%model
             if (associated(model)) then
               Rij = Ri - Rs(:,j)
               Rij = Rij - anint(Rij)
@@ -888,15 +874,15 @@ contains
     real(rb) :: invL, invL2, Rc2, r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
 
-    type(md_params), pointer :: model
-    integer(ib),     pointer :: atomType(:)
-    real(rb),        pointer :: charge(:)
-    type(param_ptr), pointer :: pairParams(:,:)
-    type(tList),     pointer :: cellAtom, threadCell, neighborLists(:), neighbor
+    integer(ib),       pointer :: atomType(:)
+    real(rb),          pointer :: charge(:)
+    type(EmDee_Model), pointer :: model
+    type(model_ptr),   pointer :: pairModel(:,:)
+    type(tList),       pointer :: cellAtom, threadCell, neighborLists(:), neighbor
 
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
-    call c_f_pointer( me%pairParams, pairParams, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
     call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
@@ -920,7 +906,7 @@ contains
         r2 = sum(Rij*Rij)
         if (r2 < Rc2) then
           invR2 = invL2/r2
-          model => pairParams(itype,atomType(j))%params
+          model => pairModel(itype,atomType(j))%model
           call compute_pair()
           Energy = Energy + Eij
           Virial = Virial + Wij

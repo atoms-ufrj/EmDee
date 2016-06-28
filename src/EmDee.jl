@@ -1,12 +1,16 @@
 module EmDee
 
-immutable Model
+type Model
+  id::Int32
   data::Ptr{Void}
-  params::Ptr{Void}
+  p1::Float64
+  p2::Float64
+  p3::Float64
+  p4::Float64
   external::Int32
 end
 
-Model() = Model(C_NULL,C_NULL,Int32(0))
+Model() = Model(Int32(0),C_NULL,Float64(0),Float64(0),Float64(0),Float64(0),Int32(0))
 
 type tEmDee
 
@@ -35,7 +39,6 @@ type tEmDee
   charge::Ptr{Float64}    # Pointer to the electric charge of each atom
 
   ntypes::Int32           # Number of atom types
-  pairParams::Ptr{Void}   # Model parameters of each type of atom pair
   pairData::Ptr{Void}     # Model data of each type of atom pair
 
   bond::Ptr{Void}         # List of bonds

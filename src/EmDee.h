@@ -1,6 +1,7 @@
 typedef struct {
+  int id;
   void *data;
-  void *params;
+  double p1, p2, p3, p4;
   int external;
 } EmDee_Model;
 
@@ -31,7 +32,6 @@ typedef struct {
   double *charge;        // Pointer to the electric charge of each atom
 
   int ntypes;            // Number of atom types
-  void *pairParams;      // Model parameters of each type of atom pair
   void *pairData;        // Model data of each type of atom pair
 
   void *bond;            // List of bonds
