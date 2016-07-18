@@ -123,7 +123,7 @@ int main( int argc, char *argv[] )  {
   create_configuration( &par );
   tEmDee md = EmDee_system( threads, par.Rc, par.Rs, par.N, NULL );
   EmDee_Model lj = EmDee_pair_lj( 1.0, 1.0 );   
-  EmDee_set_pair( &md, 1, 1, &lj );
+  EmDee_set_pair_type( &md, 1, 1, &lj );
   EmDee_compute( &md, par.F, par.R, par.L );
   printf("%d %lf %lf\n", 0, md.Energy, md.Virial);
   clock_t start = clock();

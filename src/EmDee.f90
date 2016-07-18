@@ -72,11 +72,11 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: cell           ! Array containing all neighbor cells of each cell
 
   integer(ib) :: natoms         ! Number of atoms in the system
-  type(c_ptr) :: atomType       ! The type of each atom
+  type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
   type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
 
   integer(ib) :: coulomb        ! Flag for coulombic interactions
-  type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
+  type(c_ptr) :: charge         ! Pointer to the electric charges of all atoms
 
   integer(ib) :: ntypes         ! Number of atom types
   type(c_ptr) :: pairModel      ! Model of each type of atom pair
@@ -208,7 +208,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine EmDee_set_pair( md, itype, jtype, model ) bind(C,name="EmDee_set_pair")
+  subroutine EmDee_set_pair_type( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_type")
     type(c_ptr), value :: md
     integer(ib), value :: itype, jtype
     type(c_ptr), value :: model
@@ -223,7 +223,6 @@ contains
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
     call c_f_pointer( model, modelPtr )
-
     if (itype == jtype) then
       call associate_model( itype, itype, modelPtr )
       do k = 1, me%ntypes
@@ -257,7 +256,7 @@ contains
         integer(ib),                intent(in)    :: i, j
         type(EmDee_Model), pointer, intent(inout) :: model
         type(EmDee_Model), pointer :: ijmodel
-        ijmodel = pairModel(i,j)%model
+        ijmodel => pairModel(i,j)%model
         if (associated(ijmodel)) then
           if (ijmodel%external == 0) deallocate( ijmodel )
         end if
@@ -265,7 +264,7 @@ contains
         call associate_model( j, i, model )
       end subroutine replace
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine EmDee_set_pair
+  end subroutine EmDee_set_pair_type
 
 !---------------------------------------------------------------------------------------------------
 
@@ -403,16 +402,16 @@ contains
 
     !$omp parallel num_threads(me%nthreads) reduction(+:Fs,Energy,Virial)
     block
-      integer :: thr
-      thr = omp_get_thread_num() + 1
+      integer :: nt
+      nt = omp_get_thread_num() + 1
       if (buildList) then
-        call find_pairs_and_compute( me, thr, L, Rs, Fs, Energy, Virial )
+        call find_pairs_and_compute( me, nt, L, Rs, Fs, Energy, Virial )
       else
-        call compute_pairs( me, thr, L, Rs, Fs, Energy, Virial )
+        call compute_pairs( me, nt, L, Rs, Fs, Energy, Virial )
       end if
-      if (c_associated(me%bonds)) call compute_bonds( me, thr, L, Rs, Fs, Energy, Virial )
-      if (c_associated(me%angles)) call compute_angles( me, thr, L, Rs, Fs, Energy, Virial )
-      if (c_associated(me%dihedrals)) call compute_dihedrals( me, thr, L, Rs, Fs, Energy, Virial )
+      if (c_associated(me%bonds)) call compute_bonds( me, nt, L, Rs, Fs, Energy, Virial )
+      if (c_associated(me%angles)) call compute_angles( me, nt, L, Rs, Fs, Energy, Virial )
+      if (c_associated(me%dihedrals)) call compute_dihedrals( me, nt, L, Rs, Fs, Energy, Virial )
     end block
     !$omp end parallel
 

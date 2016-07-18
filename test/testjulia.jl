@@ -13,7 +13,7 @@ function main()
 
   md = EmDee.system( 2, Rc, Rs, N, fill(Int(1),N) )
   lj = EmDee.pair_lj( 1.0, 1.0 )
-  EmDee.set_pair( md, 1, 1, lj )
+  EmDee.set_pair_type( md, 1, 1, lj )
 
   R, V = generate_configuration( seed, N, L, Temp )
   F = Array(Float64,3,N)

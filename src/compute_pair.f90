@@ -22,22 +22,24 @@
 subroutine compute_pair()
   real(rb) :: invR
   select case (model%id)
-
+    case (mNONE)
+      Eij = zero
+      Wij = zero
+    case (mNONE + mCOULOMB)
+      Eij = zero
+      Wij = zero
+      call eval_coulomb( Eij, Wij, icharge*charge(j), sqrt(invR2) )
     case (mLJ)
       call lj( Eij, Wij, invR2*model%p1, model%p2 )
-
     case (mLJ + mCOULOMB)
       call lj( Eij, Wij, invR2*model%p1, model%p2 )
       call eval_coulomb( Eij, Wij, icharge*charge(j), sqrt(invR2) )
-
     case (mLJSF)
       call lj_sf( Eij, Wij, invR2*model%p1, model%p2, model%p3/sqrt(invR2), model%p4 )
-
     case (mLJSF + mCOULOMB)
       invR = sqrt(invR2)
-      call lj_sf( Eij, Wij, invR2*model%p1, model%p2, model%p3*invR, model%p4 )
+      call lj_sf( Eij, Wij, invR2*model%p1, model%p2, model%p3/invR, model%p4 )
       call eval_coulomb( Eij, Wij, icharge*charge(j), invR )
-
   end select
 end subroutine compute_pair
 

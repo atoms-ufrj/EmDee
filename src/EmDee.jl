@@ -66,8 +66,8 @@ end
 
 #---------------------------------------------------------------------------------------------------
 
-function set_pair( md::tEmDee, itype::Int, jtype::Int, model::Model )
-  ccall( (:EmDee_set_pair, "libemdee"), Void, (Ptr{Void}, Int32, Int32, Ptr{Void}),
+function set_pair_type( md::tEmDee, itype::Int, jtype::Int, model::Model )
+  ccall( (:EmDee_set_pair_type, "libemdee"), Void, (Ptr{Void}, Int32, Int32, Ptr{Void}),
          pointer_from_objref(md), itype, jtype, pointer_from_objref(model) )
 end
 

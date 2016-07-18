@@ -55,6 +55,13 @@ contains
 !                                      P A I R     M O D E L S
 !===================================================================================================
 
+  function EmDee_pair_none() result(model) bind(C,name="EmDee_pair_none")
+    type(EmDee_Model) :: model
+    model = EmDee_Model( mNONE )
+  end function EmDee_pair_none
+
+!---------------------------------------------------------------------------------------------------
+
   function EmDee_pair_lj( epsilon, sigma ) result(model) bind(C,name="EmDee_pair_lj")
     real(rb), value   :: epsilon, sigma
     type(EmDee_Model) :: model
@@ -92,6 +99,8 @@ contains
         ij = EmDee_pair_lj( geometric(1), arithmetic(2) )
       else if (match(mLJSF,mLJSF)) then
         ij = EmDee_pair_lj_sf( geometric(1), arithmetic(2), arithmetic(3) )
+      else if (match(mLJ,mNONE).or.match(mLJSF,mNONE)) then
+        ij = EmDee_pair_none()
       else
         deallocate( ij )
         ij => null()

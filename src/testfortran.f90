@@ -55,7 +55,7 @@ call create_configuration
 md = EmDee_system( threads, Rc, Rs, N, c_null_ptr )
 
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
-call EmDee_set_pair( c_loc(md), 1, 1, c_loc(lj) )
+call EmDee_set_pair_type( c_loc(md), 1, 1, c_loc(lj) )
 
 !print*, match( [1,7,5,3,2,4,8,6], [2,3,4,8])
 !stop

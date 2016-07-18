@@ -53,7 +53,7 @@ tEmDee EmDee_system( int threads, double rc, double skin, int N, int *types );
 
 void EmDee_set_charges( tEmDee *md, double *charges );
 
-void EmDee_set_pair( tEmDee *md, int itype, int jtype, EmDee_Model *model );
+void EmDee_set_pair_type( tEmDee *md, int itype, int jtype, EmDee_Model *model );
 
 void EmDee_add_bond( tEmDee *md, int i, int j, EmDee_Model *model );
 
