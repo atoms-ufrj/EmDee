@@ -56,6 +56,7 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: atomType       ! The type of each atom
+  type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
   type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
 
   integer(ib) :: coulomb        ! Flag for coulombic interactions
@@ -67,6 +68,11 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: bonds          ! List of bonds
   type(c_ptr) :: angles         ! List of angles
   type(c_ptr) :: dihedrals      ! List of dihedrals
+
+  integer(ib) :: nbodies        ! Number of rigid bodies
+  integer(ib) :: maxbodies      ! Maximum number of rigid bodies
+  type(c_ptr) :: body           ! Pointer to the rigid bodies present in the system
+  type(c_ptr) :: independent    ! Pointer to the status of each atom as independent or not
 
   real(rb)    :: Energy         ! Total potential energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
@@ -81,11 +87,12 @@ end type tEmDee
 
 interface
 
-  function EmDee_system( threads, rc, skin, N, types ) result( me ) bind(C,name="EmDee_system")
+  function EmDee_system( threads, rc, skin, N, types, masses ) result( me ) &
+                                                               bind(C,name="EmDee_system")
     import :: ib, rb, c_ptr, tEmDee
     integer(ib), value :: threads, N
     real(rb),    value :: rc, skin
-    type(c_ptr), value :: types
+    type(c_ptr), value :: types, masses
     type(tEmDee)       :: me
   end function EmDee_system
 
@@ -127,6 +134,14 @@ interface
     integer(ib), value :: i, j, k, l
     type(c_ptr), value :: model
   end subroutine EmDee_add_dihedral
+
+  subroutine EmDee_add_rigid_body( md, N, indexes, coords, L ) bind(C,name="EmDee_add_rigid_body")
+    import :: c_ptr, ib, rb
+    type(c_ptr), value :: md
+    integer(ib), value :: N
+    type(c_ptr), value :: indexes, coords
+    real(rb),    value :: L
+  end subroutine EmDee_add_rigid_body
 
   subroutine EmDee_compute( md, forces, coords, L ) bind(C,name="EmDee_compute")
     import :: c_ptr, rb

@@ -25,7 +25,8 @@ typedef struct {
   void *cell;            // Array containing all neighbor cells of each cell
 
   int natoms;            // Number of atoms in the system
-  int *type;             // The type of each atom
+  int *atomType;         // The type of each atom
+  double *atomMass;      // Pointer to the masses of all atoms
   double *R0;            // The position of each atom at the latest neighbor list building
 
   int coulomb;           // Flag for coulombic interactions
@@ -38,6 +39,11 @@ typedef struct {
   void *angle;           // List of angles
   void *dihedral;        // List of dihedrals
 
+  int nbodies;           // Number of rigid bodies
+  int maxbodies;         // Maximum number of rigid bodies
+  void *body;            // Pointer to the rigid bodies present in the system
+  void *independent;     // Pointer to the status of each atom as independent or not
+
   double Energy;         // Total potential energy of the system
   double Virial;         // Total internal virial of the system
 
@@ -49,7 +55,7 @@ typedef struct {
 
 } tEmDee;
 
-tEmDee EmDee_system( int threads, double rc, double skin, int N, int *types );
+tEmDee EmDee_system( int threads, double rc, double skin, int N, int *types, double *masses );
 
 void EmDee_set_charges( tEmDee *md, double *charges );
 
@@ -60,6 +66,8 @@ void EmDee_add_bond( tEmDee *md, int i, int j, EmDee_Model *model );
 void EmDee_add_angle( tEmDee *md, int i, int j, int k, EmDee_Model *model );
 
 void EmDee_add_dihedral( tEmDee *md, int i, int j, int k, int l, EmDee_Model *model );
+
+void EmDee_add_rigid_body( tEmDee *md, int N, int *indexes, double *coords, double L );
 
 void EmDee_ignore_pair( tEmDee *md, int i, int j );
 

@@ -19,7 +19,7 @@
 
 module models
 
-use c_binding
+use global
 
 implicit none
 

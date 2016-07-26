@@ -19,12 +19,9 @@
 
 module c_binding
 
-use, intrinsic :: iso_c_binding
+use global
 
 implicit none
-
-integer, parameter :: ib = c_int
-integer, parameter :: rb = c_double
 
 contains
 

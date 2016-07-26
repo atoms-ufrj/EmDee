@@ -33,6 +33,7 @@ type tEmDee
 
   natoms::Int32           # Number of atoms in the system
   atomType::Ptr{Int32}    # The type of each atom
+  atomMass::Ptr{Float64}  # Pointer to the masses of all atoms
   R0::Ptr{Float64}        # The position of each atom at the latest neighbor list building
 
   coulomb::Int32          # Flag for coulombic interactions
@@ -44,6 +45,11 @@ type tEmDee
   bond::Ptr{Void}         # List of bonds
   angle::Ptr{Void}        # List of angles
   dihedral::Ptr{Void}     # List of dihedrals
+
+  nbodies::Int32          # Number of rigid bodies
+  maxbodies::Int32        # Maximum number of rigid bodies
+  body::Ptr{Void}         # Pointer to the rigid bodies present in the system
+  independent::Ptr{Void}  # Pointer to the status of each atom as independent or not
 
   Energy::Float64         # Total potential energy of the system
   Virial::Float64         # Total internal virial of the system
@@ -58,10 +64,11 @@ end
 
 #---------------------------------------------------------------------------------------------------
 
-function system( threads::Int, rc::Real, skin::Real, atoms::Int, types::Array{Int,1} )
+function system( threads::Int, rc::Real, skin::Real, atoms::Int,
+                 types::Array{Int,1}, masses::Array{Real,1} )
   return ccall( (:EmDee_system, "libemdee"), tEmDee,
-                (Int32, Float64, Float64, Int32, Ptr{Int32}),
-                threads, rc, skin, atoms, Array{Int32,1}(types) )
+                (Int32, Float64, Float64, Int32, Ptr{Int32}, Ptr{Float64}),
+                threads, rc, skin, atoms, Array{Int32,1}(types), Array{Float64,1}(masses) )
 end
 
 #---------------------------------------------------------------------------------------------------
@@ -97,6 +104,13 @@ end
 function add_dihedral( md::tEmDee, i::Int, j::Int, k::Int, l::Int32, model::Model )
   ccall( (:EmDee_add_dihedral, "libemdee"), Void, (Ptr{Void}, Int32, Int32, Int32, Int32, Ptr{Void}),
          pointer_from_objref(md), i, j, k, l, pointer_from_objref(model) )
+end
+
+#---------------------------------------------------------------------------------------------------
+
+function add_rigid_body( md::tEmDee, N::Int, indexes::Array{Int,1}, L::Real )
+  ccall( (:EmDee_add_rigid_body, "libemdee"), Void, (Ptr{Void}, Int32, Array{Int32,1}, Float64),
+         pointer_from_objref(md), N, pointer_from_objref(indexes), L )
 end
 
 #---------------------------------------------------------------------------------------------------

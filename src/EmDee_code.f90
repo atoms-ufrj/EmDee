@@ -1,3 +1,22 @@
+!   This file is part of EmDee.
+!
+!    EmDee is free software: you can redistribute it and/or modify
+!    it under the terms of the GNU General Public License as published by
+!    the Free Software Foundation, either version 3 of the License, or
+!    (at your option) any later version.
+!
+!    EmDee is distributed in the hope that it will be useful,
+!    but WITHOUT ANY WARRANTY; without even the implied warranty of
+!    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+!    GNU General Public License for more details.
+!
+!    You should have received a copy of the GNU General Public License
+!    along with EmDee. If not, see <http://www.gnu.org/licenses/>.
+!
+!    Author: Charlles R. A. Abreu (abreu@eq.ufrj.br)
+!            Applied Thermodynamics and Molecular Simulation
+!            Federal University of Rio de Janeiro, Brazil
+
 module EmDee_code
 
 use omp_lib
@@ -5,15 +24,9 @@ use c_binding
 use lists
 use models
 use bonded_structs
+use ArBee
 
 implicit none
-
-real(rb), parameter, private :: zero  = 0.0_rb,                 &
-                                one   = 1.0_rb,                 &
-                                two   = 2.0_rb,                 &
-                                third = 0.33333333333333333_rb, &
-                                pi    = 3.14159265358979324_rb, &
-                                piBy2 = 0.5_rb*pi
 
 integer(ib), parameter, private :: extra = 2000
 integer(ib), parameter, private :: ndiv = 2
@@ -54,6 +67,7 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
+  type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
   type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
 
   integer(ib) :: coulomb        ! Flag for coulombic interactions
@@ -65,6 +79,11 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: bonds          ! List of bonds
   type(c_ptr) :: angles         ! List of angles
   type(c_ptr) :: dihedrals      ! List of dihedrals
+
+  integer(ib) :: nbodies        ! Number of rigid bodies
+  integer(ib) :: maxbodies      ! Maximum number of rigid bodies
+  type(c_ptr) :: body           ! Pointer to the rigid bodies present in the system
+  type(c_ptr) :: independent    ! Pointer to the status of each atom as independent or not
 
   real(rb)    :: Energy         ! Total potential energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
@@ -86,14 +105,16 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  function EmDee_system( threads, rc, skin, N, types ) result( me ) bind(C,name="EmDee_system")
-
+  function EmDee_system( threads, rc, skin, N, types, masses ) result( me ) &
+                                                               bind(C,name="EmDee_system")
     integer(ib), value :: threads, N
     real(rb),    value :: rc, skin
-    type(c_ptr), value :: types
+    type(c_ptr), value :: types, masses
     type(tEmDee)       :: me
 
     integer(ib),     pointer :: type_ptr(:)
+    real(rb),        pointer :: mass_ptr(:)
+    logical,         pointer :: independent(:)
     type(model_ptr), pointer :: pairModel(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
 
@@ -118,6 +139,13 @@ contains
       me%atomType = malloc_int( N, value = 1 )
     end if
 
+    if (c_associated(masses)) then
+      call c_f_pointer( masses, mass_ptr, [me%ntypes] )
+      me%atomMass = malloc_real( N, array = mass_ptr(type_ptr) )
+    else
+      me%atomMass = malloc_real( N, value = 1.0_rb )
+    end if
+
     ! Initialize counters and other mutable entities:
     me%mcells = 0
     me%ncells = 0
@@ -131,6 +159,14 @@ contains
     me%dihedrals = c_null_ptr
     me%coulomb = 0
     me%charge = malloc_real( N, value = zero )
+
+    ! Allocate variables associated to rigid bodies:
+    me%nbodies = 0
+    me%maxbodies = 0
+    me%body = c_null_ptr
+    allocate( independent(N) )
+    independent = .true.
+    me%independent = c_loc(independent)
 
     ! Allocate memory for list of atoms per cell:
     allocate( cellAtom )
@@ -174,9 +210,7 @@ contains
       deallocate( chargesPtr )
       me%coulomb = 1
     end if
-
     me%charge = charges
-
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
     do i = 1, me%ntypes
       do j = 1, me%ntypes
@@ -299,7 +333,7 @@ contains
     integer(ib), value :: i, j
     type(c_ptr), value :: model
 
-    type(tEmDee),      pointer :: me
+    type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
     call add_bonded_struc( me%bonds, i, j, 0, 0, model )
@@ -314,7 +348,7 @@ contains
     integer(ib), value :: i, j, k
     type(c_ptr), value :: model
 
-    type(tEmDee),      pointer :: me
+    type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
     call add_bonded_struc( me%angles, i, j, k, 0, model )
@@ -331,7 +365,7 @@ contains
     integer(ib), value :: i, j, k, l
     type(c_ptr), value :: model
 
-    type(tEmDee),      pointer :: me
+    type(tEmDee), pointer :: me
 
     call c_f_pointer( md, me )
     call add_bonded_struc( me%dihedrals, i, j, k, l, model )
@@ -343,6 +377,47 @@ contains
     call EmDee_ignore_pair( md, k, l )
 
   end subroutine EmDee_add_dihedral
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine EmDee_add_rigid_body( md, NP, indexes, coords, L ) bind(C,name="EmDee_add_rigid_body")
+    type(c_ptr), value :: md
+    integer(ib), value :: NP
+    type(c_ptr), value :: indexes, coords
+    real(rb),    value :: L
+
+    integer  :: i, j, iatom
+    real(rb) :: Rn(3), Rin(3), invL
+
+    type(tEmDee),    pointer :: me
+    integer(ib),     pointer :: atom(:)
+    real(rb),        pointer :: R(:,:), mass(:)
+    logical,         pointer :: independent(:)
+    type(rigidBody), pointer :: body(:)
+
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%independent, independent, [me%natoms] )
+    call c_f_pointer( indexes, atom, [NP] )
+    independent(atom) = .false.
+    call c_f_pointer( coords, R, [3,me%natoms] )
+    Rn = R(:,atom(NP))
+    invL= one/L
+    do i = 1, NP-1
+      iatom = atom(i)
+      do j = i+1, NP
+        call EmDee_ignore_pair( md, iatom, atom(j) )
+      end do
+      Rin = R(:,iatom) - Rn
+      Rin = Rin - L*anint(Rin*invL)
+      R(:,iatom) = Rn + Rin
+    end do
+    if (me%nbodies == me%maxbodies) call realloc_rigid_body_list( me%body, me%maxbodies )
+    me%nbodies = me%nbodies + 1
+    call c_f_pointer( me%body, body, [me%nbodies] )
+    call c_f_pointer( me%atomMass, mass, [me%natoms] )
+    call body(me%nbodies) % setup( atom, R(:,atom), mass(atom) )
+
+  end subroutine EmDee_add_rigid_body
 
 !---------------------------------------------------------------------------------------------------
 
