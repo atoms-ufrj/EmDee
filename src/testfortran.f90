@@ -23,6 +23,8 @@ use EmDee
 
 implicit none
 
+integer, parameter :: ib = 4, rb = 8
+
 integer(ib) :: N, Nsteps, Nprop
 real(rb)    :: rho, L, Rc, Rs, Rc2, Temp, Dt, Dt_2
 real(rb), pointer :: R(:,:), V(:,:), F(:,:)

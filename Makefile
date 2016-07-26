@@ -11,7 +11,7 @@ LIBFILE = $(LIBDIR)/libemdee.so
 
 LIBS = -L$(LIBDIR) -lemdee -lgfortran -lm
 
-OBJ = $(OBJDIR)/EmDee.o $(OBJDIR)/bonded_structs.o $(OBJDIR)/models.o \
+OBJ = $(OBJDIR)/EmDee_code.o $(OBJDIR)/bonded_structs.o $(OBJDIR)/models.o \
       $(OBJDIR)/lists.o $(OBJDIR)/c_binding.o
 
 .PHONY: all test lib testc testfortran
@@ -46,8 +46,9 @@ $(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(SRCDIR)/EmDee.h $(LIBFILE)
 $(LIBFILE): $(OBJ)
 	$(FORT) -shared -fPIC -o $(LIBFILE) $^
 
-$(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.f90 $(SRCDIR)/compute_pair.f90 $(SRCDIR)/compute_bond.f90 \
-                   $(OBJDIR)/bonded_structs.o $(OBJDIR)/models.o $(OBJDIR)/lists.o
+$(OBJDIR)/EmDee_code.o: $(SRCDIR)/EmDee_code.f90 $(SRCDIR)/compute_pair.f90 \
+                        $(SRCDIR)/compute_bond.f90 \
+                        $(OBJDIR)/bonded_structs.o $(OBJDIR)/models.o $(OBJDIR)/lists.o
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<
 
 $(OBJDIR)/bonded_structs.o: $(SRCDIR)/bonded_structs.f90 $(OBJDIR)/models.o
