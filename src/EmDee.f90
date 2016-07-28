@@ -39,11 +39,20 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: builds         ! Number of neighbor-list builds
   real(rb)    :: time           ! Total time taken in force calculations
+  real(rb)    :: Energy         ! Total potential energy of the system
+  real(rb)    :: Virial         ! Total internal virial of the system
+
+  type(c_ptr) :: coords         ! Pointer to the coordinates of all atoms
+  type(c_ptr) :: momenta        ! Pointer to the momenta of all atoms
+  type(c_ptr) :: forces         ! Pointer to the resultant forces on all atoms
+  type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
+
   real(rb)    :: Rc             ! Cut-off distance
   real(rb)    :: RcSq           ! Cut-off distance squared
   real(rb)    :: xRc            ! Extended cutoff distance (including skin)
   real(rb)    :: xRcSq          ! Extended cutoff distance squared
   real(rb)    :: skinSq         ! Square of the neighbor list skin width
+  integer(ib) :: coulomb        ! Flag for coulombic interactions
   real(rb)    :: eshift         ! Energy shifting factor for Coulombic interactions
   real(rb)    :: fshift         ! Force shifting factor for Coulombic interactions
 
@@ -59,9 +68,6 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
   type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
 
-  integer(ib) :: coulomb        ! Flag for coulombic interactions
-  type(c_ptr) :: charge         ! Pointer to the electric charge of each atom
-
   integer(ib) :: ntypes         ! Number of atom types
   type(c_ptr) :: pairModel      ! Model of each type of atom pair
 
@@ -72,10 +78,9 @@ type, bind(C) :: tEmDee
   integer(ib) :: nbodies        ! Number of rigid bodies
   integer(ib) :: maxbodies      ! Maximum number of rigid bodies
   type(c_ptr) :: body           ! Pointer to the rigid bodies present in the system
-  type(c_ptr) :: independent    ! Pointer to the status of each atom as independent or not
 
-  real(rb)    :: Energy         ! Total potential energy of the system
-  real(rb)    :: Virial         ! Total internal virial of the system
+  integer(ib) :: nindep         ! Number of independent atoms
+  type(c_ptr) :: independent    ! Pointer to the list of independent atoms
 
   integer(ib) :: nthreads       ! Number of parallel openmp threads
   type(c_ptr) :: cellAtom       ! List of atoms belonging to each cell

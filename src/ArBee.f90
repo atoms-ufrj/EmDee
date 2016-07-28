@@ -26,27 +26,27 @@ implicit none
 
 integer, parameter, private :: extra = 100
 
-type, private :: tParticle
-  real(rb) :: index   ! System-based index
-  real(rb) :: mass    ! Mass
-  real(rb) :: d(3)    ! Body-fixed internal coordinates
-end type tParticle
-
 type rigidBody
-  integer  :: NP      ! Number of particles
-  real(rb) :: mass    ! Total mass
-  real(rb) :: MoI(3)  ! Principal moments of inertia
-  real(rb) :: rcm(3)  ! Center-of-mass position
-  real(rb) :: pcm(3)  ! Center-of-mass momentum
-  real(rb) :: q(4)    ! Unit quaternion of orientation
-  real(rb) :: pi(4)   ! Quaternion momentum
-  type(tParticle), allocatable :: particle(:)
+  integer  :: NP        ! Number of particles
+  real(rb) :: mass      ! Total body mass
+  real(rb) :: MoI(3)    ! Principal moments of inertia
+  real(rb) :: rcm(3)    ! Center-of-mass position
+  real(rb) :: pcm(3)    ! Center-of-mass momentum
+  real(rb) :: q(4)      ! Unit quaternion of orientation
+  real(rb) :: pi(4)     ! Quaternion momentum
 
-  real(rb) :: invMass
-  real(rb) :: invMoI(3)
+  integer,  allocatable :: index(:)
+  real(rb), allocatable :: M(:)
+  real(rb), allocatable :: d(:,:)
+
+  real(rb) :: invMass    ! Inverse of body mass
+  real(rb) :: invMoI(3)  ! Inverses of principal moments of inertia
 
   contains
+
     procedure :: setup => rigidBody_setup
+    procedure :: update => rigidBody_update
+
 end type rigidBody
 
 contains
@@ -72,65 +72,65 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine rigidBody_setup( me, indexes, coords, masses )
-    class(rigidBody), intent(inout) :: me
+  subroutine rigidBody_setup( body, coords, L, masses, indexes )
+    class(rigidBody), intent(inout) :: body
+    real(rb),         intent(inout) :: coords(:,:)
+    real(rb),         intent(in)    :: L(3), masses(:)
     integer(ib),      intent(in)    :: indexes(:)
-    real(rb),         intent(in)    :: coords(3,size(indexes)), masses(size(indexes))
 
-    integer  :: dir, i
-    real(rb) :: delta(3,size(indexes)), inertia(3,3), A(3,3)
+    integer  :: k, i
+    real(rb) :: r1(3)
 
-    ! Allocate particles:
-    me%NP = size(indexes)
-    allocate( me%particle(me%NP) )
-
-    ! Save particle masses and positions:
-    me%particle%mass = masses
-
-    ! Compute total mass and center-of-mass position:
-    me%mass = sum(masses)
-    me%invMass = one/me%mass
-    forall (dir=1:3) me%rcm(dir) = sum(masses*coords(dir,:))*me%invMass
-
-    ! Compute inertia tensor:
-    forall (dir=1:3) delta(dir,:) = coords(dir,:) - me%rcm(dir)
-    inertia = zero
-    do i = 1, me%NP
-      call add_inertia( inertia, me%particle(i)%mass, delta(:,i) )
+    body%NP = size(indexes)
+    allocate( body%index(body%NP), body%M(body%NP), body%d(3,body%NP) )
+    body%index = indexes
+    body%M = masses(indexes)
+    body%mass = sum(body%M)
+    body%invMass = one/body%mass
+    r1 = coords(:,indexes(1))
+    do k = 2, body%NP
+      i = indexes(k)
+      coords(:,i) = coords(:,i) - L*anint((coords(:,i) - r1)/L)
     end do
-    inertia(2,1) = inertia(1,2)
-    inertia(3,1) = inertia(1,3)
-    inertia(3,2) = inertia(2,3)
+    body%pcm = zero
+    body%pi  = zero
+    call body % update( coords )
+  end subroutine rigidBody_setup
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine rigidBody_update( body, coords )
+    class(rigidBody), intent(inout) :: body
+    real(rb),         intent(in)    :: coords(:,:)
+
+    integer  :: x
+    real(rb) :: delta(3,body%NP), inertia(3,3), At(3,3)
+
+    ! Compute center-of-mass position and space-frame particle coordinates:
+    delta = coords(:,body%index)
+    forall (x=1:3) body%rcm(x) = sum(body%M*delta(x,:))*body%invMass
+    forall (x=1:3) delta(x,:) = delta(x,:) - body%rcm(x)
+
+    ! Compute upper-triangular inertia tensor:
+    inertia(1,1) = sum(body%M*(delta(2,:)**2 + delta(3,:)**2))
+    inertia(2,2) = sum(body%M*(delta(1,:)**2 + delta(3,:)**2))
+    inertia(3,3) = sum(body%M*(delta(1,:)**2 + delta(2,:)**2))
+    inertia(1,2) = -sum(body%M*delta(1,:)*delta(2,:))
+    inertia(1,3) = -sum(body%M*delta(1,:)*delta(3,:))
+    inertia(2,3) = -sum(body%M*delta(2,:)*delta(3,:))
 
     ! Diagonalize the inertia tensor:
-    me%MoI = eigenvalues( inertia )
-    me%invMoI = one/me%MoI
-    A = transpose(eigenvectors( inertia, me%MoI ))
+    body%MoI = eigenvalues( inertia )
+    body%invMoI = one/body%MoI
+    At = eigenvectors( inertia, body%MoI )
 
     ! Compute quaternion:
-    me%q = quaternion( A )
+    body%q = quaternion( transpose(At) )
 
     ! Calculate position in the body-fixed frame:
-    forall (i=1:me%NP) me%particle(i)%d = matmul( A, delta(:,i) )
+    body%d = matmul( delta, At )
 
-    ! Zero center-of-mass and quaternion-conjugated momenta:
-    me%pcm = zero
-    me%pi  = zero
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine add_inertia( inertia, mass, delta )
-        real(rb), intent(inout) :: inertia(3,3)
-        real(rb), intent(in)    :: mass, delta(3)
-        inertia(1,1) = inertia(1,1) + mass*(delta(2)**2 + delta(3)**2)
-        inertia(2,2) = inertia(2,2) + mass*(delta(1)**2 + delta(3)**2)
-        inertia(3,3) = inertia(3,3) + mass*(delta(1)**2 + delta(2)**2)
-        inertia(1,2) = inertia(1,2) - mass*delta(1)*delta(2)
-        inertia(1,3) = inertia(1,3) - mass*delta(1)*delta(3)
-        inertia(2,3) = inertia(2,3) - mass*delta(2)*delta(3)
-      end subroutine add_inertia
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine rigidBody_setup
+  end subroutine rigidBody_update
 
 !---------------------------------------------------------------------------------------------------
 

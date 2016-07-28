@@ -29,9 +29,9 @@ use ArBee
 implicit none
 
 integer(ib), parameter, private :: extra = 2000
+
 integer(ib), parameter, private :: ndiv = 2
 integer(ib), parameter, private :: nbcells = 62
-
 integer(ib), parameter, private :: nb(3,nbcells) = reshape( [ &
    1, 0, 0,    2, 0, 0,   -2, 1, 0,   -1, 1, 0,    0, 1, 0,    1, 1, 0,    2, 1, 0,   -2, 2, 0,  &
   -1, 2, 0,    0, 2, 0,    1, 2, 0,    2, 2, 0,   -2,-2, 1,   -1,-2, 1,    0,-2, 1,    1,-2, 1,  &
@@ -50,11 +50,20 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: builds         ! Number of neighbor-list builds
   real(rb)    :: time           ! Total time taken in force calculations
+  real(rb)    :: Energy         ! Total potential energy of the system
+  real(rb)    :: Virial         ! Total internal virial of the system
+
+  type(c_ptr) :: coords         ! Pointer to the coordinates of all atoms
+  type(c_ptr) :: momenta        ! Pointer to the momenta of all atoms
+  type(c_ptr) :: forces         ! Pointer to the resultant forces on all atoms
+  type(c_ptr) :: charge         ! Pointer to the electric charges of all atoms
+
   real(rb)    :: Rc             ! Cut-off distance
   real(rb)    :: RcSq           ! Cut-off distance squared
   real(rb)    :: xRc            ! Extended cutoff distance (including skin)
   real(rb)    :: xRcSq          ! Extended cutoff distance squared
   real(rb)    :: skinSq         ! Square of the neighbor list skin width
+  integer(ib) :: coulomb        ! Flag for coulombic interactions
   real(rb)    :: eshift         ! Energy shifting factor for Coulombic interactions
   real(rb)    :: fshift         ! Force shifting factor for Coulombic interactions
 
@@ -68,10 +77,7 @@ type, bind(C) :: tEmDee
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
   type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
-  type(c_ptr) :: R0             ! The position of each atom at the latest neighbor list building
-
-  integer(ib) :: coulomb        ! Flag for coulombic interactions
-  type(c_ptr) :: charge         ! Pointer to the electric charges of all atoms
+  type(c_ptr) :: R0             ! Position of each atom at the latest neighbor list building
 
   integer(ib) :: ntypes         ! Number of atom types
   type(c_ptr) :: pairModel      ! Model of each type of atom pair
@@ -83,10 +89,9 @@ type, bind(C) :: tEmDee
   integer(ib) :: nbodies        ! Number of rigid bodies
   integer(ib) :: maxbodies      ! Maximum number of rigid bodies
   type(c_ptr) :: body           ! Pointer to the rigid bodies present in the system
-  type(c_ptr) :: independent    ! Pointer to the status of each atom as independent or not
 
-  real(rb)    :: Energy         ! Total potential energy of the system
-  real(rb)    :: Virial         ! Total internal virial of the system
+  integer(ib) :: nindep         ! Number of independent atoms
+  type(c_ptr) :: independent    ! Pointer to the list of independent atoms
 
   integer(ib) :: nthreads       ! Number of parallel openmp threads
   type(c_ptr) :: cellAtom       ! List of atoms belonging to each cell
@@ -112,9 +117,10 @@ contains
     type(c_ptr), value :: types, masses
     type(tEmDee)       :: me
 
+    integer(ib) :: i
+
     integer(ib),     pointer :: type_ptr(:)
     real(rb),        pointer :: mass_ptr(:)
-    logical,         pointer :: independent(:)
     type(model_ptr), pointer :: pairModel(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
 
@@ -153,20 +159,22 @@ contains
     me%builds = 0
     me%time = zero
     me%R0 = malloc_real( 3*N, value = zero )
+    me%coords = malloc_real( 3*N, value = zero )
+    me%momenta = malloc_real( 3*N, value = zero )
+    me%forces = malloc_real( 3*N, value = zero )
+    me%coulomb = 0
+    me%charge = malloc_real( N, value = zero )
     me%cell = malloc_int( 0 )
     me%bonds = c_null_ptr
     me%angles = c_null_ptr
     me%dihedrals = c_null_ptr
-    me%coulomb = 0
-    me%charge = malloc_real( N, value = zero )
 
     ! Allocate variables associated to rigid bodies:
     me%nbodies = 0
     me%maxbodies = 0
     me%body = c_null_ptr
-    allocate( independent(N) )
-    independent = .true.
-    me%independent = c_loc(independent)
+    me%nindep = N
+    me%independent = malloc_int( N, array = [(i,i=1,N)] )
 
     ! Allocate memory for list of atoms per cell:
     allocate( cellAtom )
@@ -386,38 +394,97 @@ contains
     type(c_ptr), value :: indexes, coords
     real(rb),    value :: L
 
-    integer  :: i, j, iatom
-    real(rb) :: Rn(3), Rin(3), invL
+    integer  :: i, j 
+
+    logical, allocatable :: is_independent(:)
 
     type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: atom(:)
+    integer(ib),     pointer :: atom(:), independent(:)
     real(rb),        pointer :: R(:,:), mass(:)
-    logical,         pointer :: independent(:)
     type(rigidBody), pointer :: body(:)
 
     call c_f_pointer( md, me )
-    call c_f_pointer( me%independent, independent, [me%natoms] )
+    call c_f_pointer( me%independent, independent, [me%nindep] )
     call c_f_pointer( indexes, atom, [NP] )
-    independent(atom) = .false.
-    call c_f_pointer( coords, R, [3,me%natoms] )
-    Rn = R(:,atom(NP))
-    invL= one/L
-    do i = 1, NP-1
-      iatom = atom(i)
-      do j = i+1, NP
-        call EmDee_ignore_pair( md, iatom, atom(j) )
-      end do
-      Rin = R(:,iatom) - Rn
-      Rin = Rin - L*anint(Rin*invL)
-      R(:,iatom) = Rn + Rin
-    end do
-    if (me%nbodies == me%maxbodies) call realloc_rigid_body_list( me%body, me%maxbodies )
-    me%nbodies = me%nbodies + 1
-    call c_f_pointer( me%body, body, [me%nbodies] )
     call c_f_pointer( me%atomMass, mass, [me%natoms] )
-    call body(me%nbodies) % setup( atom, R(:,atom), mass(atom) )
+    if (me%nbodies == me%maxbodies) call realloc_rigid_body_list( me%body, me%maxbodies )
+    call c_f_pointer( me%body, body, [me%nbodies] )
+
+    allocate( is_independent(me%nindep) )
+    is_independent = .true.
+    do i = 1, NP
+      where (independent == atom(i)) is_independent = .false.
+    end do
+    if (count(.not.is_independent) /= NP) stop "Error while trying to build rigid body."
+    me%nindep = me%nindep - NP
+    independent(1:me%nindep) = pack(independent,is_independent)
+
+    call c_f_pointer( coords, R, [3,me%natoms] )
+    do i = 1, NP-1
+      do j = i+1, NP
+        call EmDee_ignore_pair( md, atom(i), atom(j) )
+      end do
+    end do
+    me%nbodies = me%nbodies + 1
+    call body(me%nbodies) % setup( R, [L, L, L], mass, atom )
 
   end subroutine EmDee_add_rigid_body
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine EmDee_upload( md, coords, momenta )
+    type(c_ptr), value :: md, coords, momenta
+
+    integer(ib) :: nx3
+
+    type(tEmDee), pointer :: me
+    type(tList),  pointer :: cellAtom, threadCell
+
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%cellAtom, cellAtom )
+    call c_f_pointer( me%threadCell, threadCell )
+    nx3 = 3*me%natoms
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer(ib) :: thread, first, last
+      thread = omp_get_thread_num() + 1
+      first = 3*cellAtom%first(threadCell%first(thread)) - 2
+      last = 3*cellAtom%last(threadCell%last(thread))
+      if (c_associated(coords)) call copy_real( coords, me%coords, nx3, first, last )
+      if (c_associated(momenta)) call copy_real( momenta, me%momenta, nx3, first, last )
+      ! TODO: reevaluate rigid bodies
+    end block
+    !$omp end parallel
+
+  end subroutine EmDee_upload
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine EmDee_download( md, coords, momenta, forces )
+    type(c_ptr), value :: md, coords, momenta, forces
+
+    integer(ib) :: nx3
+
+    type(tEmDee), pointer :: me
+    type(tList),  pointer :: cellAtom, threadCell
+
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%cellAtom, cellAtom )
+    call c_f_pointer( me%threadCell, threadCell )
+    nx3 = 3*me%natoms
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer(ib) :: thread, first, last
+      thread = omp_get_thread_num() + 1
+      first = 3*cellAtom%first(threadCell%first(thread)) - 2
+      last = 3*cellAtom%last(threadCell%last(thread))
+      if (c_associated(coords)) call copy_real( me%coords, coords, nx3, first, last )
+      if (c_associated(momenta)) call copy_real( me%momenta, momenta, nx3, first, last )
+      if (c_associated(forces)) call copy_real( me%forces, forces, nx3, first, last )
+    end block
+    !$omp end parallel
+
+  end subroutine EmDee_download
 
 !---------------------------------------------------------------------------------------------------
 

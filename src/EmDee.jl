@@ -16,11 +16,20 @@ type tEmDee
 
   builds::Int32           # Number of neighbor-list builds
   time::Float64           # Total time taken in force calculations
+  Energy::Float64         # Total potential energy of the system
+  Virial::Float64         # Total internal virial of the system
+
+  coords::Ptr{Float64}    # Pointer to the coordinates of all atoms
+  momenta::Ptr{Float64}   # Pointer to the momenta of all atoms
+  forces::Ptr{Float64}    # Pointer to the resultant forces on all atoms
+  charge::Ptr{Float64}    # Pointer to the electric charge of each atom
+
   Rc::Float64             # Cut-off distance
   RcSq::Float64           # Cut-off distance squared
   xRc::Float64            # Extended cutoff distance (including skin)
   xRcSq::Float64          # Extended cutoff distance squared
   skinSq::Float64         # Square of the neighbor list skin width
+  coulomb::Int32          # Flag for coulombic interactions
   eshift::Float64         # Energy shifting factor for Coulombic interactions
   fshift::Float64         # Force shifting factor for Coulombic interactions
 
@@ -36,9 +45,6 @@ type tEmDee
   atomMass::Ptr{Float64}  # Pointer to the masses of all atoms
   R0::Ptr{Float64}        # The position of each atom at the latest neighbor list building
 
-  coulomb::Int32          # Flag for coulombic interactions
-  charge::Ptr{Float64}    # Pointer to the electric charge of each atom
-
   ntypes::Int32           # Number of atom types
   pairData::Ptr{Void}     # Model data of each type of atom pair
 
@@ -49,10 +55,9 @@ type tEmDee
   nbodies::Int32          # Number of rigid bodies
   maxbodies::Int32        # Maximum number of rigid bodies
   body::Ptr{Void}         # Pointer to the rigid bodies present in the system
-  independent::Ptr{Void}  # Pointer to the status of each atom as independent or not
 
-  Energy::Float64         # Total potential energy of the system
-  Virial::Float64         # Total internal virial of the system
+  nindep::Int32           # Number of independent atoms
+  independent::Ptr{Int32} # Pointer to the list of independent atoms
 
   nthreads::Int32         # Number of parallel openmp threads
   cellAtom::Ptr{Void}     # List of atoms belonging to each cell

@@ -9,11 +9,20 @@ typedef struct {
 
   int builds;            // Number of neighbor-list builds
   double time;           // Total time taken in force calculations
+  double Energy;         // Total potential energy of the system
+  double Virial;         // Total internal virial of the system
+
+  double *coords;        // Pointer to the coordinates of all atoms
+  double *momenta;       // Pointer to the momenta of all atoms
+  double *forces;        // Pointer to the resultant forces on all atoms
+  double *charge;        // Pointer to the electric charge of each atom
+
   double Rc;             // Cut-off distance
   double RcSq;           // Cut-off distance squared
   double xRc;            // Extended cutoff distance (including skin)
   double xRcSq;          // Extended cutoff distance squared
   double skinSq;         // Square of the neighbor list skin width
+  int coulomb;           // Flag for coulombic interactions
   double eshift;         // Energy shifting factor for Coulombic interactions
   double fshift;         // Force shifting factor for Coulombic interactions
 
@@ -29,9 +38,6 @@ typedef struct {
   double *atomMass;      // Pointer to the masses of all atoms
   double *R0;            // The position of each atom at the latest neighbor list building
 
-  int coulomb;           // Flag for coulombic interactions
-  double *charge;        // Pointer to the electric charge of each atom
-
   int ntypes;            // Number of atom types
   void *pairData;        // Model data of each type of atom pair
 
@@ -42,10 +48,9 @@ typedef struct {
   int nbodies;           // Number of rigid bodies
   int maxbodies;         // Maximum number of rigid bodies
   void *body;            // Pointer to the rigid bodies present in the system
-  void *independent;     // Pointer to the status of each atom as independent or not
 
-  double Energy;         // Total potential energy of the system
-  double Virial;         // Total internal virial of the system
+  int nindep;            // Number of independent atoms
+  int *independent;      // Pointer to the list of independent atoms
 
   int nthreads;          // Number of parallel openmp threads
   void *cellAtom;        // List of atoms belonging to each cell
