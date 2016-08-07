@@ -54,7 +54,7 @@ end if
 call read_data( file = line )
 call create_configuration
 
-md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr )
+md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr, 7834 )
 
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
 call EmDee_set_pair_type( c_loc(md), 1, 1, c_loc(lj) )
@@ -89,16 +89,16 @@ call EmDee_add_bond( c_loc(md), 4, 5, c_loc(bond) )
 !print*, "execution time = ", secnds(0.0) - tf, " s."
 !stop
 
-call EmDee_compute( c_loc(md), c_loc(F), c_loc(R), L )
-print*, 0, md%Energy, md%Virial
+call EmDee_compute( c_loc(md) )
+print*, 0, md%Potential, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)
 do step = 1, Nsteps
   V = V + Dt_2*F
   R = R + Dt*V
-  call EmDee_compute( c_loc(md), c_loc(F), c_loc(R), L )
+  call EmDee_compute( c_loc(md) )
   V = V + Dt_2*F
-  if (mod(step,Nprop) == 0) print*, step, md%Energy, md%Virial
+  if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
 end do
 print*, "execution time = ", secnds(0.0) - tf, " s."
 call cpu_time( tf )

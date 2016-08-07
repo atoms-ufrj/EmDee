@@ -31,13 +31,15 @@ type rigidBody
   real(rb) :: mass      ! Total body mass
   real(rb) :: MoI(3)    ! Principal moments of inertia
   real(rb) :: rcm(3)    ! Center-of-mass position
-  real(rb) :: pcm(3)    ! Center-of-mass momentum
-  real(rb) :: q(4)      ! Unit quaternion of orientation
+  real(rb) :: pcm(3)    ! Center-of-mass momentum vector
+  real(rb) :: q(0:3)    ! Unit quaternion of orientation
   real(rb) :: pi(4)     ! Quaternion momentum
 
   integer,  allocatable :: index(:)
   real(rb), allocatable :: M(:)
   real(rb), allocatable :: d(:,:)
+  real(rb), allocatable :: delta(:,:)
+  real(rb), allocatable :: P(:,:)
 
   real(rb) :: invMass    ! Inverse of body mass
   real(rb) :: invMoI(3)  ! Inverses of principal moments of inertia
@@ -46,6 +48,8 @@ type rigidBody
 
     procedure :: setup => rigidBody_setup
     procedure :: update => rigidBody_update
+    procedure :: B => rigidBody_B
+    procedure :: set_momenta => rigidBody_set_momenta
 
 end type rigidBody
 
@@ -72,65 +76,85 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine rigidBody_setup( body, coords, L, masses, indexes )
-    class(rigidBody), intent(inout) :: body
-    real(rb),         intent(inout) :: coords(:,:)
-    real(rb),         intent(in)    :: L(3), masses(:)
+  subroutine rigidBody_setup( b, indexes, masses )
+    class(rigidBody), intent(inout) :: b
     integer(ib),      intent(in)    :: indexes(:)
+    real(rb),         intent(in)    :: masses(size(indexes))
 
-    integer  :: k, i
-    real(rb) :: r1(3)
+    b%NP = size(indexes)
+    allocate( b%index(b%NP), b%M(b%NP), b%d(3,b%NP), b%delta(3,b%NP), b%P(3,b%NP) )
+    b%index = indexes
+    b%M = masses
+    b%mass = sum(b%M)
+    b%invMass = one/b%mass
+    b%rcm = zero
+    b%d = zero
+    b%delta = zero
+    b%q = zero
+    b%pcm = zero
+    b%pi  = zero
+    b%P = zero
 
-    body%NP = size(indexes)
-    allocate( body%index(body%NP), body%M(body%NP), body%d(3,body%NP) )
-    body%index = indexes
-    body%M = masses(indexes)
-    body%mass = sum(body%M)
-    body%invMass = one/body%mass
-    r1 = coords(:,indexes(1))
-    do k = 2, body%NP
-      i = indexes(k)
-      coords(:,i) = coords(:,i) - L*anint((coords(:,i) - r1)/L)
-    end do
-    body%pcm = zero
-    body%pi  = zero
-    call body % update( coords )
   end subroutine rigidBody_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine rigidBody_update( body, coords )
-    class(rigidBody), intent(inout) :: body
-    real(rb),         intent(in)    :: coords(:,:)
+  pure subroutine rigidBody_update( b, coords )
+    class(rigidBody), intent(inout) :: b
+    real(rb),         intent(in)    :: coords(3,b%NP)
 
     integer  :: x
-    real(rb) :: delta(3,body%NP), inertia(3,3), At(3,3)
+    real(rb) :: inertia(3,3), At(3,3)
 
     ! Compute center-of-mass position and space-frame particle coordinates:
-    delta = coords(:,body%index)
-    forall (x=1:3) body%rcm(x) = sum(body%M*delta(x,:))*body%invMass
-    forall (x=1:3) delta(x,:) = delta(x,:) - body%rcm(x)
+    forall (x=1:3) b%rcm(x) = sum(b%M*coords(x,:))*b%invMass
+    forall (x=1:3) b%delta(x,:) = coords(x,:) - b%rcm(x)
 
     ! Compute upper-triangular inertia tensor:
-    inertia(1,1) = sum(body%M*(delta(2,:)**2 + delta(3,:)**2))
-    inertia(2,2) = sum(body%M*(delta(1,:)**2 + delta(3,:)**2))
-    inertia(3,3) = sum(body%M*(delta(1,:)**2 + delta(2,:)**2))
-    inertia(1,2) = -sum(body%M*delta(1,:)*delta(2,:))
-    inertia(1,3) = -sum(body%M*delta(1,:)*delta(3,:))
-    inertia(2,3) = -sum(body%M*delta(2,:)*delta(3,:))
+    inertia(1,1) = sum(b%M*(b%delta(2,:)**2 + b%delta(3,:)**2))
+    inertia(2,2) = sum(b%M*(b%delta(1,:)**2 + b%delta(3,:)**2))
+    inertia(3,3) = sum(b%M*(b%delta(1,:)**2 + b%delta(2,:)**2))
+    inertia(1,2) = -sum(b%M*b%delta(1,:)*b%delta(2,:))
+    inertia(1,3) = -sum(b%M*b%delta(1,:)*b%delta(3,:))
+    inertia(2,3) = -sum(b%M*b%delta(2,:)*b%delta(3,:))
 
     ! Diagonalize the inertia tensor:
-    body%MoI = eigenvalues( inertia )
-    body%invMoI = one/body%MoI
-    At = eigenvectors( inertia, body%MoI )
+    b%MoI = eigenvalues( inertia )
+    b%invMoI = one/b%MoI
+    At = eigenvectors( inertia, b%MoI )
 
     ! Compute quaternion:
-    body%q = quaternion( transpose(At) )
+    b%q = quaternion( transpose(At) )
 
     ! Calculate position in the body-fixed frame:
-    body%d = matmul( delta, At )
+    b%d = matmul( b%delta, At )
 
   end subroutine rigidBody_update
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function rigidBody_B( body ) result( B )
+    class(rigidBody), intent(in) :: body
+    real(rb)                     :: B(4,3)
+    associate (q => body%q)
+      B = reshape( [-q(1),  q(0),  q(3), -q(2),  &
+                    -q(2), -q(3),  q(0),  q(1),  &
+                    -q(3),  q(2), -q(1),  q(0)], [4,3] )
+    end associate
+  end function rigidBody_B
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine rigidBody_set_momenta( b, pcm, omega )
+    class(rigidBody), intent(inout) :: b
+    real(rb),         intent(in)    :: pcm(3), omega(3)
+    integer :: k
+    b%pcm = pcm
+    b%pi = matmul(b%B(), two*b%MoI*omega)
+    do k = 1, b%NP
+      b%P(:,k) = b%M(k)*(b%invMass*b%pcm + cross_product(omega, b%delta(:,k)))
+    end do
+  end subroutine rigidBody_set_momenta
 
 !---------------------------------------------------------------------------------------------------
 

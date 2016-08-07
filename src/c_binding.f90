@@ -79,12 +79,12 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine copy_real( from, to, n, first, last )
+  subroutine copy_real( from, to, first, last )
     type(c_ptr), intent(in) :: from, to
-    integer,     intent(in) :: n, first, last
+    integer,     intent(in) :: first, last
     real(c_double), pointer :: F(:), T(:)
-    call c_f_pointer( from, F, [n] )
-    call c_f_pointer( to, T, [n] )
+    call c_f_pointer( from, F, [last] )
+    call c_f_pointer( to, T, [last] )
     T(first:last) = F(first:last)
   end subroutine copy_real
 

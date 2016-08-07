@@ -23,11 +23,163 @@ use global
 
 implicit none
 
+type, abstract :: i32rng
+  integer(4), private :: kn(0:127)
+  real(8),    private :: wn(0:127), fn(0:127)
+  contains
+    procedure(i32rng_init), deferred, private :: init
+    procedure(i32rng_i32),  deferred          :: i32
+    procedure :: setup     => i32rng_setup
+    procedure :: uniform   => i32rng_uniform
+    procedure :: normal    => i32rng_normal
+    procedure :: geometric => i32rng_geometric
+end type i32rng
+
+abstract interface
+
+  subroutine i32rng_init( a, seed )
+    import :: i32rng
+    class(i32rng), intent(inout) :: a
+    integer,       intent(in)    :: seed
+  end subroutine i32rng_init
+
+  function i32rng_i32( a ) result( i32 )
+    import :: i32rng
+    class(i32rng), intent(inout) :: a
+    integer                      :: i32
+  end function i32rng_i32
+
+end interface
+
+type, extends(i32rng) :: kiss
+  integer, private :: x, y, z, w
+  contains
+    procedure :: init => kiss_init
+    procedure :: i32  => kiss_i32
+end type kiss
+
 contains
 
-  !-------------------------------------------------------------------------------------------------
+!---------------------------------------------------------------------------------------------------
 
-  function eigenvalues( Matrix ) result( Lambda )
+  subroutine i32rng_setup( a, seed )
+    class(i32rng), intent(inout) :: a
+    integer(4),    intent(in)    :: seed
+    integer :: i
+    real(8), parameter :: m1 = 2147483648.0_8
+    real(8) :: q, dn, tn, vn
+    call a%init( seed )
+    dn = 3.442619855899_8
+    tn = 3.442619855899_8
+    vn = 0.00991256303526217_8
+    q = vn*exp(0.5_8*dn*dn)
+    a%kn(0) = (dn/q)*m1
+    a%kn(1) = 0_4
+    a%wn(0) = q/m1
+    a%wn(127) = dn/m1
+    a%fn(0) = 1.0_8
+    a%fn(127) = exp( -0.5_8*dn*dn )
+    do i = 126, 1, -1
+      dn = sqrt( -2.0_8 * log( vn/dn + exp( -0.5_8*dn*dn ) ) )
+      a%kn(i+1) = (dn/tn)*m1
+      tn = dn
+      a%fn(i) = exp(-0.5_8*dn*dn)
+      a%wn(i) = dn/m1
+    end do
+  end subroutine i32rng_setup
+
+!---------------------------------------------------------------------------------------------------
+
+  function i32rng_uniform( a ) result( uni )
+    class(i32rng), intent(inout) :: a
+    real(8)                   :: uni
+    uni = 0.2328306e-9_8*a%i32() + 0.5_8
+  end function i32rng_uniform
+
+!---------------------------------------------------------------------------------------------------
+
+  function i32rng_normal( a ) result( rnor )
+    class(i32rng), intent(inout) :: a
+    real(8)                      :: rnor
+
+    real(8), parameter :: r = 3.442620_8, s = 0.2328306e-9_8
+    integer(4) :: hz, iz
+    real(8) :: x, y
+
+    hz = a%i32()
+    iz = iand(hz, 127_4)
+    if (abs(hz) < a%kn(iz)) then
+      rnor = hz*a%wn(iz)
+    else
+      do
+        if (iz == 0_4) then
+          do
+            x = -0.2904764_8*log(s*a%i32() + 0.5_8)
+            y = -log(s*a%i32() + 0.5_8)
+            if (y+y >= x*x) exit
+          end do
+          rnor = r + x
+          if (hz <= 0_4) rnor = -rnor
+          return
+        end if
+        x = hz * a%wn(iz)
+        if ( a%fn(iz) + (s*a%i32() + 0.5_8)*(a%fn(iz-1) - a%fn(iz)) < exp(-0.5_8*x*x) ) then
+          rnor = x
+          return
+        end if
+        hz = a%i32()
+        iz = iand(hz, 127_4)
+        if (abs(hz) < a%kn(iz)) then
+          rnor = hz*a%wn(iz)
+          return
+        end if
+      end do
+   end if
+  end function i32rng_normal
+
+!---------------------------------------------------------------------------------------------------
+
+  function i32rng_geometric( a, n ) result( igeo )
+    class(i32rng), intent(inout) :: a
+    integer,       intent(in)    :: n
+    integer                      :: igeo
+    igeo = ceiling( log(0.2328306e-9_8*a%i32() - 0.5_8 + 1.0_8/n) )
+  end function i32rng_geometric
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine kiss_init( a, seed )
+    class(kiss), intent(inout) :: a
+    integer(4),  intent(in)    :: seed
+    a%x = m(m(m(seed,13),-17),5)
+    a%y = m(m(m(a%x, 13),-17),5)
+    a%z = m(m(m(a%y, 13),-17),5)
+    a%w = m(m(m(a%z, 13),-17),5)
+    contains
+      integer(4) function m( k, n )
+        integer(4), intent(in) :: k
+        integer,    intent(in) :: n
+        m = ieor(k,ishft(k,n))
+      end function m
+  end subroutine kiss_init
+
+!---------------------------------------------------------------------------------------------------
+
+  function kiss_i32( a ) result( i32 )
+    class(kiss), intent(inout) :: a
+    integer                    :: i32
+    a%x = 69069_4*a%x + 1327217885_4
+    a%y = ieor(a%y,ishft(a%y, 13))
+    a%y = ieor(a%y,ishft(a%y,-17))
+    a%y = ieor(a%y,ishft(a%y,  5))
+    a%z = 18000_4*iand(a%z,65535_4) + ishft(a%z,-16)
+    a%w = 30903_4*iand(a%w,65535_4) + ishft(a%w,-16)
+    i32 = a%x + a%y + ishft(a%z,16) + a%w
+  end function kiss_i32
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function eigenvalues( Matrix ) result( Lambda )
     real(rb), intent(in) :: Matrix(3,3)
     real(rb)             :: Lambda(3)
 
@@ -58,9 +210,9 @@ contains
 
   end function eigenvalues
 
-  !-------------------------------------------------------------------------------------------------
+!---------------------------------------------------------------------------------------------------
 
-  function eigenvectors( Matrix, W ) result( Q )
+  pure function eigenvectors( Matrix, W ) result( Q )
     real(rb), intent(in) :: Matrix(3,3), W(3)
     real(rb)             :: Q(3,3)
 
@@ -203,36 +355,28 @@ contains
 
   !-------------------------------------------------------------------------------------------------
 
-  function quaternion( A ) result( Q )
+  pure function quaternion( A ) result( Q )
     real(rb), intent(in) :: A(3,3)
     real(rb)             :: Q(4)
 
-    integer, parameter :: B(4,4) = reshape([1,1,1,1 ,1,1,-1,-1, 1,-1,1,-1, 1,-1,-1,1],[4,4])
     integer :: imax
-    real(rb) :: Q2(4)
+    real(rb) :: Q2(4), a11, a22, a33, Q2max
 
-    Q2 = 0.25_rb*matmul(real(B,rb),[one,A(1,1),A(2,2),A(3,3)])
+    a11 = A(1,1)
+    a22 = A(2,2)
+    a33 = A(3,3)
+    Q2 = [ one + a11 + a22 + a33, &
+           one + a11 - a22 - a33, &
+           one - a11 + a22 - a33, &
+           one - a11 - a22 + a33  ]
     imax = maxloc(Q2,1)
-    Q(imax) = sqrt(Q2(imax))
+    Q2max = Q2(imax)
     select case(imax)
-      case (1)
-        Q(2) = 0.25_rb*(A(2,3) - A(3,2))/Q(1)
-        Q(3) = 0.25_rb*(A(3,1) - A(1,3))/Q(1)
-        Q(4) = 0.25_rb*(A(1,2) - A(2,1))/Q(1)
-      case (2)
-        Q(1) = 0.25_rb*(A(2,3) - A(3,2))/Q(2)
-        Q(3) = 0.25_rb*(A(1,2) + A(2,1))/Q(2)
-        Q(4) = 0.25_rb*(A(1,3) + A(3,1))/Q(2)
-      case (3)
-        Q(1) = 0.25_rb*(A(3,1) - A(1,3))/Q(3)
-        Q(2) = 0.25_rb*(A(1,2) + A(2,1))/Q(3)
-        Q(4) = 0.25_rb*(A(2,3) + A(3,2))/Q(3)
-      case (4)
-        Q(1) = 0.25_rb*(A(1,2) - A(2,1))/Q(4)
-        Q(2) = 0.25_rb*(A(1,3) + A(3,1))/Q(4)
-        Q(3) = 0.25_rb*(A(2,3) + A(3,2))/Q(4)
+      case (1); Q = 0.5_rb*[Q2max, A(2,3) - A(3,2), A(3,1) - A(1,3), A(1,2) - A(2,1)]/sqrt(Q2max)
+      case (2); Q = 0.5_rb*[A(2,3) - A(3,2), Q2max, A(1,2) + A(2,1), A(1,3) + A(3,1)]/sqrt(Q2max)
+      case (3); Q = 0.5_rb*[A(3,1) - A(1,3), A(1,2) + A(2,1), Q2max, A(2,3) + A(3,2)]/sqrt(Q2max)
+      case (4); Q = 0.5_rb*[A(1,2) - A(2,1), A(1,3) + A(3,1), A(2,3) + A(3,2), Q2max]/sqrt(Q2max)
     end select
-    Q = Q/sqrt(sum(Q**2))
 
   end function quaternion
 
