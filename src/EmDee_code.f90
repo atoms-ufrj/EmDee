@@ -472,9 +472,10 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_upload( md, L, coords, momenta ) bind(C,name="EmDee_upload")
-    type(c_ptr), value :: md, L, coords, momenta
+  subroutine EmDee_upload( md, L, coords, momenta, forces ) bind(C,name="EmDee_upload")
+    type(c_ptr), value :: md, L, coords, momenta, forces
 
+    real(rb) :: Virial
     type(tEmDee),    pointer :: me
     integer(ib),     pointer :: free(:)
     real(rb),        pointer :: Lbox, Rext(:,:), Rsys(:,:), Pext(:,:), Psys(:,:)
@@ -512,6 +513,12 @@ contains
       !$omp parallel num_threads(me%nthreads)
       call assign_momenta( omp_get_thread_num() + 1 )
       !$omp end parallel
+    end if
+
+    if (c_associated(forces)) then
+      if (.not.c_associated(me%coords)) stop "ERROR: atomic coordinates have not been defined."
+      call copy_real( forces, me%forces, 1, 3*me%natoms )
+      call rigid_body_forces( me, Virial )
     end if
 
     contains
@@ -792,12 +799,11 @@ contains
     type(c_ptr), value :: md
 
     integer(ib) :: M
-    real(rb)    :: Potential, Virial, Wrb, time
+    real(rb)    :: Potential, Virial, time
     logical     :: buildList
 
     type(tEmDee),    pointer :: me
     real(rb),        pointer :: R(:,:), F(:,:), R0(:,:)
-    type(rigidBody), pointer :: body(:)
 
     real(rb), allocatable :: Rs(:,:), Fs(:,:)
 
@@ -841,21 +847,7 @@ contains
     F = me%Lbox*Fs
     me%Potential = Potential
     me%Virial = third*Virial
-
-    if (me%nbodies /= 0) then
-      call c_f_pointer( me%body, body, [me%nbodies] )
-      Wrb = zero
-      !$omp parallel num_threads(me%nthreads) reduction(+:Wrb)
-      block
-        integer :: thread, i
-        thread = omp_get_thread_num() + 1
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          Wrb = Wrb + body(i) % force_torque_virial( F )
-        end do
-      end block
-      !$omp end parallel
-      me%Virial = me%Virial - third*Wrb
-    end if
+    if (me%nbodies /= 0) call rigid_body_forces( me, me%Virial )
 
     time = omp_get_wtime()
     me%pairTime = me%pairTime + time
@@ -865,6 +857,32 @@ contains
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
+!===================================================================================================
+
+  subroutine rigid_body_forces( me, Virial )
+    type(tEmDee), intent(inout) :: me
+    real(rb),     intent(inout) :: Virial
+
+    real(rb) :: Wrb
+    real(rb),        pointer :: F(:,:)
+    type(rigidBody), pointer :: body(:)
+
+    call c_f_pointer( me%body, body, [me%nbodies] )
+    call c_f_pointer( me%forces, F, [3,me%natoms] )
+    Wrb = zero
+    !$omp parallel num_threads(me%nthreads) reduction(+:Wrb)
+    block
+      integer :: thread, i
+      thread = omp_get_thread_num() + 1
+      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+        Wrb = Wrb + body(i) % force_torque_virial( F )
+      end do
+    end block
+    !$omp end parallel
+    Virial = Virial - third*Wrb
+
+  end subroutine rigid_body_forces
+
 !===================================================================================================
 
   real(rb) function maximum_approach_sq( N, delta )
