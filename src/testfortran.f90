@@ -103,7 +103,7 @@ end do
 print*, "execution time = ", secnds(0.0) - tf, " s."
 call cpu_time( tf )
 print*, "neighbor list builds = ", md%builds
-print*, "pair time = ", md%time, " s."
+print*, "pair time = ", md%pairTime, " s."
 print*, "execution time = ", tf - ti, " s."
 
 contains

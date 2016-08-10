@@ -38,7 +38,10 @@ end type EmDee_Model
 type, bind(C) :: tEmDee
 
   integer(ib) :: builds         ! Number of neighbor-list builds
-  real(rb)    :: time           ! Total time taken in force calculations
+  real(rb)    :: pairTime       ! Time taken in force calculations
+  real(rb)    :: startTime      ! Time recorded at initialization
+  real(rb)    :: totalTime      ! Total time since initialization
+
   real(rb)    :: Potential      ! Total potential energy of the system
   real(rb)    :: Kinetic        ! Total kinetic energy of the system
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
@@ -155,22 +158,34 @@ interface
     integer(ib), value :: N
   end subroutine EmDee_add_rigid_body
 
-  subroutine EmDee_set_coordinates( md, coords, L ) bind(C,name="EmDee_set_coordinates")
+  subroutine EmDee_upload( md, L, coords, momenta ) bind(C,name="EmDee_upload")
     import :: c_ptr
-    type(c_ptr), value :: md, coords, L
-  end subroutine EmDee_set_coordinates
+    type(c_ptr), value :: md, L, coords, momenta
+  end subroutine EmDee_upload
 
-  subroutine EmDee_generate_momenta( md, kT, adjust ) bind(C,name="EmDee_generate_momenta")
+  subroutine EmDee_random_momenta( md, kT, adjust ) bind(C,name="EmDee_random_momenta")
     import :: c_ptr, rb, ib
     type(c_ptr), value :: md
     real(rb),    value :: kT
     integer(ib), value :: adjust
-  end subroutine EmDee_generate_momenta
+  end subroutine EmDee_random_momenta
 
   subroutine EmDee_compute( md ) bind(C,name="EmDee_compute")
     import :: c_ptr
     type(c_ptr), value :: md
   end subroutine EmDee_compute
+
+  subroutine EmDee_boost( md, dt ) bind(C,name="EmDee_boost")
+    import :: c_ptr, rb
+    type(c_ptr), value :: md
+    real(rb),    value :: dt
+  end subroutine EmDee_boost
+
+  subroutine EmDee_move( md, dt ) bind(C,name="EmDee_move")
+    import :: c_ptr, rb
+    type(c_ptr), value :: md
+    real(rb),    value :: dt
+  end subroutine EmDee_move
 
   function EmDee_pair_none( ) result(model) bind(C,name="EmDee_pair_none")
     import :: EmDee_Model

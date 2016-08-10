@@ -35,6 +35,10 @@ type, abstract :: i32rng
     procedure :: geometric => i32rng_geometric
 end type i32rng
 
+interface operator(.x.)
+  module procedure :: cross_product
+end interface operator(.x.)
+
 abstract interface
 
   subroutine i32rng_init( a, seed )
@@ -343,7 +347,7 @@ contains
 
   end function eigenvectors
 
-  !-------------------------------------------------------------------------------------------------
+!---------------------------------------------------------------------------------------------------
 
   pure function cross_product(a, b) result( c )
     real(rb), intent(in) :: a(3), b(3)
@@ -353,7 +357,7 @@ contains
 
   end function cross_product
 
-  !-------------------------------------------------------------------------------------------------
+!---------------------------------------------------------------------------------------------------
 
   pure function quaternion( A ) result( Q )
     real(rb), intent(in) :: A(3,3)
@@ -380,6 +384,17 @@ contains
 
   end function quaternion
 
-  !-------------------------------------------------------------------------------------------------
+!---------------------------------------------------------------------------------------------------
+
+  elemental real(rb) function phi( x )
+    real(rb), intent(in) :: x
+    if (abs(x) > 1E-4_rb ) then
+      phi = (one - exp(-x))/x
+    else
+      phi = one + half*x*(third*x*(one - fourth*x) - one)
+    end if
+  end function phi
+
+!---------------------------------------------------------------------------------------------------
 
 end module math

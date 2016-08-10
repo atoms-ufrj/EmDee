@@ -50,7 +50,9 @@ end type tCell
 type, bind(C) :: tEmDee
 
   integer(ib) :: builds         ! Number of neighbor-list builds
-  real(rb)    :: time           ! Total time taken in force calculations
+  real(rb)    :: pairTime       ! Time taken in force calculations
+  real(rb)    :: totalTime      ! Total time since initialization
+
   real(rb)    :: Potential      ! Total potential energy of the system
   real(rb)    :: Kinetic        ! Total kinetic energy of the system
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
@@ -70,9 +72,10 @@ type, bind(C) :: tEmDee
   real(rb)    :: invL           ! Inverse length of the simulation box
   real(rb)    :: invL2          ! Squared inverse length of the simulation box
   real(rb)    :: totalMass      ! Sum of the masses of all atoms
-  integer(ib) :: coulomb        ! Flag for coulombic interactions
+  real(rb)    :: startTime      ! Time recorded at initialization
   real(rb)    :: eshift         ! Potential shifting factor for Coulombic interactions
   real(rb)    :: fshift         ! Force shifting factor for Coulombic interactions
+  integer(ib) :: coulomb        ! Flag for coulombic interactions
 
   integer(ib) :: mcells         ! Number of cells at each dimension
   integer(ib) :: ncells         ! Total number of cells
@@ -84,6 +87,7 @@ type, bind(C) :: tEmDee
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
   type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
+  type(c_ptr) :: invMass        ! Pointer to the inverses of atoms masses
   type(c_ptr) :: R0             ! Position of each atom at the latest neighbor list building
 
   integer(ib) :: ntypes         ! Number of atom types
@@ -133,7 +137,7 @@ contains
     real(rb),        pointer :: mass_ptr(:)
     type(model_ptr), pointer :: pairModel(:,:)
     type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
-    type(kiss),      pointer :: random(:)
+    type(kiss),      pointer :: random
 
     ! Set up fixed entities:
     me%nthreads = threads
@@ -159,9 +163,11 @@ contains
     if (c_associated(masses)) then
       call c_f_pointer( masses, mass_ptr, [me%ntypes] )
       me%atomMass = malloc_real( N, array = mass_ptr(type_ptr) )
+      me%invMass = malloc_real( N, array = one/mass_ptr(type_ptr) )
       me%totalMass = sum(mass_ptr(type_ptr))
     else
       me%atomMass = malloc_real( N, value = 1.0_rb )
+      me%invMass = malloc_real( N, value = 1.0_rb )
       me%totalMass = real(N,rb)
     end if
 
@@ -170,7 +176,9 @@ contains
     me%ncells = 0
     me%maxcells = 0
     me%builds = 0
-    me%time = zero
+    me%pairTime = zero
+    me%startTime = omp_get_wtime()
+    me%totalTime = zero
     me%coulomb = 0
     me%Lbox = zero
     me%invL = huge(one)
@@ -178,7 +186,7 @@ contains
     me%Potential = zero
     me%Kinetic = zero
     me%Rotational = zero
-    me%coords = malloc_real( 3*N, value = zero )
+    me%coords = c_null_ptr
     me%momenta = malloc_real( 3*N, value = zero )
     me%forces = malloc_real( 3*N, value = zero )
     me%charge = malloc_real( N, value = zero )
@@ -221,17 +229,13 @@ contains
     me%pairModel = c_loc(pairModel(1,1))
 
     ! Initialize random number generators:
-    allocate( random(threads) )
+    allocate( random )
     me%random = c_loc( random )
-    call random(1) % setup( seed )
-    do i = 2, threads
-      call random(i) % setup( random(i-1) % i32() )
-    end do
+    call random % setup( seed )
 
   end function EmDee_system
 
-!---------------------------------------------------------------------------------------------------
-! TODO: copy charges from external array
+!===================================================================================================
 
   subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
     type(c_ptr), value :: md, charges
@@ -239,28 +243,25 @@ contains
     integer :: i, j
 
     type(tEmDee),      pointer :: me
-    real(rb),          pointer :: chargesPtr(:)
     type(model_ptr),   pointer :: pairModel(:,:)
     type(EmDee_Model), pointer :: model
 
     call c_f_pointer( md, me )
     if (me%coulomb == 0) then
-      call c_f_pointer( me%charge, chargesPtr, [me%natoms] )
-      deallocate( chargesPtr )
       me%coulomb = 1
-    end if
-    me%charge = charges
-    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
-    do i = 1, me%ntypes
-      do j = 1, me%ntypes
-        model => pairModel(i,j)%model
-        if (associated(model)) model%id = mCOULOMB + mod(model%id,mCOULOMB)
+      call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
+      do i = 1, me%ntypes
+        do j = 1, me%ntypes
+          model => pairModel(i,j)%model
+          if (associated(model)) model%id = mCOULOMB + mod(model%id,mCOULOMB)
+        end do
       end do
-    end do
+    end if
+    call copy_real( charges, me%charge, 1, me%natoms )
 
   end subroutine EmDee_set_charges
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine EmDee_set_pair_type( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_type")
     type(c_ptr), value :: md
@@ -320,7 +321,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_set_pair_type
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine EmDee_ignore_pair( md, i, j ) bind(C,name="EmDee_ignore_pair")
     type(c_ptr), value :: md
@@ -365,7 +366,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_ignore_pair
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine EmDee_add_bond( md, i, j, model ) bind(C,name="EmDee_add_bond")
     type(c_ptr), value :: md
@@ -380,7 +381,7 @@ contains
 
   end subroutine EmDee_add_bond
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine EmDee_add_angle( md, i, j, k, model ) bind(C,name="EmDee_add_angle")
     type(c_ptr), value :: md
@@ -397,7 +398,7 @@ contains
 
   end subroutine EmDee_add_angle
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine EmDee_add_dihedral( md, i, j, k, l, model ) bind(C,name="EmDee_add_dihedral")
     type(c_ptr), value :: md
@@ -417,82 +418,99 @@ contains
 
   end subroutine EmDee_add_dihedral
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine EmDee_add_rigid_body( md, indexes, NP ) bind(C,name="EmDee_add_rigid_body")
     type(c_ptr), value :: md, indexes
     integer(ib), value :: NP
 
-    integer  :: i, j
-
-    logical, allocatable :: isolated(:)
-
+    integer :: i, j
+    logical,     allocatable :: isFree(:)
+    real(rb),    allocatable :: Rn(:,:)
     type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: atom(:), freeAtom(:)
+    integer(ib),     pointer :: atom(:), free(:)
     real(rb),        pointer :: R(:,:), mass(:)
     type(rigidBody), pointer :: body(:)
 
     call c_f_pointer( indexes, atom, [NP] )
     call c_f_pointer( md, me )
-    call c_f_pointer( me%freeAtom, freeAtom, [me%nfree] )
+    call c_f_pointer( me%freeAtom, free, [me%nfree] )
     call c_f_pointer( me%atomMass, mass, [me%natoms] )
-    call c_f_pointer( me%coords, R, [3,me%natoms] )
+
+    allocate( isFree(me%natoms) )
+    isFree = .false.
+    isFree(free) = .true.
+    isFree(atom) = .false.
+    me%nfree = me%nfree - NP
+    if (count(isFree) /= me%nfree) stop "Error adding rigid body: only free atoms are allowed."
+    free(1:me%nfree) = pack([(i,i=1,me%natoms)],isFree)
+    me%threadAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
+
     if (me%nbodies == me%maxbodies) call realloc_rigid_body_list( me%body, me%maxbodies )
     call c_f_pointer( me%body, body, [me%nbodies+1] )
+    me%nbodies = me%nbodies + 1
+    me%threadBodies = (me%nbodies + me%nthreads - 1)/me%nthreads
 
-    allocate( isolated(me%nfree) )
-    isolated = .true.
-    do i = 1, NP
-      where (freeAtom == atom(i)) isolated = .false.
-    end do
-    if (count(.not.isolated) /= NP) stop "Error adding rigid body: only free atoms are allowed."
-    me%nfree = me%nfree - NP
-    me%threadAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
-    freeAtom(1:me%nfree) = pack(freeAtom,isolated)
+    associate(b => body(me%nbodies))
+      call b % setup( atom, mass(atom) )
+      if (c_associated(me%coords)) then
+        call c_f_pointer( me%coords, R, [3,me%natoms] )
+        Rn = R(:,atom)
+        forall (j=2:b%NP) Rn(:,j) = Rn(:,j) - me%Lbox*anint((Rn(:,j) - Rn(:,1))*me%invL)
+        call b % update( Rn )
+        R(:,b%index) = Rn
+      end if
+    end associate
+
     do i = 1, NP-1
       do j = i+1, NP
         call EmDee_ignore_pair( md, atom(i), atom(j) )
       end do
     end do
-    me%nbodies = me%nbodies + 1
-    me%threadBodies = (me%nbodies + me%nthreads - 1)/me%nthreads
-    call body(me%nbodies) % setup( atom, mass(atom) )
-    if (me%Lbox /= zero) then
-!TODO:    call body(me%nbodies) % update( )
-    end if
-!print*, body(me%nbodies) % q
-
 
   end subroutine EmDee_add_rigid_body
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
-  subroutine EmDee_set_coordinates( md, coords, L ) bind(C,name="EmDee_set_coordinates")
-    type(c_ptr), value :: md, coords, L
+  subroutine EmDee_upload( md, L, coords, momenta ) bind(C,name="EmDee_upload")
+    type(c_ptr), value :: md, L, coords, momenta
 
     type(tEmDee),    pointer :: me
     integer(ib),     pointer :: free(:)
-    real(rb),        pointer :: Lbox, Rext(:,:), Rsys(:,:)
+    real(rb),        pointer :: Lbox, Rext(:,:), Rsys(:,:), Pext(:,:), Psys(:,:)
     type(rigidBody), pointer :: body(:)
 
     call c_f_pointer( md, me )
+    call c_f_pointer( me%freeAtom, free, [me%nfree] )
+    call c_f_pointer( me%body, body, [me%nbodies] )
 
     if (c_associated(L)) then
       call c_f_pointer( L, Lbox )
       me%Lbox = Lbox
       me%invL = one/Lbox
       me%invL2 = me%invL**2
-    else if (me%Lbox == zero) then
-      stop "ERROR: box side length has not been defined."
     end if
 
     if (c_associated(coords)) then
+      if (me%Lbox == zero) stop "ERROR: box side length has not been defined."
+      if (c_associated(me%coords)) then
+        call c_f_pointer( me%coords, Rsys, [3,me%natoms] )
+      else
+        allocate( Rsys(3,me%natoms) )
+        me%coords = c_loc(Rsys)
+      end if
       call c_f_pointer( coords, Rext, [3,me%natoms] )
-      call c_f_pointer( coords, Rsys, [3,me%natoms] )
-      call c_f_pointer( me%freeAtom, free, [me%nfree] )
-      call c_f_pointer( me%body, body, [me%nbodies] )
       !$omp parallel num_threads(me%nthreads)
       call assign_coordinates( omp_get_thread_num() + 1 )
+      !$omp end parallel
+    end if
+
+    if (c_associated(momenta)) then
+      if (.not.c_associated(me%coords)) stop "ERROR: atomic coordinates have not been defined."
+      call c_f_pointer( momenta, Pext, [3,me%natoms] )
+      call c_f_pointer( me%momenta, Psys, [3,me%natoms] )
+      !$omp parallel num_threads(me%nthreads)
+      call assign_momenta( omp_get_thread_num() + 1 )
       !$omp end parallel
     end if
 
@@ -516,86 +534,275 @@ contains
         end do
       end subroutine assign_coordinates
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine EmDee_set_coordinates
+      subroutine assign_momenta( thread )
+        integer(ib), intent(in) :: thread
+        integer(ib) :: i, j
+        real(rb) :: L(3), Pj(3)
+        do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+          i = free(j)
+          Psys(:,i) = Pext(:,i)
+        end do
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          associate(b => body(i))
+            b%pcm = zero
+            L = zero
+            do j = 1, b%NP
+              Pj = Pext(:,b%index(j))
+              b%pcm = b%pcm + Pj
+              L = L + (b%delta(:,j) .x. Pj)
+            end do
+            b%pi = matmul( matrix_C(b%q), two*L )
+            Psys(:,b%index) = b % particle_momenta()
+          end associate
+        end do
+      end subroutine assign_momenta
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine EmDee_upload
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
-  subroutine EmDee_generate_momenta( md, kT, adjust ) bind(C,name="EmDee_generate_momenta")
+  subroutine EmDee_download( md, L, coords, momenta, forces ) bind(C,name="EmDee_download")
+    type(c_ptr), value :: md, L, coords, momenta, forces
+
+    type(tEmDee),    pointer :: me
+    integer(ib),     pointer :: free(:)
+    real(rb),        pointer :: Lbox, Pext(:,:), Psys(:,:)
+    type(rigidBody), pointer :: body(:)
+
+    call c_f_pointer( md, me )
+
+    if (c_associated(L)) then
+      call c_f_pointer( L, Lbox )
+      Lbox = me%Lbox
+    end if
+    if (c_associated(coords)) call copy_real( me%coords, coords, 1, 3*me%natoms )
+    if (c_associated(forces)) call copy_real( me%forces, forces, 1, 3*me%natoms )
+    if (c_associated(momenta)) then
+      call c_f_pointer( momenta, Pext, [3,me%natoms] )
+      call c_f_pointer( me%momenta, Psys, [3,me%natoms] )
+      call c_f_pointer( me%freeAtom, free, [me%nfree] )
+      call c_f_pointer( me%body, body, [me%nbodies] )
+      !$omp parallel num_threads(me%nthreads)
+      call get_momenta( omp_get_thread_num() + 1 )
+      !$omp end parallel
+    end if
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine get_momenta( thread )
+        integer(ib), intent(in) :: thread
+        integer(ib) :: i
+        forall (i = (thread-1)*me%threadAtoms+1 : min(thread*me%threadAtoms, me%nfree))
+          Pext(:,free(i)) = Psys(:,free(i))
+        end forall
+        forall(i = (thread-1)*me%threadBodies+1 : min(thread*me%threadBodies,me%nbodies))
+          Pext(:,body(i)%index) = body(i) % particle_momenta()
+        end forall
+      end subroutine get_momenta
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine EmDee_download
+
+!===================================================================================================
+
+  subroutine EmDee_random_momenta( md, kT, adjust ) bind(C,name="EmDee_random_momenta")
     type(c_ptr), value :: md
     real(rb),    value :: kT
     integer(ib), value :: adjust
 
-    real(rb) :: KEt, KEr, pcm(3)
+    integer(ib) :: i, j
+    real(rb) :: twoKEt, TwoKEr, omega(3)
 
-    real(rb),        pointer :: mass(:), P(:,:)
     type(tEmDee),    pointer :: me
-    type(kiss),      pointer :: random(:)
     integer(ib),     pointer :: free(:)
+    real(rb),        pointer :: mass(:), P(:,:)
+    type(kiss),      pointer :: rng
     type(rigidBody), pointer :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%atomMass, mass, [me%natoms] )
     call c_f_pointer( me%momenta, P, [3,me%natoms] )
-    call c_f_pointer( me%random, random, [me%nthreads] )
+    call c_f_pointer( me%random, rng )
     call c_f_pointer( me%body, body, [me%nbodies] )
-    call c_f_pointer( me%freeAtom, free, [me%nbodies] )
+    call c_f_pointer( me%freeAtom, free, [me%nfree] )
 
-    KEt = zero
-    KEr = zero
-    !$omp parallel num_threads(me%nthreads) reduction(+:KEt,KEr)
-    call assign_momenta( omp_get_thread_num() + 1, KEt, KEr )
-    !$omp end parallel
-    me%Rotational = half*KEr
-    me%Kinetic = half*(KEt + KEr)
-
-    if (adjust == 1) then
-      ! TODO: adjust kinetic energy and zero total momentum
+    twoKEt = zero
+    if (me%nbodies /= 0) then
+      if (.not.c_associated(me%coords)) stop "ERROR in random momenta: coordinates not defined."
+      TwoKEr = zero
+      do i = 1, me%nbodies
+        associate (b => body(i))
+          b%pcm = sqrt(b%mass*kT)*[rng%normal(), rng%normal(), rng%normal()]
+          omega = sqrt(b%invMoI*kT)*[rng%normal(), rng%normal(), rng%normal()]
+          b%pi = matmul( matrix_B(b%q), two*b%MoI*omega )
+          twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
+          TwoKEr = TwoKEr + sum(b%MoI*omega*omega)
+        end associate
+      end do
     end if
+    do j = 1, me%nfree
+      i = free(j)
+      P(:,i) = sqrt(mass(i)*kT)*[rng%normal(), rng%normal(), rng%normal()]
+      twoKEt = twoKEt + sum(P(:,i)**2)/mass(i)
+    end do
+    if (adjust == 1) call adjust_momenta
+    me%Rotational = half*TwoKEr
+    me%Kinetic = half*(twoKEt + TwoKEr)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_momenta( thread, KEt, KEr )
-        integer(ib), intent(in)    :: thread
-        real(rb),    intent(inout) :: KEt, KEr
-        integer(ib) :: i, j
-        real(rb) :: omega(3)
-        associate (rng => random(thread))
-          do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
-            i = free(j)
-            P(:,i) = sqrt(mass(i)*kT)*[rng%normal(), rng%normal(), rng%normal()]
-            KEt = KEt + sum(P(:,i)**2)/mass(i)
-          end do
-          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-            associate (b => body(i))
-              pcm = sqrt(b%mass*kT)*[rng%normal(), rng%normal(), rng%normal()]
-              omega = sqrt(b%invMoI*kT)*[rng%normal(), rng%normal(), rng%normal()]
-              call b % set_momenta( pcm, omega )
-              P(:,b%index) = b%P
-              KEt = KEt + b%invMass*sum(pcm*pcm)
-              KEr = KEr + sum(b%MoI*omega*omega)
-            end associate
-          end do
-        end associate
-      end subroutine assign_momenta
+      subroutine adjust_momenta
+        integer(ib) :: i
+        real(rb) :: vcm(3), factor
+        forall (i=1:3) vcm(i) = (sum(P(i,free)) + sum(body%pcm(i)))/me%totalMass
+        forall (i=1:me%nfree) P(:,free(i)) = P(:,free(i)) - mass(free(i))*vcm
+        forall (i=1:me%nbodies) body(i)%pcm = body(i)%pcm - body(i)%mass*vcm
+        twoKEt = sum([(sum(P(:,free(i))**2)/mass(free(i)),i=1,me%nfree)]) + &
+                 sum([(body(i)%invMass*sum(body(i)%pcm**2),i=1,me%nbodies)])
+        factor = sqrt((me%nfree + sum(body%dof) - 3)*kT/(twoKEt + TwoKEr))
+        P(:,free) = factor*P(:,free)
+        do i = 1, me%nbodies
+          associate( b => body(i) )
+            b%pcm = factor*b%pcm
+            b%pi = factor*b%pi
+          end associate
+        end do
+        twoKEt = factor*factor*twoKEt
+        TwoKEr = factor*factor*TwoKEr
+      end subroutine adjust_momenta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine EmDee_generate_momenta
+  end subroutine EmDee_random_momenta
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
+
+  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
+    type(c_ptr), value :: md
+    real(rb),    value :: lambda, alpha, dt
+
+    real(rb) :: CP, CF, Ctau, twoKEt, eightKEr
+
+    type(tEmDee),    pointer :: me
+    integer(ib),     pointer :: free(:)
+    real(rb),        pointer :: P(:,:), F(:,:), invMass(:)
+    type(rigidBody), pointer :: body(:)
+
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%momenta, P, [3,me%natoms] )
+    call c_f_pointer( me%forces, F, [3,me%natoms] )
+    call c_f_pointer( me%invMass, invMass, [me%natoms] )
+    call c_f_pointer( me%body, body, [me%nbodies] )
+    call c_f_pointer( me%freeAtom, free, [me%nfree] )
+
+    CF = phi(alpha*dt)*dt
+    CP = one - alpha*CF
+    CF = lambda*CF
+    Ctau = two*CF
+
+    twoKEt = zero
+    eightKEr = zero
+    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,eightKEr)
+    call boost( omp_get_thread_num() + 1, twoKEt, eightKEr )
+    !$omp end parallel
+    me%Rotational = 0.125_rb*eightKEr
+    me%Kinetic = half*twoKEt + me%Rotational
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine boost( thread, twoKEt, eightKEr )
+        integer,  intent(in)    :: thread
+        real(rb), intent(inout) :: twoKEt, eightKEr
+        integer :: i, j
+        real(rb) :: twoOmega(3)
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          associate(b => body(i))
+            b%pcm = CP*b%pcm + CF*b%F
+            b%pi = CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau )
+            twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
+            twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
+            eightKEr = eightKEr + sum(b%MoI*twoOmega*twoOmega)
+          end associate
+        end do
+        do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+          j = free(i)
+          P(:,j) = CP*P(:,j) + CF*F(:,j)
+          twoKEt = twoKEt + invMass(j)*sum(P(:,j)**2)
+        end do
+      end subroutine boost
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine EmDee_boost
+
+!===================================================================================================
+
+  subroutine EmDee_move( md, lambda, alpha, dt ) bind(C,name="EmDee_move")
+    type(c_ptr), value :: md
+    real(rb),    value :: lambda, alpha, dt
+
+    real(rb) :: CR, CP
+
+    type(tEmDee),    pointer :: me
+    integer(ib),     pointer :: free(:)
+    real(rb),        pointer :: R(:,:), P(:,:), invMass(:)
+    type(rigidBody), pointer :: body(:)
+
+    call c_f_pointer( md, me )
+    call c_f_pointer( me%coords, R, [3,me%natoms] )
+    call c_f_pointer( me%momenta, P, [3,me%natoms] )
+    call c_f_pointer( me%invMass, invMass, [me%natoms] )
+    call c_f_pointer( me%body, body, [me%nbodies] )
+    call c_f_pointer( me%freeAtom, free, [me%nfree] )
+
+    if (alpha /= zero) then
+      CP = phi(alpha*dt)*dt
+      CR = one - alpha*CP
+      me%Lbox = CR*me%Lbox
+      me%InvL = one/me%Lbox
+      me%invL2 = me%invL*me%invL
+    else
+      CP = dt
+      CR = one
+    end if
+    CP = lambda*CP
+
+    !$omp parallel num_threads(me%nthreads)
+    call move( omp_get_thread_num() + 1 )
+    !$omp end parallel
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine move( thread )
+        integer, intent(in) :: thread
+        integer :: i, j
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          associate(b => body(i))
+            b%rcm = CR*b%rcm + CP*b%invMass*b%pcm
+            call b % rotate( dt )
+            forall (j=1:3) R(j,b%index) = b%rcm(j) + b%delta(j,:)
+          end associate
+        end do
+        do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+          j = free(i)
+          R(:,j) = CR*R(:,j) + CP*P(:,j)*invMass(j)
+        end do
+      end subroutine move
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine EmDee_move
+
+!===================================================================================================
 
   subroutine EmDee_compute( md ) bind(C,name="EmDee_compute")
     type(c_ptr), value :: md
 
     integer(ib) :: M
-    real(rb)    :: Potential, Virial
+    real(rb)    :: Potential, Virial, Wrb, time
     logical     :: buildList
 
-    type(tEmDee), pointer :: me
-    real(rb),     pointer :: R(:,:), F(:,:), R0(:,:)
+    type(tEmDee),    pointer :: me
+    real(rb),        pointer :: R(:,:), F(:,:), R0(:,:)
+    type(rigidBody), pointer :: body(:)
 
     real(rb), allocatable :: Rs(:,:), Fs(:,:)
 
     call c_f_pointer( md, me )
-    me%time = me%time - omp_get_wtime()
+    me%pairTime = me%pairTime - omp_get_wtime()
 
     call c_f_pointer( me%forces, F, [3,me%natoms] )
     call c_f_pointer( me%coords, R, [3,me%natoms] )
@@ -627,7 +834,7 @@ contains
       end if
       if (c_associated(me%bonds)) call compute_bonds( me, thread, Rs, Fs, Potential, Virial )
       if (c_associated(me%angles)) call compute_angles( me, thread, Rs, Fs, Potential, Virial )
-      if (c_associated(me%dihedrals)) call compute_dihedrals( me, thread, Rs, Fs, Potential, Virial )
+      if (c_associated(me%dihedrals)) call compute_dihedrals(me, thread, Rs, Fs, Potential, Virial)
     end block
     !$omp end parallel
 
@@ -635,7 +842,24 @@ contains
     me%Potential = Potential
     me%Virial = third*Virial
 
-    me%time = me%time + omp_get_wtime()
+    if (me%nbodies /= 0) then
+      call c_f_pointer( me%body, body, [me%nbodies] )
+      Wrb = zero
+      !$omp parallel num_threads(me%nthreads) reduction(+:Wrb)
+      block
+        integer :: thread, i
+        thread = omp_get_thread_num() + 1
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          Wrb = Wrb + body(i) % force_torque_virial( F )
+        end do
+      end block
+      !$omp end parallel
+      me%Virial = me%Virial - third*Wrb
+    end if
+
+    time = omp_get_wtime()
+    me%pairTime = me%pairTime + time
+    me%totalTime = time - me%startTime
 
   end subroutine EmDee_compute
 
@@ -663,7 +887,7 @@ contains
 
   end function maximum_approach_sq
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine distribute_atoms( me, M, Rs )
     type(tEmDee), intent(inout) :: me
@@ -779,7 +1003,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine distribute_atoms
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine compute_bonds( me, threadId, R, F, Potential, Virial )
     type(tEmDee), intent(inout) :: me
@@ -818,7 +1042,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_bonds
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine compute_angles( me, threadId, R, F, Potential, Virial )
     type(tEmDee), intent(inout) :: me
@@ -868,7 +1092,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_angles
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine compute_dihedrals( me, threadId, R, F, Potential, Virial )
     type(tEmDee), intent(inout) :: me
@@ -965,7 +1189,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_dihedrals
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine find_pairs_and_compute( me, thread, Rs, F, Potential, Virial )
     type(tEmDee), intent(inout) :: me
@@ -1073,7 +1297,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine find_pairs_and_compute
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine compute_pairs( me, thread, Rs, F, Potential, Virial )
     type(tEmDee), intent(in)    :: me
@@ -1133,6 +1357,6 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_pairs
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
 end module EmDee_code
