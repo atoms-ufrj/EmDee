@@ -26,8 +26,9 @@ implicit none
 integer, parameter :: ib = 4, rb = 8
 
 integer(ib) :: N, Nsteps, Nprop
-real(rb)    :: rho, L, Rc, Rs, Rc2, Temp, Dt, Dt_2
-real(rb), pointer :: R(:,:), V(:,:), F(:,:)
+real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2
+real(rb), target :: L
+real(rb), pointer :: R(:,:), V(:,:)
 
 integer(ib) :: step
 real(rb)    :: ti, tf
@@ -55,6 +56,8 @@ call read_data( file = line )
 call create_configuration
 
 md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr, 7834 )
+
+call EmDee_upload( c_loc(md), c_loc(L), c_loc(R), c_loc(V), c_null_ptr )
 
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
 call EmDee_set_pair_type( c_loc(md), 1, 1, c_loc(lj) )
@@ -94,10 +97,10 @@ print*, 0, md%Potential, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)
 do step = 1, Nsteps
-  V = V + Dt_2*F
-  R = R + Dt*V
+  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2 )
+  call EmDee_move( c_loc(md), 1.0_rb, 0.0_rb, Dt )
   call EmDee_compute( c_loc(md) )
-  V = V + Dt_2*F
+  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2 )
   if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
 end do
 print*, "execution time = ", secnds(0.0) - tf, " s."
@@ -127,7 +130,7 @@ contains
     Rc2 = Rc**2
     L = (N/rho)**(1.0_8/3.0_8)
     Dt_2 = 0.5_8*Dt
-    allocate( R(3,N), V(3,N), F(3,N) )
+    allocate( R(3,N), V(3,N) )
   end subroutine read_data
 !---------------------------------------------------------------------------------------------------
   real(rb) function random_normal()

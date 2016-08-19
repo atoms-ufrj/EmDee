@@ -17,14 +17,14 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-module EmDee_code
+module EmDeeCode
 
 use omp_lib
 use c_binding
 use lists
 use math
 use models
-use bonded_structs
+use structs
 use ArBee
 
 implicit none
@@ -83,6 +83,7 @@ type, bind(C) :: tEmDee
   integer(ib) :: maxatoms       ! Maximum number of atoms in a cell
   integer(ib) :: maxpairs       ! Maximum number of pairs formed by all atoms of a cell
   type(c_ptr) :: cell           ! Array containing all neighbor cells of each cell
+  type(c_ptr) :: atomCell       ! Array containing the current cell of each atom
 
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
@@ -115,7 +116,7 @@ type, bind(C) :: tEmDee
 
 end type tEmDee
 
-private :: maximum_approach_sq, distribute_atoms, find_pairs_and_compute, &
+private :: rigid_body_forces, maximum_approach_sq, distribute_atoms, find_pairs_and_compute, &
            compute_pairs, compute_bonds, compute_angles, compute_dihedrals
 
 contains
@@ -192,6 +193,7 @@ contains
     me%charge = malloc_real( N, value = zero )
     me%R0 = malloc_real( 3*N, value = zero )
     me%cell = malloc_int( 0 )
+    me%atomCell = malloc_int( N )
     me%bonds = c_null_ptr
     me%angles = c_null_ptr
     me%dihedrals = c_null_ptr
@@ -556,7 +558,7 @@ contains
             do j = 1, b%NP
               Pj = Pext(:,b%index(j))
               b%pcm = b%pcm + Pj
-              L = L + (b%delta(:,j) .x. Pj)
+              L = L + cross_product( b%delta(:,j), Pj )
             end do
             b%pi = matmul( matrix_C(b%q), two*L )
             Psys(:,b%index) = b % particle_momenta()
@@ -914,15 +916,17 @@ contains
 
     integer(ib) :: MM, cells_per_thread, maxNatoms
     logical     :: make_cells
-    integer(ib) :: atomCell(me%natoms), threadNatoms(me%nthreads), next(me%natoms)
+    integer(ib) :: threadNatoms(me%nthreads), next(me%natoms)
     integer(ib), allocatable :: natoms(:)
 
+    integer(ib), pointer :: atomCell(:)
     type(tCell), pointer :: cell(:)
     type(tList), pointer :: threadCell, cellAtom
 
     call c_f_pointer( me%cell, cell, [me%maxcells] )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%cellAtom, cellAtom )
+    call c_f_pointer( me%atomCell, atomCell, [me%natoms] )
 
     MM = M*M
     make_cells = M /= me%mcells
@@ -1377,4 +1381,85 @@ contains
 
 !===================================================================================================
 
-end module EmDee_code
+  subroutine compute_subset_energy( me, thread, atoms, Potential )
+    type(tEmDee), intent(in)  :: me
+    integer,      intent(in)  :: thread, atoms(:)
+    real(rb),     intent(out) :: Potential
+
+    integer  :: i, j, k, m, itype, firstCell, lastCell
+    real(rb) :: r2, invR2, Eij, Wij, icharge
+    real(rb) :: Rij(3), Ri(3)
+
+    integer(ib),       pointer :: atomType(:), atomCell(:)
+    real(rb),          pointer :: R(:,:), charge(:)
+    type(EmDee_Model), pointer :: model
+    type(model_ptr),   pointer :: pairModel(:,:)
+    type(tList),       pointer :: cellAtom, threadCell, neighborLists(:), neighbor
+
+    call c_f_pointer( me%atomType, atomType, [me%natoms] )
+    call c_f_pointer( me%coords, R, [3,me%natoms] )
+    call c_f_pointer( me%charge, charge, [me%natoms] )
+    call c_f_pointer( me%atomCell, atomCell, [me%natoms] )
+    call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
+    call c_f_pointer( me%cellAtom, cellAtom )
+    call c_f_pointer( me%threadCell, threadCell )
+    call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
+    neighbor => neighborLists(thread)
+
+    firstCell = threadCell%first(thread)
+    lastCell  = threadCell%last(thread)
+
+    Potential = zero
+    do m = 1, size(atoms)
+      i = atoms(m)
+      if ((atomCell(i) >= firstCell).and.(atomCell(i) <= lastCell)) then
+        itype = atomType(i)
+        Ri = R(:,i)
+        icharge = charge(i)
+        do k = neighbor%first(i), neighbor%last(i)
+          j = neighbor%item(k)
+          Rij = Ri - R(:,j)
+          Rij = Rij - me%Lbox*anint(Rij*me%invL)
+          r2 = sum(Rij*Rij)
+          if (r2 < me%RcSq) then
+            invR2 = one/r2
+            model => pairModel(itype,atomType(j))%model
+            call compute_pair()
+            Potential = Potential + Eij
+          end if
+        end do
+      end if
+    end do
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      include "compute_pair.f90"
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_subset_energy
+
+!===================================================================================================
+
+!===================================================================================================
+
+  function EmDee_subset_energy( md, N, atoms, check ) result( Energy ) &
+                                                      bind(C,name="EmDee_subset_energy")
+    type(c_ptr), value :: md
+    integer(ib), value :: N, check
+    type(c_ptr), value :: atoms
+    real(rb)           :: Energy
+
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: index(:)
+
+    call c_f_pointer( atoms, index, [N] )
+    call c_f_pointer( md, me )
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:Energy)
+    call compute_subset_energy( me, omp_get_thread_num() + 1, index, Energy )
+    !$omp end parallel
+
+  end function EmDee_subset_energy
+
+!===================================================================================================
+
+end module EmDeeCode

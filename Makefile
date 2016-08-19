@@ -11,7 +11,7 @@ LIBFILE = $(LIBDIR)/libemdee.so
 
 LIBS = -L$(LIBDIR) -lemdee -lgfortran -lm
 
-OBJ = $(OBJDIR)/EmDee_code.o $(OBJDIR)/ArBee.o $(OBJDIR)/math.o $(OBJDIR)/bonded_structs.o  \
+OBJ = $(OBJDIR)/EmDeeCode.o $(OBJDIR)/ArBee.o $(OBJDIR)/math.o $(OBJDIR)/structs.o  \
       $(OBJDIR)/models.o $(OBJDIR)/lists.o $(OBJDIR)/c_binding.o $(OBJDIR)/global.o
 
 .PHONY: all test lib testc testfortran
@@ -49,9 +49,9 @@ $(LIBFILE): $(OBJ)
 $(OBJDIR)/EmDee.o: $(SRCDIR)/EmDee.f90 $(OBJDIR)/global.o
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<
 
-$(OBJDIR)/EmDee_code.o: $(SRCDIR)/EmDee_code.f90 $(OBJDIR)/ArBee.o $(SRCDIR)/compute_pair.f90 \
+$(OBJDIR)/EmDeeCode.o: $(SRCDIR)/EmDeeCode.f90 $(OBJDIR)/ArBee.o $(SRCDIR)/compute_pair.f90 \
                         $(SRCDIR)/compute_bond.f90 $(SRCDIR)/compute_angle.f90    \
-                        $(SRCDIR)/compute_dihedral.f90 $(OBJDIR)/bonded_structs.o \
+                        $(SRCDIR)/compute_dihedral.f90 $(OBJDIR)/structs.o \
                         $(OBJDIR)/models.o $(OBJDIR)/lists.o $(OBJDIR)/global.o
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<
 
@@ -61,7 +61,7 @@ $(OBJDIR)/ArBee.o: $(SRCDIR)/ArBee.f90 $(OBJDIR)/math.o $(OBJDIR)/global.o
 $(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<
 
-$(OBJDIR)/bonded_structs.o: $(SRCDIR)/bonded_structs.f90 $(OBJDIR)/c_binding.o $(OBJDIR)/models.o
+$(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/c_binding.o $(OBJDIR)/models.o
 	$(FORT) $(OPTS) -J$(LIBDIR) -c -o $@ $<
 
 $(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o

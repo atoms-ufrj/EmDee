@@ -39,7 +39,6 @@ type, bind(C) :: tEmDee
 
   integer(ib) :: builds         ! Number of neighbor-list builds
   real(rb)    :: pairTime       ! Time taken in force calculations
-  real(rb)    :: startTime      ! Time recorded at initialization
   real(rb)    :: totalTime      ! Total time since initialization
 
   real(rb)    :: Potential      ! Total potential energy of the system
@@ -61,9 +60,10 @@ type, bind(C) :: tEmDee
   real(rb)    :: invL           ! Inverse length of the simulation box
   real(rb)    :: invL2          ! Squared inverse length of the simulation box
   real(rb)    :: totalMass      ! Sum of the masses of all atoms
-  integer(ib) :: coulomb        ! Flag for coulombic interactions
-  real(rb)    :: eshift         ! Energy shifting factor for Coulombic interactions
+  real(rb)    :: startTime      ! Time recorded at initialization
+  real(rb)    :: eshift         ! Potential shifting factor for Coulombic interactions
   real(rb)    :: fshift         ! Force shifting factor for Coulombic interactions
+  integer(ib) :: coulomb        ! Flag for coulombic interactions
 
   integer(ib) :: mcells         ! Number of cells at each dimension
   integer(ib) :: ncells         ! Total number of cells
@@ -71,10 +71,12 @@ type, bind(C) :: tEmDee
   integer(ib) :: maxatoms       ! Maximum number of atoms in a cell
   integer(ib) :: maxpairs       ! Maximum number of pairs formed by all atoms of a cell
   type(c_ptr) :: cell           ! Array containing all neighbor cells of each cell
+  type(c_ptr) :: atomCell       ! Array containing the current cell of each atom
 
   integer(ib) :: natoms         ! Number of atoms in the system
   type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
   type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
+  type(c_ptr) :: invMass        ! Pointer to the inverses of atoms masses
   type(c_ptr) :: R0             ! Position of each atom at the latest neighbor list building
 
   integer(ib) :: ntypes         ! Number of atom types
@@ -158,10 +160,15 @@ interface
     integer(ib), value :: N
   end subroutine EmDee_add_rigid_body
 
-  subroutine EmDee_upload( md, L, coords, momenta ) bind(C,name="EmDee_upload")
+  subroutine EmDee_upload( md, L, coords, momenta, forces ) bind(C,name="EmDee_upload")
     import :: c_ptr
-    type(c_ptr), value :: md, L, coords, momenta
+    type(c_ptr), value :: md, L, coords, momenta, forces
   end subroutine EmDee_upload
+
+  subroutine EmDee_download( md, L, coords, momenta, forces ) bind(C,name="EmDee_download")
+    import :: c_ptr
+    type(c_ptr), value :: md, L, coords, momenta, forces
+  end subroutine EmDee_download
 
   subroutine EmDee_random_momenta( md, kT, adjust ) bind(C,name="EmDee_random_momenta")
     import :: c_ptr, rb, ib
@@ -170,22 +177,31 @@ interface
     integer(ib), value :: adjust
   end subroutine EmDee_random_momenta
 
+  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
+    import :: c_ptr, rb
+    type(c_ptr), value :: md
+    real(rb),    value :: lambda, alpha, dt
+  end subroutine EmDee_boost
+
+  subroutine EmDee_move( md, lambda, alpha, dt ) bind(C,name="EmDee_move")
+    import :: c_ptr, rb
+    type(c_ptr), value :: md
+    real(rb),    value :: lambda, alpha, dt
+  end subroutine EmDee_move
+
   subroutine EmDee_compute( md ) bind(C,name="EmDee_compute")
     import :: c_ptr
     type(c_ptr), value :: md
   end subroutine EmDee_compute
 
-  subroutine EmDee_boost( md, dt ) bind(C,name="EmDee_boost")
-    import :: c_ptr, rb
+  function EmDee_subset_energy( md, N, atoms, check ) result( Energy ) &
+                                                      bind(C,name="EmDee_subset_energy")
+    import :: c_ptr, ib, rb
     type(c_ptr), value :: md
-    real(rb),    value :: dt
-  end subroutine EmDee_boost
-
-  subroutine EmDee_move( md, dt ) bind(C,name="EmDee_move")
-    import :: c_ptr, rb
-    type(c_ptr), value :: md
-    real(rb),    value :: dt
-  end subroutine EmDee_move
+    integer(ib), value :: N
+    type(c_ptr), value :: atoms
+    real(rb)           :: Energy
+  end function EmDee_subset_energy
 
   function EmDee_pair_none( ) result(model) bind(C,name="EmDee_pair_none")
     import :: EmDee_Model

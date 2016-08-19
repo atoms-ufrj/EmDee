@@ -17,7 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-module bonded_structs
+module structs
 
 use c_binding
 use models
@@ -70,4 +70,4 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-end module bonded_structs
+end module structs

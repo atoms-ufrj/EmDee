@@ -30,14 +30,8 @@ type, abstract :: i32rng
     procedure(i32rng_init), deferred, private :: init
     procedure(i32rng_i32),  deferred          :: i32
     procedure :: setup     => i32rng_setup
-    procedure :: uniform   => i32rng_uniform
     procedure :: normal    => i32rng_normal
-    procedure :: geometric => i32rng_geometric
 end type i32rng
-
-interface operator(.x.)
-  module procedure :: cross_product
-end interface operator(.x.)
 
 abstract interface
 
@@ -94,14 +88,6 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function i32rng_uniform( a ) result( uni )
-    class(i32rng), intent(inout) :: a
-    real(8)                   :: uni
-    uni = 0.2328306e-9_8*a%i32() + 0.5_8
-  end function i32rng_uniform
-
-!---------------------------------------------------------------------------------------------------
-
   function i32rng_normal( a ) result( rnor )
     class(i32rng), intent(inout) :: a
     real(8)                      :: rnor
@@ -140,15 +126,6 @@ contains
       end do
    end if
   end function i32rng_normal
-
-!---------------------------------------------------------------------------------------------------
-
-  function i32rng_geometric( a, n ) result( igeo )
-    class(i32rng), intent(inout) :: a
-    integer,       intent(in)    :: n
-    integer                      :: igeo
-    igeo = ceiling( log(0.2328306e-9_8*a%i32() - 0.5_8 + 1.0_8/n) )
-  end function i32rng_geometric
 
 !---------------------------------------------------------------------------------------------------
 
