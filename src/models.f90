@@ -41,6 +41,7 @@ type, bind(C) :: EmDee_Model
   real(rb)    :: p3 = 0.0_rb
   real(rb)    :: p4 = 0.0_rb
   integer(ib) :: external = 1
+  type(c_ptr) :: next = c_null_ptr
 end type EmDee_Model
 
 type model_ptr
