@@ -83,6 +83,7 @@ type, bind(C) :: tEmDee
   integer(ib) :: maxatoms       ! Maximum number of atoms in a cell
   integer(ib) :: maxpairs       ! Maximum number of pairs formed by all atoms of a cell
   type(c_ptr) :: cell           ! Array containing all neighbor cells of each cell
+  type(c_ptr) :: cellAtom       ! List of atoms belonging to each cell
   type(c_ptr) :: atomCell       ! Array containing the current cell of each atom
 
   integer(ib) :: natoms         ! Number of atoms in the system
@@ -108,7 +109,6 @@ type, bind(C) :: tEmDee
   integer(ib) :: nthreads       ! Number of parallel openmp threads
   integer(ib) :: threadAtoms    ! Number of atoms per parallel thread
   integer(ib) :: threadBodies   ! Number of rigid bodies per parallel thread
-  type(c_ptr) :: cellAtom       ! List of atoms belonging to each cell
   type(c_ptr) :: threadCell     ! List of cells to be dealt with in each parallel thread
   type(c_ptr) :: neighbor       ! Pointer to neighbor lists
   type(c_ptr) :: excluded       ! List of pairs excluded from the neighbor lists
@@ -117,7 +117,7 @@ type, bind(C) :: tEmDee
 end type tEmDee
 
 private :: rigid_body_forces, maximum_approach_sq, distribute_atoms, find_pairs_and_compute, &
-           compute_pairs, compute_bonds, compute_angles, compute_dihedrals
+           compute_pairs, compute_bonds, compute_angles, compute_dihedrals, compute_group_energy
 
 contains
 
@@ -132,13 +132,13 @@ contains
     type(c_ptr), value :: types, masses
     type(tEmDee)       :: me
 
-    integer(ib) :: i
+    integer :: i
 
-    integer(ib),     pointer :: type_ptr(:)
-    real(rb),        pointer :: mass_ptr(:)
-    type(model_ptr), pointer :: pairModel(:,:)
-    type(tList),     pointer :: cellAtom, threadCell, neighbor(:), excluded
-    type(kiss),      pointer :: random
+    integer(ib),    pointer :: type_ptr(:)
+    real(rb),       pointer :: mass_ptr(:)
+    type(modelPtr), pointer :: pairModel(:,:)
+    type(tList),    pointer :: cellAtom, threadCell, neighbor(:), excluded
+    type(kiss),     pointer :: random
 
     ! Set up fixed entities:
     me%nthreads = threads
@@ -167,8 +167,8 @@ contains
       me%invMass = malloc_real( N, array = one/mass_ptr(type_ptr) )
       me%totalMass = sum(mass_ptr(type_ptr))
     else
-      me%atomMass = malloc_real( N, value = 1.0_rb )
-      me%invMass = malloc_real( N, value = 1.0_rb )
+      me%atomMass = malloc_real( N, value = one )
+      me%invMass = malloc_real( N, value = one )
       me%totalMass = real(N,rb)
     end if
 
@@ -244,9 +244,9 @@ contains
 
     integer :: i, j
 
-    type(tEmDee),      pointer :: me
-    type(model_ptr),   pointer :: pairModel(:,:)
-    type(EmDee_Model), pointer :: model
+    type(tEmDee),   pointer :: me
+    type(modelPtr), pointer :: pairModel(:,:)
+    type(tModel),   pointer :: model
 
     call c_f_pointer( md, me )
     if (me%coulomb == 0) then
@@ -270,37 +270,37 @@ contains
     integer(ib), value :: itype, jtype
     type(c_ptr), value :: model
 
-    integer(ib) :: k
+    integer :: k
     logical :: keep
 
-    type(tEmDee),      pointer :: me
-    type(model_ptr),   pointer :: pairModel(:,:)
-    type(EmDee_Model), pointer :: modelPtr, crossModel
+    type(tEmDee),   pointer :: me
+    type(modelPtr), pointer :: pairModel(:,:)
+    type(tModel),   pointer :: mPtr, crossModel
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
-    call c_f_pointer( model, modelPtr )
+    call c_f_pointer( model, mPtr )
     if (itype == jtype) then
-      call associate_model( itype, itype, modelPtr )
+      call associate_model( itype, itype, mPtr )
       do k = 1, me%ntypes
         if (k /= itype) then
           keep = associated(pairModel(itype,k)%model)
           if (keep) keep = pairModel(itype,k)%model%external == 1
           if (.not.keep) then
-            crossModel => cross_pair( modelPtr, pairModel(k,k)%model )
+            crossModel => cross_pair( mPtr, pairModel(k,k)%model )
             call replace( itype, k, crossModel )
           end if
         end if
       end do
     else
-      call replace( itype, jtype, modelPtr )
+      call replace( itype, jtype, mPtr )
     end if
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine associate_model( i, j, model )
         integer(ib),                intent(in)    :: i, j
-        type(EmDee_Model), pointer, intent(inout) :: model
+        type(tModel), pointer, intent(inout) :: model
         if (associated(model)) then
           if (me%coulomb == 1) model%id = mCOULOMB + mod(model%id,mCOULOMB)
           pairModel(i,j)%model => model
@@ -311,8 +311,8 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine replace( i, j, model )
         integer(ib),                intent(in)    :: i, j
-        type(EmDee_Model), pointer, intent(inout) :: model
-        type(EmDee_Model), pointer :: ijmodel
+        type(tModel), pointer, intent(inout) :: model
+        type(tModel), pointer :: ijmodel
         ijmodel => pairModel(i,j)%model
         if (associated(ijmodel)) then
           if (ijmodel%external == 0) deallocate( ijmodel )
@@ -329,7 +329,8 @@ contains
     type(c_ptr), value :: md
     integer(ib), value :: i, j
 
-    integer(ib) :: n
+    integer :: n
+
     type(tEmDee), pointer :: me
     type(tList),  pointer :: excluded
 
@@ -422,19 +423,21 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_add_rigid_body( md, indexes, NP ) bind(C,name="EmDee_add_rigid_body")
+  subroutine EmDee_add_rigid_body( md, N, indexes ) bind(C,name="EmDee_add_rigid_body")
     type(c_ptr), value :: md, indexes
-    integer(ib), value :: NP
+    integer(ib), value :: N
 
     integer :: i, j
-    logical,     allocatable :: isFree(:)
-    real(rb),    allocatable :: Rn(:,:)
-    type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: atom(:), free(:)
-    real(rb),        pointer :: R(:,:), mass(:)
-    type(rigidBody), pointer :: body(:)
 
-    call c_f_pointer( indexes, atom, [NP] )
+    logical,  allocatable :: isFree(:)
+    real(rb), allocatable :: Rn(:,:)
+
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: atom(:), free(:)
+    real(rb),     pointer :: R(:,:), mass(:)
+    type(tBody),  pointer :: body(:)
+
+    call c_f_pointer( indexes, atom, [N] )
     call c_f_pointer( md, me )
     call c_f_pointer( me%freeAtom, free, [me%nfree] )
     call c_f_pointer( me%atomMass, mass, [me%natoms] )
@@ -443,7 +446,7 @@ contains
     isFree = .false.
     isFree(free) = .true.
     isFree(atom) = .false.
-    me%nfree = me%nfree - NP
+    me%nfree = me%nfree - N
     if (count(isFree) /= me%nfree) stop "Error adding rigid body: only free atoms are allowed."
     free(1:me%nfree) = pack([(i,i=1,me%natoms)],isFree)
     me%threadAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
@@ -464,8 +467,8 @@ contains
       end if
     end associate
 
-    do i = 1, NP-1
-      do j = i+1, NP
+    do i = 1, N-1
+      do j = i+1, N
         call EmDee_ignore_pair( md, atom(i), atom(j) )
       end do
     end do
@@ -474,23 +477,24 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_upload( md, L, coords, momenta, forces ) bind(C,name="EmDee_upload")
-    type(c_ptr), value :: md, L, coords, momenta, forces
+  subroutine EmDee_upload( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_upload")
+    type(c_ptr), value :: md, Lbox, coords, momenta, forces
 
     real(rb) :: Virial
-    type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: free(:)
-    real(rb),        pointer :: Lbox, Rext(:,:), Rsys(:,:), Pext(:,:), Psys(:,:)
-    type(rigidBody), pointer :: body(:)
+
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: free(:)
+    real(rb),     pointer :: L, Rext(:,:), Rsys(:,:), Pext(:,:), Psys(:,:)
+    type(tBody),  pointer :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%freeAtom, free, [me%nfree] )
     call c_f_pointer( me%body, body, [me%nbodies] )
 
-    if (c_associated(L)) then
-      call c_f_pointer( L, Lbox )
-      me%Lbox = Lbox
-      me%invL = one/Lbox
+    if (c_associated(Lbox)) then
+      call c_f_pointer( Lbox, L )
+      me%Lbox = L
+      me%invL = one/L
       me%invL2 = me%invL**2
     end if
 
@@ -570,19 +574,19 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_download( md, L, coords, momenta, forces ) bind(C,name="EmDee_download")
-    type(c_ptr), value :: md, L, coords, momenta, forces
+  subroutine EmDee_download( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_download")
+    type(c_ptr), value :: md, Lbox, coords, momenta, forces
 
-    type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: free(:)
-    real(rb),        pointer :: Lbox, Pext(:,:), Psys(:,:)
-    type(rigidBody), pointer :: body(:)
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: free(:)
+    real(rb),     pointer :: L, Pext(:,:), Psys(:,:)
+    type(tBody),  pointer :: body(:)
 
     call c_f_pointer( md, me )
 
-    if (c_associated(L)) then
-      call c_f_pointer( L, Lbox )
-      Lbox = me%Lbox
+    if (c_associated(Lbox)) then
+      call c_f_pointer( Lbox, L )
+      L = me%Lbox
     end if
     if (c_associated(coords)) call copy_real( me%coords, coords, 1, 3*me%natoms )
     if (c_associated(forces)) call copy_real( me%forces, forces, 1, 3*me%natoms )
@@ -601,10 +605,10 @@ contains
       subroutine get_momenta( thread )
         integer(ib), intent(in) :: thread
         integer(ib) :: i
-        forall (i = (thread-1)*me%threadAtoms+1 : min(thread*me%threadAtoms, me%nfree))
+        forall (i = (thread - 1)*me%threadAtoms + 1 : min(thread*me%threadAtoms, me%nfree))
           Pext(:,free(i)) = Psys(:,free(i))
         end forall
-        forall(i = (thread-1)*me%threadBodies+1 : min(thread*me%threadBodies,me%nbodies))
+        forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
           Pext(:,body(i)%index) = body(i) % particle_momenta()
         end forall
       end subroutine get_momenta
@@ -618,14 +622,14 @@ contains
     real(rb),    value :: kT
     integer(ib), value :: adjust
 
-    integer(ib) :: i, j
+    integer  :: i, j
     real(rb) :: twoKEt, TwoKEr, omega(3)
 
-    type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: free(:)
-    real(rb),        pointer :: mass(:), P(:,:)
-    type(kiss),      pointer :: rng
-    type(rigidBody), pointer :: body(:)
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: free(:)
+    real(rb),     pointer :: mass(:), P(:,:)
+    type(kiss),   pointer :: rng
+    type(tBody),  pointer :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%atomMass, mass, [me%natoms] )
@@ -660,7 +664,7 @@ contains
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine adjust_momenta
-        integer(ib) :: i
+        integer  :: i
         real(rb) :: vcm(3), factor
         forall (i=1:3) vcm(i) = (sum(P(i,free)) + sum(body%pcm(i)))/me%totalMass
         forall (i=1:me%nfree) P(:,free(i)) = P(:,free(i)) - mass(free(i))*vcm
@@ -689,10 +693,10 @@ contains
 
     real(rb) :: CP, CF, Ctau, twoKEt, eightKEr
 
-    type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: free(:)
-    real(rb),        pointer :: P(:,:), F(:,:), invMass(:)
-    type(rigidBody), pointer :: body(:)
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: free(:)
+    real(rb),     pointer :: P(:,:), F(:,:), invMass(:)
+    type(tBody),  pointer :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%momenta, P, [3,me%natoms] )
@@ -747,10 +751,10 @@ contains
 
     real(rb) :: CR, CP
 
-    type(tEmDee),    pointer :: me
-    integer(ib),     pointer :: free(:)
-    real(rb),        pointer :: R(:,:), P(:,:), invMass(:)
-    type(rigidBody), pointer :: body(:)
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: free(:)
+    real(rb),     pointer :: R(:,:), P(:,:), invMass(:)
+    type(tBody),  pointer :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%coords, R, [3,me%natoms] )
@@ -800,14 +804,14 @@ contains
   subroutine EmDee_compute( md ) bind(C,name="EmDee_compute")
     type(c_ptr), value :: md
 
-    integer(ib) :: M
-    real(rb)    :: Potential, Virial, time
-    logical     :: buildList
-
-    type(tEmDee),    pointer :: me
-    real(rb),        pointer :: R(:,:), F(:,:), R0(:,:)
+    integer  :: M
+    real(rb) :: Potential, Virial, time
+    logical  :: buildList
 
     real(rb), allocatable :: Rs(:,:), Fs(:,:)
+
+    type(tEmDee), pointer :: me
+    real(rb),     pointer :: R(:,:), F(:,:), R0(:,:)
 
     call c_f_pointer( md, me )
     me%pairTime = me%pairTime - omp_get_wtime()
@@ -858,6 +862,29 @@ contains
   end subroutine EmDee_compute
 
 !===================================================================================================
+
+  subroutine EmDee_group_energy( md, na, atoms, ne, energies ) bind(C,name="EmDee_group_energy")
+    type(c_ptr), value :: md
+    integer(ib), value :: na, ne
+    type(c_ptr), value :: atoms, energies
+
+    real(rb), target :: energy(ne)
+
+    type(tEmDee), pointer :: me
+    integer(ib),  pointer :: atom(:)
+
+    call c_f_pointer( md, me )
+    call c_f_pointer( atoms, atom, [na] )
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:energy)
+    call compute_group_energy( me, omp_get_thread_num() + 1, na, atom, ne, energy )
+    !$omp end parallel
+
+    call copy_real( c_loc(energy), energies, 1, ne )
+
+  end subroutine EmDee_group_energy
+
+!===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
 !===================================================================================================
 
@@ -866,8 +893,9 @@ contains
     real(rb),     intent(inout) :: Virial
 
     real(rb) :: Wrb
-    real(rb),        pointer :: F(:,:)
-    type(rigidBody), pointer :: body(:)
+
+    real(rb),    pointer :: F(:,:)
+    type(tBody), pointer :: body(:)
 
     call c_f_pointer( me%body, body, [me%nbodies] )
     call c_f_pointer( me%forces, F, [3,me%natoms] )
@@ -891,8 +919,8 @@ contains
     integer(ib), intent(in) :: N
     real(rb),    intent(in) :: delta(3,N)
  
-    integer(ib) :: i
-    real(rb)    :: maximum, next, deltaSq
+    integer  :: i
+    real(rb) :: maximum, next, deltaSq
 
     maximum = sum(delta(:,1)**2)
     next = maximum
@@ -915,8 +943,9 @@ contains
     real(rb),     intent(in)    :: Rs(3,me%natoms)
 
     integer(ib) :: MM, cells_per_thread, maxNatoms
-    logical     :: make_cells
     integer(ib) :: threadNatoms(me%nthreads), next(me%natoms)
+    logical     :: make_cells
+
     integer(ib), allocatable :: natoms(:)
 
     integer(ib), pointer :: atomCell(:)
@@ -1033,11 +1062,11 @@ contains
     real(rb),     intent(in)    :: R(3,me%natoms)
     real(rb),     intent(inout) :: F(3,me%natoms), Potential, Virial
 
-    integer(ib) :: i, j, m, nbonds
-    real(rb)    :: d, E, mdEdr
-    real(rb)    :: Rij(3), Fij(3)
+    integer  :: i, j, m, nbonds
+    real(rb) :: d, E, mdEdr
+    real(rb) :: Rij(3), Fij(3)
 
-    type(EmDee_Model), pointer :: model
+    type(tModel),      pointer :: model
     type(tStructData), pointer :: bonds
 
     call c_f_pointer( me%bonds, bonds )
@@ -1076,7 +1105,7 @@ contains
     real(rb)    :: aa, bb, ab, axb, theta, Ea, Fa
     real(rb)    :: Rj(3), Fi(3), Fk(3), a(3), b(3)
 
-    type(EmDee_Model), pointer :: model
+    type(tModel),      pointer :: model
     type(tStructData), pointer :: angles
 
     call c_f_pointer( me%angles, angles )
@@ -1132,8 +1161,8 @@ contains
     real(rb),          pointer :: charge(:)
     type(tStruct),     pointer :: d
     type(tStructData), pointer :: dihedrals
-    type(EmDee_Model), pointer :: model
-    type(model_ptr),   pointer :: pairModel(:,:)
+    type(tModel),      pointer :: model
+    type(modelPtr),    pointer :: pairModel(:,:)
 
     call c_f_pointer( me%dihedrals, dihedrals )
     call c_f_pointer( me%charge, charge, [me%natoms] )
@@ -1227,12 +1256,12 @@ contains
 
     integer(ib), allocatable :: xlist(:)
 
-    type(tCell),       pointer :: cell(:)
-    integer(ib),       pointer :: atomType(:)
-    real(rb),          pointer :: charge(:)
-    type(EmDee_Model), pointer :: model
-    type(model_ptr),   pointer :: pairModel(:,:)
-    type(tList),       pointer :: cellAtom, threadCell, neighborLists(:), neighbor, excluded
+    type(tCell),    pointer :: cell(:)
+    integer(ib),    pointer :: atomType(:)
+    real(rb),       pointer :: charge(:)
+    type(tModel),   pointer :: model
+    type(modelPtr), pointer :: pairModel(:,:)
+    type(tList),    pointer :: cellAtom, threadCell, neighborLists(:), neighbor, excluded
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
@@ -1331,11 +1360,11 @@ contains
     real(rb) :: Rc2, r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
 
-    integer(ib),       pointer :: atomType(:)
-    real(rb),          pointer :: charge(:)
-    type(EmDee_Model), pointer :: model
-    type(model_ptr),   pointer :: pairModel(:,:)
-    type(tList),       pointer :: cellAtom, threadCell, neighborLists(:), neighbor
+    integer(ib),    pointer :: atomType(:)
+    real(rb),       pointer :: charge(:)
+    type(tModel),   pointer :: model
+    type(modelPtr), pointer :: pairModel(:,:)
+    type(tList),    pointer :: cellAtom, threadCell, neighborLists(:), neighbor
 
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
@@ -1381,27 +1410,26 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_subset_energy( me, thread, atoms, Potential )
+  subroutine compute_group_energy( me, thread, na, atom, ne, energy )
     type(tEmDee), intent(in)  :: me
-    integer,      intent(in)  :: thread, atoms(:)
-    real(rb),     intent(out) :: Potential
+    integer,      intent(in)  :: thread, na, atom(na), ne
+    real(rb),     intent(out) :: energy(ne)
 
-    integer  :: i, j, k, m, itype, firstCell, lastCell
+    integer  :: i, j, k, m, layer, itype, firstCell, lastCell
     real(rb) :: r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3)
 
-    integer(ib),       pointer :: atomType(:), atomCell(:)
-    real(rb),          pointer :: R(:,:), charge(:)
-    type(EmDee_Model), pointer :: model
-    type(model_ptr),   pointer :: pairModel(:,:)
-    type(tList),       pointer :: cellAtom, threadCell, neighborLists(:), neighbor
+    integer(ib),    pointer :: atomType(:), atomCell(:)
+    real(rb),       pointer :: R(:,:), charge(:)
+    type(tModel),   pointer :: model
+    type(modelPtr), pointer :: pairModel(:,:)
+    type(tList),    pointer :: threadCell, neighborLists(:), neighbor
 
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%coords, R, [3,me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%atomCell, atomCell, [me%natoms] )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
-    call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
     neighbor => neighborLists(thread)
@@ -1409,9 +1437,9 @@ contains
     firstCell = threadCell%first(thread)
     lastCell  = threadCell%last(thread)
 
-    Potential = zero
-    do m = 1, size(atoms)
-      i = atoms(m)
+    energy = zero
+    do m = 1, size(atom)
+      i = atom(m)
       if ((atomCell(i) >= firstCell).and.(atomCell(i) <= lastCell)) then
         itype = atomType(i)
         Ri = R(:,i)
@@ -1423,9 +1451,14 @@ contains
           r2 = sum(Rij*Rij)
           if (r2 < me%RcSq) then
             invR2 = one/r2
+            layer = 0
             model => pairModel(itype,atomType(j))%model
-            call compute_pair()
-            Potential = Potential + Eij
+            do while (associated(model))
+              layer = layer + 1
+              call compute_pair()
+              energy(layer) = energy(layer) + Eij
+              call c_f_pointer( model%next, model )
+            end do
           end if
         end do
       end if
@@ -1435,30 +1468,7 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_pair.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine compute_subset_energy
-
-!===================================================================================================
-
-!===================================================================================================
-
-  function EmDee_subset_energy( md, N, atoms, check ) result( Energy ) &
-                                                      bind(C,name="EmDee_subset_energy")
-    type(c_ptr), value :: md
-    integer(ib), value :: N, check
-    type(c_ptr), value :: atoms
-    real(rb)           :: Energy
-
-    type(tEmDee), pointer :: me
-    integer(ib),  pointer :: index(:)
-
-    call c_f_pointer( atoms, index, [N] )
-    call c_f_pointer( md, me )
-
-    !$omp parallel num_threads(me%nthreads) reduction(+:Energy)
-    call compute_subset_energy( me, omp_get_thread_num() + 1, index, Energy )
-    !$omp end parallel
-
-  end function EmDee_subset_energy
+  end subroutine compute_group_energy
 
 !===================================================================================================
 

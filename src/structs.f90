@@ -28,7 +28,7 @@ integer(ib), parameter, private :: extra = 500
 
 type tStruct
   integer(ib) :: i, j, k, l
-  type(EmDee_Model), pointer :: model => null()
+  type(tModel), pointer :: model => null()
 end type tStruct
 
 type tStructData

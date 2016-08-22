@@ -26,7 +26,7 @@ implicit none
 
 integer, parameter, private :: extra = 100
 
-type rigidBody
+type tBody
   integer  :: NP        ! Number of particles
   integer  :: dof = 6   ! Number of degrees of freedom
   real(rb) :: mass      ! Total body mass
@@ -49,13 +49,13 @@ type rigidBody
 
   contains
 
-    procedure :: setup => rigidBody_setup
-    procedure :: update => rigidBody_update
-    procedure :: particle_momenta => rigidBody_particle_momenta
-    procedure :: rotate => rigidBody_rotate
-    procedure :: force_torque_virial => rigidBody_force_torque_virial
+    procedure :: setup => tBody_setup
+    procedure :: update => tBody_update
+    procedure :: particle_momenta => tBody_particle_momenta
+    procedure :: rotate => tBody_rotate
+    procedure :: force_torque_virial => tBody_force_torque_virial
 
-end type rigidBody
+end type tBody
 
 contains
 
@@ -65,7 +65,7 @@ contains
     type(c_ptr), intent(inout) :: list
     integer(ib), intent(inout) :: Nmax
 
-    type(rigidBody), pointer :: old(:), new(:)
+    type(tBody), pointer :: old(:), new(:)
 
     allocate( new(Nmax+extra) )
     if (c_associated(list)) then
@@ -80,8 +80,8 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine rigidBody_setup( b, indexes, masses )
-    class(rigidBody), intent(inout) :: b
+  subroutine tBody_setup( b, indexes, masses )
+    class(tBody), intent(inout) :: b
     integer(ib),      intent(in)    :: indexes(:)
     real(rb),         intent(in)    :: masses(size(indexes))
 
@@ -98,12 +98,12 @@ contains
     b%pcm = zero
     b%pi  = zero
 
-  end subroutine rigidBody_setup
+  end subroutine tBody_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  pure subroutine rigidBody_update( b, coords )
-    class(rigidBody), intent(inout) :: b
+  pure subroutine tBody_update( b, coords )
+    class(tBody), intent(inout) :: b
     real(rb),         intent(in)    :: coords(3,b%NP)
 
     integer  :: x
@@ -132,7 +132,7 @@ contains
     ! Calculate position in the body-fixed frame:
     b%d = matmul( A, b%delta )
 
-  end subroutine rigidBody_update
+  end subroutine tBody_update
 
 !---------------------------------------------------------------------------------------------------
 
@@ -178,8 +178,8 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  elemental subroutine rigidBody_rotate( b, dt )
-    class(rigidBody), intent(inout) :: b
+  elemental subroutine tBody_rotate( b, dt )
+    class(tBody), intent(inout) :: b
     real(rb),         intent(in)    :: dt
     real(rb) :: half_dt
     half_dt = half*dt
@@ -192,7 +192,7 @@ contains
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental subroutine uniaxial_rotation( b, k, dt )
-        class(rigidBody), intent(inout) :: b
+        class(tBody), intent(inout) :: b
         integer,          intent(in)    :: k
         real(rb),         intent(in)    :: dt
         real(rb) :: BkQ(4), BkPi(4), omega_dt_by_2, vsin, vcos
@@ -214,12 +214,12 @@ contains
         b%pi = vcos*b%pi + vsin*BkPi
       end subroutine uniaxial_rotation
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine rigidBody_rotate
+  end subroutine tBody_rotate
 
 !---------------------------------------------------------------------------------------------------
 
-  pure function rigidBody_particle_momenta( b ) result( P )
-    class(rigidBody), intent(in) :: b
+  pure function tBody_particle_momenta( b ) result( P )
+    class(tBody), intent(in) :: b
     real(rb)                     :: P(3,b%NP)
     integer  :: k
     real(rb) :: omega(3), At(3,3)
@@ -228,12 +228,12 @@ contains
     forall( k = 1: b%NP)
       P(:,k) = b%M(k)*(b%invMass*b%pcm + cross_product(omega, b%delta(:,k)))
     end forall
-  end function rigidBody_particle_momenta
+  end function tBody_particle_momenta
 
 !---------------------------------------------------------------------------------------------------
 
-  function rigidBody_force_torque_virial( b, F ) result( virial )
-    class(rigidBody), intent(inout) :: b
+  function tBody_force_torque_virial( b, F ) result( virial )
+    class(tBody), intent(inout) :: b
     real(rb),         intent(in)    :: F(:,:)
     real(rb)                        :: virial
     integer :: j
@@ -247,7 +247,7 @@ contains
       b%tau = b%tau + cross_product( b%delta(:,j), Fj )
       virial = virial + sum(b%delta(:,j)*Fj)
     end do
-  end function rigidBody_force_torque_virial
+  end function tBody_force_torque_virial
 
 !---------------------------------------------------------------------------------------------------
 
