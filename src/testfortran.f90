@@ -57,8 +57,6 @@ call create_configuration
 
 md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr, 7834 )
 
-call EmDee_upload( c_loc(md), c_loc(L), c_loc(R), c_loc(V), c_null_ptr )
-
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
 call EmDee_set_pair_type( c_loc(md), 1, 1, c_loc(lj) )
 
@@ -92,15 +90,16 @@ call EmDee_add_bond( c_loc(md), 4, 5, c_loc(bond) )
 !print*, "execution time = ", secnds(0.0) - tf, " s."
 !stop
 
-call EmDee_compute( c_loc(md) )
+!call EmDee_compute( c_loc(md) )
+call EmDee_upload( c_loc(md), c_loc(L), c_loc(R), c_loc(V), c_null_ptr )
 print*, 0, md%Potential, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)
 do step = 1, Nsteps
-  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2 )
+  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
   call EmDee_move( c_loc(md), 1.0_rb, 0.0_rb, Dt )
-  call EmDee_compute( c_loc(md) )
-  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2 )
+!  call EmDee_compute( c_loc(md) )
+  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
   if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
 end do
 print*, "execution time = ", secnds(0.0) - tf, " s."

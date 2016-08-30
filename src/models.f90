@@ -92,7 +92,7 @@ contains
     type(tModel), pointer, intent(in) :: imodel, jmodel
     type(tModel), pointer             :: ij
 
-    real(rb), pointer :: idata(:), jdata(:)
+    real(rb), pointer, contiguous :: idata(:), jdata(:)
 
     if (associated(imodel).and.associated(jmodel)) then
       allocate( ij )
@@ -178,10 +178,10 @@ contains
   function set_data( values ) result( data )
     real(rb),     intent(in) :: values(:)
     type(c_ptr)              :: data
-    real(rb), pointer :: ptr(:)
+    real(rb), pointer, contiguous :: ptr(:)
     allocate( ptr(size(values)) )
     ptr = values
-    data = c_loc(ptr)
+    data = c_loc(ptr(1))
   end function set_data
 
 !===================================================================================================

@@ -30,7 +30,9 @@ contains
   type(c_ptr) function malloc_int( n, value, array )
     integer(c_int), intent(in)           :: n
     integer(c_int), intent(in), optional :: value, array(:)
-    integer(c_int), pointer :: ptr(:)
+
+    integer(c_int), pointer, contiguous :: ptr(:)
+
     allocate( ptr(n) )
     malloc_int = c_loc(ptr(1))
     if (present(array)) then
@@ -39,14 +41,17 @@ contains
       ptr = value
     end if
     nullify( ptr )
+
   end function malloc_int
 
 !---------------------------------------------------------------------------------------------------
 
   type(c_ptr) function malloc_real( n, value, array )
     integer(c_int), intent(in)           :: n
-    real(c_double),    intent(in), optional :: value, array(:)
-    real(c_double), pointer :: ptr(:)
+    real(c_double), intent(in), optional :: value, array(:)
+
+    real(c_double), pointer, contiguous :: ptr(:)
+
     allocate( ptr(n) )
     malloc_real = c_loc(ptr(1))
     if (present(array)) then
@@ -55,6 +60,7 @@ contains
       ptr = value
     end if
     nullify( ptr )
+
   end function malloc_real
 
 !---------------------------------------------------------------------------------------------------
@@ -65,7 +71,8 @@ contains
     integer(c_int), intent(in)    :: new_size
 
     integer(c_int) :: n
-    integer(c_int), pointer :: old(:), new(:)
+
+    integer(c_int), pointer, contiguous :: old(:), new(:)
 
     call c_f_pointer( ptr, old, [size] )
     allocate( new(new_size) )
@@ -82,10 +89,13 @@ contains
   subroutine copy_real( from, to, first, last )
     type(c_ptr), intent(in) :: from, to
     integer,     intent(in) :: first, last
-    real(c_double), pointer :: F(:), T(:)
+
+    real(c_double), pointer, contiguous :: F(:), T(:)
+
     call c_f_pointer( from, F, [last] )
     call c_f_pointer( to, T, [last] )
     T(first:last) = F(first:last)
+
   end subroutine copy_real
 
 !---------------------------------------------------------------------------------------------------

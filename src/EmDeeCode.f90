@@ -134,11 +134,13 @@ contains
 
     integer :: i
 
-    integer(ib),    pointer :: type_ptr(:)
-    real(rb),       pointer :: mass_ptr(:)
-    type(modelPtr), pointer :: pairModel(:,:)
-    type(tList),    pointer :: cellAtom, threadCell, neighbor(:), excluded
-    type(kiss),     pointer :: random
+    type(tList), pointer :: cellAtom, threadCell, excluded
+    type(kiss),  pointer :: random
+
+    integer(ib),    pointer, contiguous :: type_ptr(:)
+    real(rb),       pointer, contiguous :: mass_ptr(:)
+    type(modelPtr), pointer, contiguous :: pairModel(:,:)
+    type(tList),    pointer, contiguous :: neighbor(:)
 
     ! Set up fixed entities:
     me%nthreads = threads
@@ -192,7 +194,7 @@ contains
     me%forces = malloc_real( 3*N, value = zero )
     me%charge = malloc_real( N, value = zero )
     me%R0 = malloc_real( 3*N, value = zero )
-    me%cell = malloc_int( 0 )
+    me%cell = malloc_int( 1 )
     me%atomCell = malloc_int( N )
     me%bonds = c_null_ptr
     me%angles = c_null_ptr
@@ -218,7 +220,7 @@ contains
 
     ! Allocate memory for neighbor lists:
     allocate( neighbor(threads) )
-    me%neighbor = c_loc(neighbor)
+    me%neighbor = c_loc(neighbor(1))
     call neighbor % allocate( extra, N )
 
     ! Allocate memory for the list of pairs excluded from the neighbor lists:
@@ -244,9 +246,10 @@ contains
 
     integer :: i, j
 
-    type(tEmDee),   pointer :: me
-    type(modelPtr), pointer :: pairModel(:,:)
-    type(tModel),   pointer :: model
+    type(tEmDee), pointer :: me
+    type(tModel), pointer :: model
+
+    type(modelPtr), pointer, contiguous :: pairModel(:,:)
 
     call c_f_pointer( md, me )
     if (me%coulomb == 0) then
@@ -273,9 +276,10 @@ contains
     integer :: k
     logical :: keep
 
-    type(tEmDee),   pointer :: me
-    type(modelPtr), pointer :: pairModel(:,:)
-    type(tModel),   pointer :: mPtr, crossModel
+    type(tEmDee), pointer :: me
+    type(tModel), pointer :: mPtr, crossModel
+
+    type(modelPtr), pointer, contiguous :: pairModel(:,:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%pairModel, pairModel, [me%ntypes,me%ntypes] )
@@ -299,7 +303,7 @@ contains
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine associate_model( i, j, model )
-        integer(ib),                intent(in)    :: i, j
+        integer(ib),           intent(in)    :: i, j
         type(tModel), pointer, intent(inout) :: model
         if (associated(model)) then
           if (me%coulomb == 1) model%id = mCOULOMB + mod(model%id,mCOULOMB)
@@ -310,7 +314,7 @@ contains
       end subroutine associate_model
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine replace( i, j, model )
-        integer(ib),                intent(in)    :: i, j
+        integer(ib),           intent(in)    :: i, j
         type(tModel), pointer, intent(inout) :: model
         type(tModel), pointer :: ijmodel
         ijmodel => pairModel(i,j)%model
@@ -433,9 +437,10 @@ contains
     real(rb), allocatable :: Rn(:,:)
 
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: atom(:), free(:)
-    real(rb),     pointer :: R(:,:), mass(:)
-    type(tBody),  pointer :: body(:)
+
+    integer(ib), pointer, contiguous :: atom(:), free(:)
+    real(rb),    pointer, contiguous :: R(:,:), mass(:)
+    type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( indexes, atom, [N] )
     call c_f_pointer( md, me )
@@ -483,9 +488,11 @@ contains
     real(rb) :: Virial
 
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: free(:)
-    real(rb),     pointer :: L, Rext(:,:), Rsys(:,:), Pext(:,:), Psys(:,:)
-    type(tBody),  pointer :: body(:)
+    real(rb),     pointer :: L
+
+    integer(ib), pointer, contiguous :: free(:)
+    real(rb),    pointer, contiguous :: Rext(:,:), Rsys(:,:), Pext(:,:), Psys(:,:), F(:,:)
+    type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%freeAtom, free, [me%nfree] )
@@ -504,12 +511,16 @@ contains
         call c_f_pointer( me%coords, Rsys, [3,me%natoms] )
       else
         allocate( Rsys(3,me%natoms) )
-        me%coords = c_loc(Rsys)
+        me%coords = c_loc(Rsys(1,1))
       end if
       call c_f_pointer( coords, Rext, [3,me%natoms] )
       !$omp parallel num_threads(me%nthreads)
       call assign_coordinates( omp_get_thread_num() + 1 )
       !$omp end parallel
+      if (.not.c_associated(forces)) then
+        call c_f_pointer( me%forces, F, [3,me%natoms] )
+        call compute_forces( me, Rsys, F )
+      end if
     end if
 
     if (c_associated(momenta)) then
@@ -578,9 +589,11 @@ contains
     type(c_ptr), value :: md, Lbox, coords, momenta, forces
 
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: free(:)
-    real(rb),     pointer :: L, Pext(:,:), Psys(:,:)
-    type(tBody),  pointer :: body(:)
+    real(rb),     pointer :: L
+
+    integer(ib), pointer, contiguous :: free(:)
+    real(rb),    pointer, contiguous :: Pext(:,:), Psys(:,:)
+    type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( md, me )
 
@@ -626,10 +639,11 @@ contains
     real(rb) :: twoKEt, TwoKEr, omega(3)
 
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: free(:)
-    real(rb),     pointer :: mass(:), P(:,:)
     type(kiss),   pointer :: rng
-    type(tBody),  pointer :: body(:)
+
+    integer(ib), pointer, contiguous :: free(:)
+    real(rb),    pointer, contiguous :: mass(:), P(:,:)
+    type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%atomMass, mass, [me%natoms] )
@@ -687,16 +701,19 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
+  subroutine EmDee_boost( md, lambda, alpha, dt, t_flag, r_flag ) bind(C,name="EmDee_boost")
     type(c_ptr), value :: md
     real(rb),    value :: lambda, alpha, dt
+    integer(ib), value :: t_flag, r_flag
 
-    real(rb) :: CP, CF, Ctau, twoKEt, eightKEr
+    real(rb) :: CP, CF, Ctau, twoKEt, eightKEr, KEt
+    logical  :: tboost, rboost
 
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: free(:)
-    real(rb),     pointer :: P(:,:), F(:,:), invMass(:)
-    type(tBody),  pointer :: body(:)
+
+    integer(ib), pointer, contiguous :: free(:)
+    real(rb),    pointer, contiguous :: P(:,:), F(:,:), invMass(:)
+    type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%momenta, P, [3,me%natoms] )
@@ -710,35 +727,50 @@ contains
     CF = lambda*CF
     Ctau = two*CF
 
+    tboost = t_flag /= 0
+    rboost = r_flag /= 0
     twoKEt = zero
     eightKEr = zero
     !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,eightKEr)
     call boost( omp_get_thread_num() + 1, twoKEt, eightKEr )
     !$omp end parallel
-    me%Rotational = 0.125_rb*eightKEr
-    me%Kinetic = half*twoKEt + me%Rotational
+    if (tboost) then
+      KEt = half*twoKEt
+    else
+      KEt = me%Kinetic - me%Rotational
+    end if
+    if (rboost) me%Rotational = 0.125_rb*eightKEr
+    me%Kinetic = KEt + me%Rotational
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine boost( thread, twoKEt, eightKEr )
         integer,  intent(in)    :: thread
         real(rb), intent(inout) :: twoKEt, eightKEr
-        integer :: i, j
+        integer  :: i, j
         real(rb) :: twoOmega(3)
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => body(i))
-            b%pcm = CP*b%pcm + CF*b%F
-            b%pi = CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau )
-            twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-            twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
-            eightKEr = eightKEr + sum(b%MoI*twoOmega*twoOmega)
-          end associate
-        end do
-        do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
-          j = free(i)
-          P(:,j) = CP*P(:,j) + CF*F(:,j)
-          twoKEt = twoKEt + invMass(j)*sum(P(:,j)**2)
-        end do
+        if (tboost) then
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+            associate(b => body(i))
+              b%pcm = CP*b%pcm + CF*b%F
+              twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
+            end associate
+          end do
+          do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+            j = free(i)
+            P(:,j) = CP*P(:,j) + CF*F(:,j)
+            twoKEt = twoKEt + invMass(j)*sum(P(:,j)**2)
+          end do
+        end if
+        if (rboost) then
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+            associate(b => body(i))
+              b%pi = CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau )
+              twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
+              eightKEr = eightKEr + sum(b%MoI*twoOmega*twoOmega)
+            end associate
+          end do
+        end if
       end subroutine boost
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_boost
@@ -749,51 +781,56 @@ contains
     type(c_ptr), value :: md
     real(rb),    value :: lambda, alpha, dt
 
-    real(rb) :: CR, CP
+    real(rb) :: cR, cP
 
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: free(:)
-    real(rb),     pointer :: R(:,:), P(:,:), invMass(:)
-    type(tBody),  pointer :: body(:)
+
+    integer(ib), pointer, contiguous :: free(:)
+    real(rb),    pointer, contiguous :: R(:,:), P(:,:), F(:,:), invMass(:)
+    type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( me%coords, R, [3,me%natoms] )
     call c_f_pointer( me%momenta, P, [3,me%natoms] )
+    call c_f_pointer( me%forces, F, [3,me%natoms] )
     call c_f_pointer( me%invMass, invMass, [me%natoms] )
     call c_f_pointer( me%body, body, [me%nbodies] )
     call c_f_pointer( me%freeAtom, free, [me%nfree] )
 
     if (alpha /= zero) then
-      CP = phi(alpha*dt)*dt
-      CR = one - alpha*CP
-      me%Lbox = CR*me%Lbox
+      cP = phi(alpha*dt)*dt
+      cR = one - alpha*cP
+      me%Lbox = cR*me%Lbox
       me%InvL = one/me%Lbox
       me%invL2 = me%invL*me%invL
     else
-      CP = dt
-      CR = one
+      cP = dt
+      cR = one
     end if
-    CP = lambda*CP
+    cP = lambda*cP
 
     !$omp parallel num_threads(me%nthreads)
-    call move( omp_get_thread_num() + 1 )
+    call move( omp_get_thread_num() + 1, cP, cR )
     !$omp end parallel
+
+    call compute_forces( me, R, F )
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine move( thread )
-        integer, intent(in) :: thread
+      subroutine move( thread, cP, cR )
+        integer,  intent(in) :: thread
+        real(rb), intent(in) :: cP, cR
         integer :: i, j
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => body(i))
-            b%rcm = CR*b%rcm + CP*b%invMass*b%pcm
+            b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
             call b % rotate( dt )
             forall (j=1:3) R(j,b%index) = b%rcm(j) + b%delta(j,:)
           end associate
         end do
         do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           j = free(i)
-          R(:,j) = CR*R(:,j) + CP*P(:,j)*invMass(j)
+          R(:,j) = cR*R(:,j) + cP*P(:,j)*invMass(j)
         end do
       end subroutine move
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -811,7 +848,8 @@ contains
     real(rb), allocatable :: Rs(:,:), Fs(:,:)
 
     type(tEmDee), pointer :: me
-    real(rb),     pointer :: R(:,:), F(:,:), R0(:,:)
+
+    real(rb), pointer, contiguous :: R(:,:), F(:,:), R0(:,:)
 
     call c_f_pointer( md, me )
     me%pairTime = me%pairTime - omp_get_wtime()
@@ -871,7 +909,8 @@ contains
     real(rb), target :: energy(ne)
 
     type(tEmDee), pointer :: me
-    integer(ib),  pointer :: atom(:)
+
+    integer(ib), pointer, contiguous :: atom(:)
 
     call c_f_pointer( md, me )
     call c_f_pointer( atoms, atom, [na] )
@@ -880,12 +919,72 @@ contains
     call compute_group_energy( me, omp_get_thread_num() + 1, na, atom, ne, energy )
     !$omp end parallel
 
-    call copy_real( c_loc(energy), energies, 1, ne )
+    call copy_real( c_loc(energy(1)), energies, 1, ne )
 
   end subroutine EmDee_group_energy
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
+!===================================================================================================
+
+  subroutine compute_forces( me, R, F )
+    type(tEmDee), intent(inout) :: me
+    real(rb),     intent(in)    :: R(3,me%natoms)
+    real(rb),     intent(out)   :: F(3,me%natoms)
+
+    integer  :: M
+    logical  :: buildList
+    real(rb) :: Potential, Virial, time
+
+    real(rb), allocatable :: Rs(:,:), Fs(:,:)
+
+    real(rb), pointer, contiguous :: R0(:,:)
+
+    me%pairTime = me%pairTime - omp_get_wtime()
+
+    call c_f_pointer( me%R0, R0, [3,me%natoms] )
+
+    allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
+    Rs = me%invL*R
+    Fs = zero
+    Potential = zero
+    Virial = zero
+
+    buildList = maximum_approach_sq( me%natoms, R - R0 ) > me%skinSq
+    if (buildList) then
+      M = floor(ndiv*me%Lbox/me%xRc)
+      if (M < 5) stop "ERROR: simulation box is too small."
+      call distribute_atoms( me, M, Rs )
+      R0 = R
+      me%builds = me%builds + 1
+    endif
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:Fs,Potential,Virial)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      if (buildList) then
+        call find_pairs_and_compute( me, thread, Rs, Fs, Potential, Virial )
+      else
+        call compute_pairs( me, thread, Rs, Fs, Potential, Virial )
+      end if
+      if (c_associated(me%bonds)) call compute_bonds( me, thread, Rs, Fs, Potential, Virial )
+      if (c_associated(me%angles)) call compute_angles( me, thread, Rs, Fs, Potential, Virial )
+      if (c_associated(me%dihedrals)) call compute_dihedrals(me, thread, Rs, Fs, Potential, Virial)
+    end block
+    !$omp end parallel
+
+    F = me%Lbox*Fs
+    me%Potential = Potential
+    me%Virial = third*Virial
+    if (me%nbodies /= 0) call rigid_body_forces( me, me%Virial )
+
+    time = omp_get_wtime()
+    me%pairTime = me%pairTime + time
+    me%totalTime = time - me%startTime
+
+  end subroutine compute_forces
+
 !===================================================================================================
 
   subroutine rigid_body_forces( me, Virial )
@@ -894,8 +993,8 @@ contains
 
     real(rb) :: Wrb
 
-    real(rb),    pointer :: F(:,:)
-    type(tBody), pointer :: body(:)
+    real(rb),    pointer, contiguous :: F(:,:)
+    type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( me%body, body, [me%nbodies] )
     call c_f_pointer( me%forces, F, [3,me%natoms] )
@@ -948,9 +1047,10 @@ contains
 
     integer(ib), allocatable :: natoms(:)
 
-    integer(ib), pointer :: atomCell(:)
-    type(tCell), pointer :: cell(:)
     type(tList), pointer :: threadCell, cellAtom
+
+    integer(ib), pointer, contiguous :: atomCell(:)
+    type(tCell), pointer, contiguous :: cell(:)
 
     call c_f_pointer( me%cell, cell, [me%maxcells] )
     call c_f_pointer( me%threadCell, threadCell )
@@ -1157,12 +1257,13 @@ contains
     real(rb)    :: normRkj, normX, a, b, phi
     real(rb)    :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
 
-    integer(ib),       pointer :: atomType(:)
-    real(rb),          pointer :: charge(:)
     type(tStruct),     pointer :: d
     type(tStructData), pointer :: dihedrals
     type(tModel),      pointer :: model
-    type(modelPtr),    pointer :: pairModel(:,:)
+
+    integer(ib),    pointer, contiguous :: atomType(:)
+    real(rb),       pointer, contiguous :: charge(:)
+    type(modelPtr), pointer, contiguous :: pairModel(:,:)
 
     call c_f_pointer( me%dihedrals, dihedrals )
     call c_f_pointer( me%charge, charge, [me%natoms] )
@@ -1256,12 +1357,14 @@ contains
 
     integer(ib), allocatable :: xlist(:)
 
-    type(tCell),    pointer :: cell(:)
-    integer(ib),    pointer :: atomType(:)
-    real(rb),       pointer :: charge(:)
-    type(tModel),   pointer :: model
-    type(modelPtr), pointer :: pairModel(:,:)
-    type(tList),    pointer :: cellAtom, threadCell, neighborLists(:), neighbor, excluded
+    type(tModel), pointer :: model
+    type(tList),  pointer :: cellAtom, threadCell, neighbor, excluded
+
+    type(tCell),    pointer, contiguous :: cell(:)
+    integer(ib),    pointer, contiguous :: atomType(:)
+    real(rb),       pointer, contiguous :: charge(:)
+    type(modelPtr), pointer, contiguous :: pairModel(:,:)
+    type(tList),    pointer, contiguous :: neighborLists(:)
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
@@ -1360,11 +1463,13 @@ contains
     real(rb) :: Rc2, r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
 
-    integer(ib),    pointer :: atomType(:)
-    real(rb),       pointer :: charge(:)
-    type(tModel),   pointer :: model
-    type(modelPtr), pointer :: pairModel(:,:)
-    type(tList),    pointer :: cellAtom, threadCell, neighborLists(:), neighbor
+    type(tModel), pointer :: model
+    type(tList),  pointer :: cellAtom, threadCell, neighbor
+
+    integer(ib),    pointer, contiguous :: atomType(:)
+    real(rb),       pointer, contiguous :: charge(:)
+    type(modelPtr), pointer, contiguous :: pairModel(:,:)
+    type(tList),    pointer, contiguous :: neighborLists(:)
 
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%charge, charge, [me%natoms] )
@@ -1419,11 +1524,13 @@ contains
     real(rb) :: r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3)
 
-    integer(ib),    pointer :: atomType(:), atomCell(:)
-    real(rb),       pointer :: R(:,:), charge(:)
-    type(tModel),   pointer :: model
-    type(modelPtr), pointer :: pairModel(:,:)
-    type(tList),    pointer :: threadCell, neighborLists(:), neighbor
+    type(tModel), pointer :: model
+    type(tList),  pointer :: threadCell, neighbor
+
+    integer(ib),    pointer, contiguous :: atomType(:), atomCell(:)
+    real(rb),       pointer, contiguous :: R(:,:), charge(:)
+    type(modelPtr), pointer, contiguous :: pairModel(:,:)
+    type(tList),    pointer, contiguous :: neighborLists(:)
 
     call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%coords, R, [3,me%natoms] )

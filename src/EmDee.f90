@@ -175,10 +175,11 @@ interface
     integer(ib), value :: adjust
   end subroutine EmDee_random_momenta
 
-  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
-    import :: c_ptr, rb
+  subroutine EmDee_boost( md, lambda, alpha, dt, t_flag, r_flag ) bind(C,name="EmDee_boost")
+    import :: c_ptr, rb, ib
     type(c_ptr), value :: md
     real(rb),    value :: lambda, alpha, dt
+    integer(ib), value :: t_flag, r_flag
   end subroutine EmDee_boost
 
   subroutine EmDee_move( md, lambda, alpha, dt ) bind(C,name="EmDee_move")
