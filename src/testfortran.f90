@@ -91,7 +91,7 @@ call EmDee_add_bond( c_loc(md), 4, 5, c_loc(bond) )
 !stop
 
 !call EmDee_compute( c_loc(md) )
-call EmDee_upload( c_loc(md), c_loc(L), c_loc(R), c_loc(V), c_null_ptr )
+call EmDee_upload( c_loc(md), c_loc(L), c_loc(R(1,1)), c_loc(V(1,1)), c_null_ptr )
 print*, 0, md%Potential, md%Virial
 call cpu_time( ti )
 tf = secnds(0.0)

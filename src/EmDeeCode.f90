@@ -41,7 +41,7 @@ integer(ib), parameter, private :: nb(3,nbcells) = reshape( [ &
   -2, 2, 1,   -1, 2, 1,    0, 2, 1,    1, 2, 1,    2, 2, 1,   -2,-2, 2,   -1,-2, 2,    0,-2, 2,  &
    1,-2, 2,    2,-2, 2,   -2,-1, 2,   -1,-1, 2,    0,-1, 2,    1,-1, 2,    2,-1, 2,   -2, 0, 2,  &
   -1, 0, 2,    0, 0, 2,    1, 0, 2,    2, 0, 2,   -2, 1, 2,   -1, 1, 2,    0, 1, 2,    1, 1, 2,  &
-   2, 1, 2,   -2, 2, 2,   -1, 2, 2,    0, 2, 2,    1, 2, 2,    2, 2, 2 ], [3,nbcells] )
+   2, 1, 2,   -2, 2, 2,   -1, 2, 2,    0, 2, 2,    1, 2, 2,    2, 2, 2 ], shape(nb) )
 
 type, bind(C) :: tCell
   integer(ib) :: neighbor(nbcells)
@@ -998,18 +998,23 @@ contains
 
     call c_f_pointer( me%body, body, [me%nbodies] )
     call c_f_pointer( me%forces, F, [3,me%natoms] )
-    Wrb = zero
     !$omp parallel num_threads(me%nthreads) reduction(+:Wrb)
-    block
-      integer :: thread, i
-      thread = omp_get_thread_num() + 1
-      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-        Wrb = Wrb + body(i) % force_torque_virial( F )
-      end do
-    end block
+    call compute_body_forces( omp_get_thread_num() + 1, Wrb )
     !$omp end parallel
     Virial = Virial - third*Wrb
 
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine compute_body_forces( thread, Wrb )
+        integer,  intent(in)  :: thread
+        real(rb), intent(out) :: Wrb
+        integer :: i
+        Wrb = zero
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          Wrb = Wrb + body(i) % force_torque_virial( F )
+        end do
+      end subroutine compute_body_forces
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine rigid_body_forces
 
 !===================================================================================================
@@ -1075,71 +1080,73 @@ contains
     allocate( natoms(me%ncells) )
 
     !$omp parallel num_threads(me%nthreads) reduction(max:maxNatoms)
-    block
-      integer(ib) :: thread, i, k, icell, ix, iy, iz, first, last, atoms_per_thread
-      integer(ib) :: icoord(3)
-      integer(ib), allocatable :: head(:)
-
-      thread = omp_get_thread_num() + 1
-
-      if (make_cells) then
-        first = (thread - 1)*cells_per_thread + 1
-        last = min( thread*cells_per_thread, me%ncells )
-        do icell = first, last
-          k = icell - 1
-          iz = k/MM
-          iy = (k - iz*MM)/M
-          ix = k - (iy*M + iz*MM)
-          cell(icell)%neighbor = 1 + pbc(ix+nb(1,:)) + pbc(iy+nb(2,:))*M + pbc(iz+nb(3,:))*MM
-        end do
-        threadCell%first(thread) = first
-        threadCell%last(thread) = last
-      else
-        first = threadCell%first(thread)
-        last = threadCell%last(thread)
-      end if
-
-      atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
-      do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
-        icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
-        atomCell(i) = 1 + icoord(1) + M*icoord(2) + MM*icoord(3)
-      end do
-      !$omp barrier
-
-      allocate( head(first:last) )
-      head = 0
-      natoms(first:last) = 0
-      do i = 1, me%natoms
-        icell = atomCell(i)
-        if ((icell >= first).and.(icell <= last)) then
-          next(i) = head(icell)
-          head(icell) = i
-          natoms(icell) = natoms(icell) + 1
-        end if
-      end do
-      threadNatoms(thread) = sum(natoms(first:last))
-      !$omp barrier
-
-      maxNatoms = 0
-      k = sum(threadNatoms(1:thread-1))
-      do icell = first, last
-        cellAtom%first(icell) = k + 1
-        i = head(icell)
-        do while (i /= 0)
-          k = k + 1
-          cellAtom%item(k) = i
-          i = next(i)
-        end do
-        cellAtom%last(icell) = k
-        if (natoms(icell) > maxNatoms) maxNatoms = natoms(icell)
-      end do
-
-    end block
+    call distribute( omp_get_thread_num() + 1, maxNatoms )
     !$omp end parallel
     me%maxatoms = maxNatoms
     me%maxpairs = (maxNatoms*((2*nbcells + 1)*maxNatoms - 1))/2
 
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine distribute( thread, maxNatoms )
+        integer, intent(in)  :: thread
+        integer, intent(out) :: maxNatoms
+
+        integer(ib) :: i, k, icell, ix, iy, iz, first, last, atoms_per_thread
+        integer(ib) :: icoord(3)
+        integer(ib), allocatable :: head(:)
+
+        if (make_cells) then
+          first = (thread - 1)*cells_per_thread + 1
+          last = min( thread*cells_per_thread, me%ncells )
+          do icell = first, last
+            k = icell - 1
+            iz = k/MM
+            iy = (k - iz*MM)/M
+            ix = k - (iy*M + iz*MM)
+            cell(icell)%neighbor = 1 + pbc(ix+nb(1,:)) + pbc(iy+nb(2,:))*M + pbc(iz+nb(3,:))*MM
+          end do
+          threadCell%first(thread) = first
+          threadCell%last(thread) = last
+        else
+          first = threadCell%first(thread)
+          last = threadCell%last(thread)
+        end if
+
+        atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
+        do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
+          icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
+          atomCell(i) = 1 + icoord(1) + M*icoord(2) + MM*icoord(3)
+        end do
+        !$omp barrier
+
+        allocate( head(first:last) )
+        head = 0
+        natoms(first:last) = 0
+        do i = 1, me%natoms
+          icell = atomCell(i)
+          if ((icell >= first).and.(icell <= last)) then
+            next(i) = head(icell)
+            head(icell) = i
+            natoms(icell) = natoms(icell) + 1
+          end if
+        end do
+        threadNatoms(thread) = sum(natoms(first:last))
+        !$omp barrier
+
+        maxNatoms = 0
+        k = sum(threadNatoms(1:thread-1))
+        do icell = first, last
+          cellAtom%first(icell) = k + 1
+          i = head(icell)
+          do while (i /= 0)
+            k = k + 1
+            cellAtom%item(k) = i
+            i = next(i)
+          end do
+          cellAtom%last(icell) = k
+          if (natoms(icell) > maxNatoms) maxNatoms = natoms(icell)
+        end do
+      end subroutine distribute
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental integer(ib) function pbc( x )
         integer(ib), intent(in) :: x

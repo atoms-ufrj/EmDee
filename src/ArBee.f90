@@ -65,7 +65,7 @@ contains
     type(c_ptr), intent(inout) :: list
     integer(ib), intent(inout) :: Nmax
 
-    type(tBody), pointer :: old(:), new(:)
+    type(tBody), pointer, contiguous :: old(:), new(:)
 
     allocate( new(Nmax+extra) )
     if (c_associated(list)) then
@@ -74,7 +74,7 @@ contains
       deallocate( old )
     end if
     Nmax = Nmax + extra
-    list = c_loc(new)
+    list = c_loc(new(1))
 
   end subroutine realloc_rigid_body_list
 
@@ -82,8 +82,8 @@ contains
 
   subroutine tBody_setup( b, indexes, masses )
     class(tBody), intent(inout) :: b
-    integer(ib),      intent(in)    :: indexes(:)
-    real(rb),         intent(in)    :: masses(size(indexes))
+    integer(ib),  intent(in)    :: indexes(:)
+    real(rb),     intent(in)    :: masses(size(indexes))
 
     b%NP = size(indexes)
     allocate( b%index(b%NP), b%M(b%NP), b%d(3,b%NP), b%delta(3,b%NP) )
@@ -104,7 +104,7 @@ contains
 
   pure subroutine tBody_update( b, coords )
     class(tBody), intent(inout) :: b
-    real(rb),         intent(in)    :: coords(3,b%NP)
+    real(rb),     intent(in)    :: coords(3,b%NP)
 
     integer  :: x
     real(rb) :: inertia(3,3), A(3,3)
@@ -180,7 +180,7 @@ contains
 
   elemental subroutine tBody_rotate( b, dt )
     class(tBody), intent(inout) :: b
-    real(rb),         intent(in)    :: dt
+    real(rb),     intent(in)    :: dt
     real(rb) :: half_dt
     half_dt = half*dt
     call uniaxial_rotation( b, 3, half_dt )
@@ -193,8 +193,8 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental subroutine uniaxial_rotation( b, k, dt )
         class(tBody), intent(inout) :: b
-        integer,          intent(in)    :: k
-        real(rb),         intent(in)    :: dt
+        integer,      intent(in)    :: k
+        real(rb),     intent(in)    :: dt
         real(rb) :: BkQ(4), BkPi(4), omega_dt_by_2, vsin, vcos
         select case (k)
           case (1)
@@ -220,7 +220,7 @@ contains
 
   pure function tBody_particle_momenta( b ) result( P )
     class(tBody), intent(in) :: b
-    real(rb)                     :: P(3,b%NP)
+    real(rb)                 :: P(3,b%NP)
     integer  :: k
     real(rb) :: omega(3), At(3,3)
     At = matmul( matrix_Ct(b%q), matrix_B(b%q) )
@@ -234,8 +234,8 @@ contains
 
   function tBody_force_torque_virial( b, F ) result( virial )
     class(tBody), intent(inout) :: b
-    real(rb),         intent(in)    :: F(:,:)
-    real(rb)                        :: virial
+    real(rb),     intent(in)    :: F(:,:)
+    real(rb)                    :: virial
     integer :: j
     real(rb) :: Fj(3)
     b%F = zero
