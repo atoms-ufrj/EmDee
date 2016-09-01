@@ -31,7 +31,6 @@ real(rb), target :: L
 real(rb), pointer :: R(:,:), V(:,:)
 
 integer(ib) :: step
-real(rb)    :: ti, tf
 type(tEmDee), target :: md
 type(EmDee_model), target :: lj, bond
 
@@ -58,21 +57,20 @@ call create_configuration
 md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr, 7834 )
 
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
-call EmDee_set_pair_type( c_loc(md), 1, 1, c_loc(lj) )
-
+call EmDee_set_pair_type( md, 1, 1, c_loc(lj) )
 !print*, match( [1,7,5,3,2,4,8,6], [2,3,4,8])
 !stop
 
 do i = 1, N-1
   do j = i+1, N
-    if (abs(i-j) < 10) call EmDee_ignore_pair( c_loc(md), i, j )
+    if (abs(i-j) < 10) call EmDee_ignore_pair( md, i, j )
   end do
 end do
 
 bond = EmDee_bond_harmonic( 1.0_rb, 1.0_rb )
-call EmDee_add_bond( c_loc(md), 1, 2, c_loc(bond) )
-call EmDee_add_bond( c_loc(md), 2, 3, c_loc(bond) )
-call EmDee_add_bond( c_loc(md), 4, 5, c_loc(bond) )
+call EmDee_add_bond( md, 1, 2, c_loc(bond) )
+call EmDee_add_bond( md, 2, 3, c_loc(bond) )
+call EmDee_add_bond( md, 4, 5, c_loc(bond) )
 
 !call c_f_pointer( md%excluded%first, first, [md%natoms])
 !call c_f_pointer( md%excluded%last, last, [md%natoms])
@@ -90,23 +88,19 @@ call EmDee_add_bond( c_loc(md), 4, 5, c_loc(bond) )
 !print*, "execution time = ", secnds(0.0) - tf, " s."
 !stop
 
-!call EmDee_compute( c_loc(md) )
-call EmDee_upload( c_loc(md), c_loc(L), c_loc(R(1,1)), c_loc(V(1,1)), c_null_ptr )
+!call EmDee_compute( md )
+call EmDee_upload( md, c_loc(L), c_loc(R(1,1)), c_loc(V(1,1)), c_null_ptr )
 print*, 0, md%Potential, md%Virial
-call cpu_time( ti )
-tf = secnds(0.0)
 do step = 1, Nsteps
-  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
-  call EmDee_move( c_loc(md), 1.0_rb, 0.0_rb, Dt )
-!  call EmDee_compute( c_loc(md) )
-  call EmDee_boost( c_loc(md), 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
+  call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
+  call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )
+!  call EmDee_compute( md )
+  call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
   if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
 end do
-print*, "execution time = ", secnds(0.0) - tf, " s."
-call cpu_time( tf )
 print*, "neighbor list builds = ", md%builds
 print*, "pair time = ", md%pairTime, " s."
-print*, "execution time = ", tf - ti, " s."
+print*, "execution time = ", md%totalTime, " s."
 
 contains
 !---------------------------------------------------------------------------------------------------

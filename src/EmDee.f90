@@ -44,163 +44,111 @@ type, bind(C) :: tEmDee
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
 
-  real(rb)    :: Lbox           ! Length of the simulation box
-  type(c_ptr) :: coords         ! Pointer to the coordinates of all atoms
-  type(c_ptr) :: momenta        ! Pointer to the momenta of all atoms
-  type(c_ptr) :: forces         ! Pointer to the resultant forces on all atoms
-  type(c_ptr) :: charge         ! Pointer to the electric charges of all atoms
-
-  real(rb)    :: Rc             ! Cut-off distance
-  real(rb)    :: RcSq           ! Cut-off distance squared
-  real(rb)    :: xRc            ! Extended cutoff distance (including skin)
-  real(rb)    :: xRcSq          ! Extended cutoff distance squared
-  real(rb)    :: skinSq         ! Square of the neighbor list skin width
-  real(rb)    :: invL           ! Inverse length of the simulation box
-  real(rb)    :: invL2          ! Squared inverse length of the simulation box
-  real(rb)    :: totalMass      ! Sum of the masses of all atoms
-  real(rb)    :: startTime      ! Time recorded at initialization
-  real(rb)    :: eshift         ! Potential shifting factor for Coulombic interactions
-  real(rb)    :: fshift         ! Force shifting factor for Coulombic interactions
-  integer(ib) :: coulomb        ! Flag for coulombic interactions
-
-  integer(ib) :: mcells         ! Number of cells at each dimension
-  integer(ib) :: ncells         ! Total number of cells
-  integer(ib) :: maxcells       ! Maximum number of cells
-  integer(ib) :: maxatoms       ! Maximum number of atoms in a cell
-  integer(ib) :: maxpairs       ! Maximum number of pairs formed by all atoms of a cell
-  type(c_ptr) :: cell           ! Array containing all neighbor cells of each cell
-  type(c_ptr) :: cellAtom       ! List of atoms belonging to each cell
-  type(c_ptr) :: atomCell       ! Array containing the current cell of each atom
-
-  integer(ib) :: natoms         ! Number of atoms in the system
-  type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
-  type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
-  type(c_ptr) :: invMass        ! Pointer to the inverses of atoms masses
-  type(c_ptr) :: R0             ! Position of each atom at the latest neighbor list building
-
-  integer(ib) :: ntypes         ! Number of atom types
-  type(c_ptr) :: pairModel      ! Model of each type of atom pair
-
-  type(c_ptr) :: bonds          ! List of bonds
-  type(c_ptr) :: angles         ! List of angles
-  type(c_ptr) :: dihedrals      ! List of dihedrals
-
-  integer(ib) :: nbodies        ! Number of rigid bodies
-  integer(ib) :: maxbodies      ! Maximum number of rigid bodies
-  type(c_ptr) :: body           ! Pointer to the rigid bodies present in the system
-
-  integer(ib) :: nfree          ! Number of independent atoms
-  type(c_ptr) :: freeAtom       ! Pointer to the list of independent atoms
-
-  integer(ib) :: nthreads       ! Number of parallel openmp threads
-  integer(ib) :: threadAtoms    ! Number of atoms per parallel thread
-  integer(ib) :: threadBodies   ! Number of rigid bodies per parallel thread
-  type(c_ptr) :: threadCell     ! List of cells to be dealt with in each parallel thread
-  type(c_ptr) :: neighbor       ! Pointer to neighbor lists
-  type(c_ptr) :: excluded       ! List of pairs excluded from the neighbor lists
-  type(c_ptr) :: random         ! Pointer for random number generators
+  type(c_ptr) :: Data           ! Pointer to EmDee system data
 
 end type tEmDee
 
 interface
 
-  function EmDee_system( threads, rc, skin, N, types, masses, seed ) result( me ) &
+  function EmDee_system( threads, rc, skin, N, types, masses, seed ) result( md ) &
                                                                      bind(C,name="EmDee_system")
     import :: ib, rb, c_ptr, tEmDee
     integer(ib), value :: threads, N, seed
     real(rb),    value :: rc, skin
     type(c_ptr), value :: types, masses
-    type(tEmDee)       :: me
+    type(tEmDee)       :: md
   end function EmDee_system
 
   subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
-    import :: c_ptr
-    type(c_ptr), value :: md, charges
+    import :: tEmDee, c_ptr
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: charges
   end subroutine EmDee_set_charges
 
   subroutine EmDee_set_pair_type( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_type")
-    import :: c_ptr, ib
-    type(c_ptr), value :: md
-    integer(ib), value :: itype, jtype
-    type(c_ptr), value :: model
+    import :: tEmDee, c_ptr, ib
+    type(tEmDee), value :: md
+    integer(ib),  value :: itype, jtype
+    type(c_ptr),  value :: model
   end subroutine EmDee_set_pair_type
 
   subroutine EmDee_ignore_pair( md, i, j ) bind(C,name="EmDee_ignore_pair")
-    import :: c_ptr, ib
-    type(c_ptr), value :: md
-    integer(ib), value :: i, j
+    import :: tEmDee, c_ptr, ib
+    type(tEmDee), value :: md
+    integer(ib),  value :: i, j
   end subroutine EmDee_ignore_pair
 
   subroutine EmDee_add_bond( md, i, j, model ) bind(C,name="EmDee_add_bond")
-    import :: c_ptr, ib
-    type(c_ptr), value :: md
-    integer(ib), value :: i, j
-    type(c_ptr), value :: model
+    import :: tEmDee, c_ptr, ib
+    type(tEmDee), value :: md
+    integer(ib),  value :: i, j
+    type(c_ptr),  value :: model
   end subroutine EmDee_add_bond
 
   subroutine EmDee_add_angle( md, i, j, k, model ) bind(C,name="EmDee_add_angle")
-    import :: c_ptr, ib
-    type(c_ptr), value :: md
-    integer(ib), value :: i, j, k
-    type(c_ptr), value :: model
+    import :: tEmDee, c_ptr, ib
+    type(tEmDee), value :: md
+    integer(ib),  value :: i, j, k
+    type(c_ptr),  value :: model
   end subroutine EmDee_add_angle
 
   subroutine EmDee_add_dihedral( md, i, j, k, l, model ) bind(C,name="EmDee_add_dihedral")
-    import :: c_ptr, ib
-    type(c_ptr), value :: md
-    integer(ib), value :: i, j, k, l
-    type(c_ptr), value :: model
+    import :: tEmDee, c_ptr, ib
+    type(tEmDee), value :: md
+    integer(ib),  value :: i, j, k, l
+    type(c_ptr),  value :: model
   end subroutine EmDee_add_dihedral
 
   subroutine EmDee_add_rigid_body( md, N, indexes ) bind(C,name="EmDee_add_rigid_body")
-    import :: c_ptr, ib
-    type(c_ptr), value :: md, indexes
-    integer(ib), value :: N
+    import :: tEmDee, c_ptr, ib
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: indexes
+    integer(ib),  value :: N
   end subroutine EmDee_add_rigid_body
 
   subroutine EmDee_upload( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_upload")
-    import :: c_ptr
-    type(c_ptr), value :: md, Lbox, coords, momenta, forces
+    import :: tEmDee, c_ptr
+    type(tEmDee), intent(inout) :: md
+    type(c_ptr),  value         :: Lbox, coords, momenta, forces
   end subroutine EmDee_upload
 
   subroutine EmDee_download( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_download")
-    import :: c_ptr
-    type(c_ptr), value :: md, Lbox, coords, momenta, forces
+    import :: tEmDee, c_ptr
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: Lbox, coords, momenta, forces
   end subroutine EmDee_download
 
   subroutine EmDee_random_momenta( md, kT, adjust ) bind(C,name="EmDee_random_momenta")
-    import :: c_ptr, rb, ib
-    type(c_ptr), value :: md
-    real(rb),    value :: kT
-    integer(ib), value :: adjust
+    import :: tEmDee, c_ptr, rb, ib
+    type(tEmDee), intent(inout) :: md
+    real(rb),     value         :: kT
+    integer(ib),  value         :: adjust
   end subroutine EmDee_random_momenta
 
   subroutine EmDee_boost( md, lambda, alpha, dt, t_flag, r_flag ) bind(C,name="EmDee_boost")
-    import :: c_ptr, rb, ib
-    type(c_ptr), value :: md
-    real(rb),    value :: lambda, alpha, dt
-    integer(ib), value :: t_flag, r_flag
+    import :: tEmDee, c_ptr, rb, ib
+    type(tEmDee), intent(inout) :: md
+    real(rb),     value         :: lambda, alpha, dt
+    integer(ib),  value         :: t_flag, r_flag
   end subroutine EmDee_boost
 
   subroutine EmDee_move( md, lambda, alpha, dt ) bind(C,name="EmDee_move")
-    import :: c_ptr, rb
-    type(c_ptr), value :: md
-    real(rb),    value :: lambda, alpha, dt
+    import :: tEmDee, c_ptr, rb
+    type(tEmDee), intent(inout) :: md
+    real(rb),     value         :: lambda, alpha, dt
   end subroutine EmDee_move
 
   subroutine EmDee_compute( md ) bind(C,name="EmDee_compute")
-    import :: c_ptr
-    type(c_ptr), value :: md
+    import :: tEmDee
+    type(tEmDee), intent(inout) :: md
   end subroutine EmDee_compute
 
-  function EmDee_subset_energy( md, N, atoms, check ) result( Energy ) &
-                                                      bind(C,name="EmDee_subset_energy")
-    import :: c_ptr, ib, rb
-    type(c_ptr), value :: md
-    integer(ib), value :: N
-    type(c_ptr), value :: atoms
-    real(rb)           :: Energy
-  end function EmDee_subset_energy
+  subroutine EmDee_group_energy( md, na, atoms, ne, energies ) bind(C,name="EmDee_group_energy")
+    import :: tEmDee, ib, c_ptr
+    type(tEmDee), value :: md
+    integer(ib),  value :: na, ne
+    type(c_ptr),  value :: atoms, energies
+  end subroutine EmDee_group_energy
 
   function EmDee_pair_none( ) result(model) bind(C,name="EmDee_pair_none")
     import :: EmDee_Model
