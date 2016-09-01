@@ -32,7 +32,7 @@ real(rb), pointer :: R(:,:), V(:,:)
 
 integer(ib) :: step
 type(tEmDee), target :: md
-type(EmDee_model), target :: lj, bond
+type(c_ptr), target :: lj, bond
 
 integer :: i, j, argcount, threads
 character(256) :: line

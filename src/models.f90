@@ -33,15 +33,15 @@ integer(ib), parameter :: mNONE     = 0, &  ! No model
 
 real(rb), parameter, private :: Deg2Rad = 3.14159265358979324_rb/180_rb
 
-type, bind(C) :: tModel
+type tModel
   integer(ib) :: id = mNONE
-  type(c_ptr) :: data = c_null_ptr
-  real(rb)    :: p1 = zero
-  real(rb)    :: p2 = zero
-  real(rb)    :: p3 = zero
-  real(rb)    :: p4 = zero
-  integer(ib) :: external = 1
-  type(c_ptr) :: next = c_null_ptr
+  real(rb), pointer :: data(:)
+  real(rb) :: p1 = zero
+  real(rb) :: p2 = zero
+  real(rb) :: p3 = zero
+  real(rb) :: p4 = zero
+  logical :: external = .true.
+  type(tModel), pointer :: next => null()
 end type tModel
 
 type modelPtr
@@ -56,24 +56,28 @@ contains
 !                                      P A I R     M O D E L S
 !===================================================================================================
 
-  function EmDee_pair_none() result(model) bind(C,name="EmDee_pair_none")
-    type(tModel) :: model
-    model = tModel( mNONE )
+  type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
+    type(tModel), pointer :: model
+    allocate( model )
+    model%id = mNONE
+    EmDee_pair_none = c_loc(model)
   end function EmDee_pair_none
 
 !---------------------------------------------------------------------------------------------------
 
-  function EmDee_pair_lj( epsilon, sigma ) result(model) bind(C,name="EmDee_pair_lj")
+  type(c_ptr) function EmDee_pair_lj( epsilon, sigma ) bind(C,name="EmDee_pair_lj")
     real(rb), value   :: epsilon, sigma
-    type(tModel) :: model
+    type(tModel), pointer :: model
+    allocate( model )
     model = tModel( mLJ, set_data( [epsilon, sigma] ), sigma*sigma, 4.0_rb*epsilon )
+    EmDee_pair_lj = c_loc(model)
   end function EmDee_pair_lj
 
 !---------------------------------------------------------------------------------------------------
 
-  function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) result(model) bind(C,name="EmDee_pair_lj_sf")
+  type(c_ptr) function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
     real(rb), value   :: epsilon, sigma, cutoff
-    type(tModel) :: model
+    type(tModel), pointer :: model
     real(rb) :: sr6, sr12, eps4, Ec, Fc
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
@@ -81,54 +85,57 @@ contains
     Ec = eps4*(sr12 - sr6)
     Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
     Ec = -(Ec + Fc*cutoff)
+    allocate( model )
     model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
+    EmDee_pair_lj_sf = c_loc(model)
   end function EmDee_pair_lj_sf
 
 !===================================================================================================
 !                                     M I X I N G     R U L E S
 !===================================================================================================
 
-  function cross_pair( imodel, jmodel ) result( ij )
-    type(tModel), pointer, intent(in) :: imodel, jmodel
-    type(tModel), pointer             :: ij
+  function cross_pair( imodel, jmodel ) result( ijmodel )
+    type(c_ptr),  intent(in) :: imodel, jmodel
+    type(c_ptr)              :: ijmodel
 
-    real(rb), pointer, contiguous :: idata(:), jdata(:)
+    type(tModel), pointer :: i, j, ij
 
-    if (associated(imodel).and.associated(jmodel)) then
-      allocate( ij )
+    if (c_associated(imodel).and.c_associated(jmodel)) then
+      call c_f_pointer( imodel, i )
+      call c_f_pointer( jmodel, j )
       if (match(mLJ,mLJ)) then
-        ij = EmDee_pair_lj( geometric(1), arithmetic(2) )
+        ijmodel = EmDee_pair_lj( geometric(1), arithmetic(2) )
       else if (match(mLJSF,mLJSF)) then
-        ij = EmDee_pair_lj_sf( geometric(1), arithmetic(2), arithmetic(3) )
+        ijmodel = EmDee_pair_lj_sf( geometric(1), arithmetic(2), arithmetic(3) )
       else if (match(mLJ,mNONE).or.match(mLJSF,mNONE)) then
-        ij = EmDee_pair_none()
+        ijmodel = EmDee_pair_none()
       else
-        deallocate( ij )
-        ij => null()
+        ijmodel = c_null_ptr
       end if
     else
-      ij => null()
+      ijmodel = c_null_ptr
+    end if
+
+    if (c_associated(ijmodel)) then
+      call c_f_pointer( ijmodel, ij )
+      ij%external = .false.
     end if
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       logical function match( a, b )
         integer(ib), intent(in) :: a, b
-        match = ((imodel%id == a).and.(jmodel%id == b)).or.((imodel%id == b).and.(jmodel%id == a))
+        match = ((i%id == a).and.(j%id == b)).or.((i%id == b).and.(j%id == a))
       end function match
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       real(rb) function arithmetic( k )
         integer(ib), intent(in) :: k
-        call c_f_pointer( imodel%data, idata, [k] )
-        call c_f_pointer( jmodel%data, jdata, [k] )
-        arithmetic = 0.5_rb*(idata(k) + jdata(k))
+        arithmetic = 0.5_rb*(i%data(k) + j%data(k))
       end function arithmetic
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       real(rb) function geometric( k )
         integer(ib), intent(in) :: k
-        call c_f_pointer( imodel%data, idata, [k] )
-        call c_f_pointer( jmodel%data, jdata, [k] )
-        geometric = sqrt(idata(k)*jdata(k))
+        geometric = sqrt(i%data(k)*j%data(k))
       end function geometric
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end function cross_pair
@@ -137,38 +144,46 @@ contains
 !                                      B O N D     M O D E L S
 !===================================================================================================
 
-  function EmDee_bond_harmonic( k, r0 ) result(model) bind(C,name="EmDee_bond_harmonic")
+  type(c_ptr) function EmDee_bond_harmonic( k, r0 ) bind(C,name="EmDee_bond_harmonic")
     real(rb), value :: k, r0
-    type(tModel) :: model
+    type(tModel), pointer :: model
+    allocate( model )
     model = tModel( mHARMOMIC, set_data( [k, r0] ), r0, -k, 0.5_rb*k )
+    EmDee_bond_harmonic = c_loc(model)
   end function EmDee_bond_harmonic
 
 !---------------------------------------------------------------------------------------------------
 
-  function EmDee_bond_morse( D, alpha, r0 ) result(model) bind(C,name="EmDee_bond_morse")
+  type(c_ptr) function EmDee_bond_morse( D, alpha, r0 ) bind(C,name="EmDee_bond_morse")
     real(rb), value :: D, alpha, r0
-    type(tModel) :: model
+    type(tModel), pointer :: model
+    allocate( model )
     model = tModel( mMORSE, set_data( [D, alpha, r0] ), r0, -alpha, D, -2.0_rb*D*alpha )
+    EmDee_bond_morse = c_loc(model)
   end function EmDee_bond_morse
 
 !===================================================================================================
 !                                    A N G L E     M O D E L S
 !===================================================================================================
 
-  function EmDee_angle_harmonic( k, theta0 ) result(model) bind(C,name="EmDee_angle_harmonic")
+  type(c_ptr) function EmDee_angle_harmonic( k, theta0 ) bind(C,name="EmDee_angle_harmonic")
     real(rb), value :: k, theta0
-    type(tModel) :: model
+    type(tModel), pointer :: model
+    allocate( model )
     model = tModel( mHARMOMIC, set_data( [k, theta0] ), Deg2Rad*theta0, -k, 0.5_rb*k )
+    EmDee_angle_harmonic = c_loc(model)
   end function EmDee_angle_harmonic
 
 !===================================================================================================
 !                                 D I H E D R A L     M O D E L S
 !===================================================================================================
 
-  function EmDee_dihedral_harmonic( k, phi0 ) result(model) bind(C,name="EmDee_dihedral_harmonic")
+  type(c_ptr) function EmDee_dihedral_harmonic( k, phi0 ) bind(C,name="EmDee_dihedral_harmonic")
     real(rb), value :: k, phi0
-    type(tModel) :: model
+    type(tModel), pointer :: model
+    allocate( model )
     model = tModel( mHARMOMIC, set_data( [k, phi0] ), 0.0_rb, Deg2Rad*phi0, -k, 0.5_rb*k )
+    EmDee_dihedral_harmonic = c_loc(model)
   end function EmDee_dihedral_harmonic
 
 !===================================================================================================
@@ -176,12 +191,10 @@ contains
 !===================================================================================================
 
   function set_data( values ) result( data )
-    real(rb),     intent(in) :: values(:)
-    type(c_ptr)              :: data
-    real(rb), pointer, contiguous :: ptr(:)
-    allocate( ptr(size(values)) )
-    ptr = values
-    data = c_loc(ptr(1))
+    real(rb), intent(in) :: values(:)
+    real(rb), pointer    :: data(:)
+    allocate( data(size(values)) )
+    data = values
   end function set_data
 
 !===================================================================================================
