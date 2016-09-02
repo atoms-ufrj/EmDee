@@ -54,7 +54,7 @@ type, bind(C) :: tEmDee
   real(rb)    :: Kinetic        ! Total kinetic energy of the system
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
-  type(c_ptr) :: Data           ! Pointer to EmDee system data
+  type(c_ptr) :: Data           ! Pointer to system data
 end type tEmDee
 
 type, bind(C) :: tCell
@@ -66,38 +66,38 @@ type, private :: tData
   type(c_ptr) :: coords         ! Pointer to the coordinates of all atoms
   type(c_ptr) :: momenta        ! Pointer to the momenta of all atoms
   type(c_ptr) :: forces         ! Pointer to the resultant forces on all atoms
-  type(c_ptr) :: charge         ! Pointer to the electric charges of all atoms
+  real(rb), allocatable :: charge(:)         ! Pointer to the electric charges of all atoms
 
-  real(rb)    :: Rc             ! Cut-off distance
-  real(rb)    :: RcSq           ! Cut-off distance squared
-  real(rb)    :: xRc            ! Extended cutoff distance (including skin)
-  real(rb)    :: xRcSq          ! Extended cutoff distance squared
-  real(rb)    :: skinSq         ! Square of the neighbor list skin width
-  real(rb)    :: invL           ! Inverse length of the simulation box
-  real(rb)    :: invL2          ! Squared inverse length of the simulation box
-  real(rb)    :: totalMass      ! Sum of the masses of all atoms
-  real(rb)    :: startTime      ! Time recorded at initialization
-  real(rb)    :: eshift         ! Potential shifting factor for Coulombic interactions
-  real(rb)    :: fshift         ! Force shifting factor for Coulombic interactions
-  integer(ib) :: coulomb        ! Flag for coulombic interactions
+  real(rb) :: Rc             ! Cut-off distance
+  real(rb) :: RcSq           ! Cut-off distance squared
+  real(rb) :: xRc            ! Extended cutoff distance (including skin)
+  real(rb) :: xRcSq          ! Extended cutoff distance squared
+  real(rb) :: skinSq         ! Square of the neighbor list skin width
+  real(rb) :: invL           ! Inverse length of the simulation box
+  real(rb) :: invL2          ! Squared inverse length of the simulation box
+  real(rb) :: totalMass      ! Sum of the masses of all atoms
+  real(rb) :: startTime      ! Time recorded at initialization
+  real(rb) :: eshift         ! Potential shifting factor for Coulombic interactions
+  real(rb) :: fshift         ! Force shifting factor for Coulombic interactions
+  logical  :: coulomb        ! Flag for coulombic interactions
 
-  integer(ib) :: mcells         ! Number of cells at each dimension
-  integer(ib) :: ncells         ! Total number of cells
-  integer(ib) :: maxcells       ! Maximum number of cells
-  integer(ib) :: maxatoms       ! Maximum number of atoms in a cell
-  integer(ib) :: maxpairs       ! Maximum number of pairs formed by all atoms of a cell
+  integer :: mcells         ! Number of cells at each dimension
+  integer :: ncells         ! Total number of cells
+  integer :: maxcells       ! Maximum number of cells
+  integer :: maxatoms       ! Maximum number of atoms in a cell
+  integer :: maxpairs       ! Maximum number of pairs formed by all atoms of a cell
   type(c_ptr) :: cell           ! Array containing all neighbor cells of each cell
   type(c_ptr) :: cellAtom       ! List of atoms belonging to each cell
   type(c_ptr) :: atomCell       ! Array containing the current cell of each atom
 
-  integer(ib) :: natoms         ! Number of atoms in the system
-  type(c_ptr) :: atomType       ! Pointer to the type indexes of all atoms
-  type(c_ptr) :: atomMass       ! Pointer to the masses of all atoms
-  type(c_ptr) :: invMass        ! Pointer to the inverses of atoms masses
-  type(c_ptr) :: R0             ! Position of each atom at the latest neighbor list building
+  integer :: natoms                      ! Number of atoms in the system
+  integer,  allocatable :: atomType(:)   ! Pointer to the type indexes of all atoms
+  real(rb), allocatable :: mass(:)       ! Pointer to the masses of all atoms
+  real(rb), allocatable :: invMass(:)    ! Pointer to the inverses of atoms masses
+  real(rb), allocatable :: R0(:,:)       ! Position of each atom at latest neighbor list building
 
-  integer(ib) :: ntypes         ! Number of atom types
-  type(c_ptr), pointer :: pairModel(:,:)  ! Model of each type of atom pair
+  integer(ib) :: ntypes                  ! Number of atom types
+  type(c_ptr), allocatable :: model(:,:) ! Model of each type of atom pair
 
   type(c_ptr) :: bonds          ! List of bonds
   type(c_ptr) :: angles         ! List of angles
@@ -141,9 +141,9 @@ contains
     type(kiss),  pointer :: random
     type(tData), pointer :: system
 
-    integer(ib),    pointer, contiguous :: type_ptr(:)
-    real(rb),       pointer, contiguous :: mass_ptr(:)
-    type(tList),    pointer, contiguous :: neighbor(:)
+    integer(ib), pointer, contiguous :: type_ptr(:)
+    real(rb),    pointer, contiguous :: mass_ptr(:)
+    type(tList), pointer, contiguous :: neighbor(:)
 
     allocate( system )
     md%data = c_loc(system)
@@ -163,20 +163,20 @@ contains
       call c_f_pointer( types, type_ptr, [N] )
       if (minval(type_ptr) /= 1) stop "ERROR: wrong specification of atom types."
       system%ntypes = maxval(type_ptr)
-      system%atomType = malloc_int( N, array = type_ptr )
+      allocate( system%atomType(N), source = type_ptr )
     else
       system%ntypes = 1
-      system%atomType = malloc_int( N, value = 1 )
+      allocate( system%atomType(N), source = 1 )
     end if
 
     if (c_associated(masses)) then
       call c_f_pointer( masses, mass_ptr, [system%ntypes] )
-      system%atomMass = malloc_real( N, array = mass_ptr(type_ptr) )
-      system%invMass = malloc_real( N, array = one/mass_ptr(type_ptr) )
+      allocate( system%mass(N), source = mass_ptr(type_ptr) )
+      allocate( system%invMass(N), source = one/mass_ptr(type_ptr) )
       system%totalMass = sum(mass_ptr(type_ptr))
     else
-      system%atomMass = malloc_real( N, value = one )
-      system%invMass = malloc_real( N, value = one )
+      allocate( system%mass(N), source = one )
+      allocate( system%invMass(N), source = one )
       system%totalMass = real(N,rb)
     end if
 
@@ -191,15 +191,15 @@ contains
     system%ncells = 0
     system%maxcells = 0
     system%startTime = omp_get_wtime()
-    system%coulomb = 0
+    system%coulomb = .false.
     system%Lbox = zero
     system%invL = huge(one)
     system%invL2 = huge(one)
     system%coords = c_null_ptr
     system%momenta = malloc_real( 3*N, value = zero )
     system%forces = malloc_real( 3*N, value = zero )
-    system%charge = malloc_real( N, value = zero )
-    system%R0 = malloc_real( 3*N, value = zero )
+    allocate( system%charge(N), source = zero )
+    allocate( system%R0(3,N), source = zero )
     system%cell = malloc_int( 1 )
     system%atomCell = malloc_int( N )
     system%bonds = c_null_ptr
@@ -235,8 +235,8 @@ contains
     call excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( system%pairModel(system%ntypes,system%ntypes) )
-    system%pairModel = c_null_ptr
+    allocate( system%model(system%ntypes,system%ntypes) )
+    system%model = c_null_ptr
 
     ! Initialize random number generators:
     allocate( random )
@@ -255,18 +255,20 @@ contains
 
     type(tData),  pointer :: system
     type(tModel), pointer :: model
+    real(rb),     pointer :: Q(:)
 
     call c_f_pointer( md%data, system )
-    if (system%coulomb == 0) then
-      system%coulomb = 1
+    if (.not.system%coulomb) then
+      system%coulomb = .true.
       do i = 1, system%ntypes
         do j = 1, system%ntypes
-          call c_f_pointer( system%pairModel(i,j), model )
+          call c_f_pointer( system%model(i,j), model )
           if (associated(model)) model%id = mCOULOMB + mod(model%id,mCOULOMB)
         end do
       end do
     end if
-    call copy_real( charges, system%charge, 1, system%natoms )
+    call c_f_pointer( charges, Q, [system%natoms] )
+    system%charge = Q
 
   end subroutine EmDee_set_charges
 
@@ -281,17 +283,17 @@ contains
     logical :: keep
 
     type(tData),  pointer :: system
-    type(tModel), pointer :: pairModel
+    type(tModel), pointer :: ikModel
 
     call c_f_pointer( md%data, system )
     if (itype == jtype) then
       call associate_model( itype, itype, model )
       do k = 1, system%ntypes
         if (k /= itype) then
-          call c_f_pointer( system%pairModel(itype,k), pairModel )
-          keep = associated(pairModel)
-          if (keep) keep = pairModel%external
-          if (.not.keep) call replace( itype, k, cross_pair( model, system%pairModel(k,k) ) )
+          call c_f_pointer( system%model(itype,k), ikModel )
+          keep = associated(ikModel)
+          if (keep) keep = ikModel%external
+          if (.not.keep) call replace( itype, k, cross_pair( model, system%model(k,k) ) )
         end if
       end do
     else
@@ -305,13 +307,13 @@ contains
         type(c_ptr), intent(in) :: model
         type(tModel), pointer :: pmodel
         if (c_associated(model)) then
-          if (system%coulomb == 1) then
+          if (system%coulomb) then
             call c_f_pointer( model, pmodel )
             pmodel%id = mCOULOMB + mod(pmodel%id,mCOULOMB)
           end if
-          system%pairModel(i,j) = model
+          system%model(i,j) = model
         else
-          system%pairModel(i,j) = c_null_ptr
+          system%model(i,j) = c_null_ptr
         end if
       end subroutine associate_model
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -319,8 +321,8 @@ contains
         integer(ib), intent(in) :: i, j
         type(c_ptr), intent(in) :: model
         type(tModel), pointer :: ij
-        if (c_associated(system%pairModel(i,j))) then
-          call c_f_pointer( system%pairModel(i,j), ij )
+        if (c_associated(system%model(i,j))) then
+          call c_f_pointer( system%model(i,j), ij )
           if (.not.ij%external) deallocate( ij )
         end if
         call associate_model( i, j, model )
@@ -337,8 +339,8 @@ contains
 
     integer :: n
 
-    type(tData),  pointer :: system
-    type(tList),  pointer :: excluded
+    type(tData), pointer :: system
+    type(tList), pointer :: excluded
 
     call c_f_pointer( md%data, system )
     if ((i > 0).and.(i <= system%natoms).and.(j > 0).and.(j <= system%natoms).and.(i /= j)) then
@@ -442,13 +444,12 @@ contains
     type(tData), pointer :: system
 
     integer(ib), pointer, contiguous :: atom(:), free(:)
-    real(rb),    pointer, contiguous :: R(:,:), mass(:)
+    real(rb),    pointer, contiguous :: R(:,:)
     type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( indexes, atom, [N] )
     call c_f_pointer( md%data, system )
     call c_f_pointer( system%freeAtom, free, [system%nfree] )
-    call c_f_pointer( system%atomMass, mass, [system%natoms] )
 
     allocate( isFree(system%natoms) )
     isFree = .false.
@@ -465,7 +466,7 @@ contains
     system%threadBodies = (system%nbodies + system%nthreads - 1)/system%nthreads
 
     associate(b => body(system%nbodies))
-      call b % setup( atom, mass(atom) )
+      call b % setup( atom, system%mass(atom) )
       if (c_associated(system%coords)) then
         call c_f_pointer( system%coords, R, [3,system%natoms] )
         Rn = R(:,atom)
@@ -644,11 +645,10 @@ contains
     type(kiss),  pointer :: rng
 
     integer(ib), pointer, contiguous :: free(:)
-    real(rb),    pointer, contiguous :: mass(:), P(:,:)
+    real(rb),    pointer, contiguous :: P(:,:)
     type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( md%data, system )
-    call c_f_pointer( system%atomMass, mass, [system%natoms] )
     call c_f_pointer( system%momenta, P, [3,system%natoms] )
     call c_f_pointer( system%random, rng )
     call c_f_pointer( system%body, body, [system%nbodies] )
@@ -670,8 +670,8 @@ contains
     end if
     do j = 1, system%nfree
       i = free(j)
-      P(:,i) = sqrt(mass(i)*kT)*[rng%normal(), rng%normal(), rng%normal()]
-      twoKEt = twoKEt + sum(P(:,i)**2)/mass(i)
+      P(:,i) = sqrt(system%mass(i)*kT)*[rng%normal(), rng%normal(), rng%normal()]
+      twoKEt = twoKEt + sum(P(:,i)**2)/system%mass(i)
     end do
     if (adjust == 1) call adjust_momenta
     md%Rotational = half*TwoKEr
@@ -683,9 +683,9 @@ contains
         integer  :: i
         real(rb) :: vcm(3), factor
         forall (i=1:3) vcm(i) = (sum(P(i,free)) + sum(body%pcm(i)))/system%totalMass
-        forall (i=1:system%nfree) P(:,free(i)) = P(:,free(i)) - mass(free(i))*vcm
+        forall (i=1:system%nfree) P(:,free(i)) = P(:,free(i)) - system%mass(free(i))*vcm
         forall (i=1:system%nbodies) body(i)%pcm = body(i)%pcm - body(i)%mass*vcm
-        twoKEt = sum([(sum(P(:,free(i))**2)/mass(free(i)),i=1,system%nfree)]) + &
+        twoKEt = sum([(sum(P(:,free(i))**2)/system%mass(free(i)),i=1,system%nfree)]) + &
                  sum([(body(i)%invMass*sum(body(i)%pcm**2),i=1,system%nbodies)])
         factor = sqrt((system%nfree + sum(body%dof) - 3)*kT/(twoKEt + TwoKEr))
         P(:,free) = factor*P(:,free)
@@ -720,7 +720,6 @@ contains
     call c_f_pointer( md%data, system )
     call c_f_pointer( system%momenta, P, [3,system%natoms] )
     call c_f_pointer( system%forces, F, [3,system%natoms] )
-    call c_f_pointer( system%invMass, invMass, [system%natoms] )
     call c_f_pointer( system%body, body, [system%nbodies] )
     call c_f_pointer( system%freeAtom, free, [system%nfree] )
 
@@ -788,14 +787,13 @@ contains
     type(tData),  pointer :: system
 
     integer(ib), pointer, contiguous :: free(:)
-    real(rb),    pointer, contiguous :: R(:,:), P(:,:), F(:,:), invMass(:)
+    real(rb),    pointer, contiguous :: R(:,:), P(:,:), F(:,:)
     type(tBody), pointer, contiguous :: body(:)
 
     call c_f_pointer( md%data, system )
     call c_f_pointer( system%coords, R, [3,system%natoms] )
     call c_f_pointer( system%momenta, P, [3,system%natoms] )
     call c_f_pointer( system%forces, F, [3,system%natoms] )
-    call c_f_pointer( system%invMass, invMass, [system%natoms] )
     call c_f_pointer( system%body, body, [system%nbodies] )
     call c_f_pointer( system%freeAtom, free, [system%nfree] )
 
@@ -832,7 +830,7 @@ contains
         end do
         do i = (thread - 1)*system%threadAtoms + 1, min(thread*system%threadAtoms, system%nfree)
           j = free(i)
-          R(:,j) = cR*R(:,j) + cP*P(:,j)*invMass(j)
+          R(:,j) = cR*R(:,j) + cP*P(:,j)*system%invMass(j)
         end do
       end subroutine move
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -851,14 +849,13 @@ contains
 
     type(tData), pointer :: system
 
-    real(rb), pointer, contiguous :: R(:,:), F(:,:), R0(:,:)
+    real(rb), pointer, contiguous :: R(:,:), F(:,:)
 
     call c_f_pointer( md%data, system )
     md%pairTime = md%pairTime - omp_get_wtime()
 
     call c_f_pointer( system%forces, F, [3,system%natoms] )
     call c_f_pointer( system%coords, R, [3,system%natoms] )
-    call c_f_pointer( system%R0, R0, [3,system%natoms] )
 
     allocate( Rs(3,system%natoms), Fs(3,system%natoms) )
     Rs = system%invL*R
@@ -866,12 +863,12 @@ contains
     Potential = zero
     Virial = zero
 
-    buildList = maximum_approach_sq( system%natoms, R - R0 ) > system%skinSq
+    buildList = maximum_approach_sq( system%natoms, R - system%R0 ) > system%skinSq
     if (buildList) then
       M = floor(ndiv*system%Lbox/system%xRc)
       if (M < 5) stop "ERROR: simulation box is too small."
       call distribute_atoms( system, M, Rs )
-      R0 = R
+      system%R0 = R
       md%builds = md%builds + 1
     endif
 
@@ -941,11 +938,7 @@ contains
 
     real(rb), allocatable :: Rs(:,:), Fs(:,:)
 
-    real(rb), pointer, contiguous :: R0(:,:)
-
     md%pairTime = md%pairTime - omp_get_wtime()
-
-    call c_f_pointer( me%R0, R0, [3,me%natoms] )
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
     Rs = me%invL*R
@@ -953,12 +946,12 @@ contains
     Potential = zero
     Virial = zero
 
-    buildList = maximum_approach_sq( me%natoms, R - R0 ) > me%skinSq
+    buildList = maximum_approach_sq( me%natoms, R - me%R0 ) > me%skinSq
     if (buildList) then
       M = floor(ndiv*me%Lbox/me%xRc)
       if (M < 5) stop "ERROR: simulation box is too small."
       call distribute_atoms( me, M, Rs )
-      R0 = R
+      me%R0 = R
       md%builds = md%builds + 1
     endif
 
@@ -1271,12 +1264,7 @@ contains
     type(tStructData), pointer :: dihedrals
     type(tModel),      pointer :: model
 
-    integer(ib),    pointer, contiguous :: atomType(:)
-    real(rb),       pointer, contiguous :: charge(:)
-
     call c_f_pointer( me%dihedrals, dihedrals )
-    call c_f_pointer( me%charge, charge, [me%natoms] )
-    call c_f_pointer( me%atomType, atomType, [me%natoms] )
 
     Rc2 = me%RcSq*me%invL2
     ndihedrals = (dihedrals%number + me%nthreads - 1)/me%nthreads
@@ -1321,8 +1309,8 @@ contains
         r2 = sum(rij*rij)
         if (r2 < me%RcSq) then
           invR2 = me%invL2/r2
-          call c_f_pointer( me%pairModel(atomType(i),atomType(j)), model )
-          icharge = charge(i)
+          call c_f_pointer( me%model(me%atomType(i),me%atomType(j)), model )
+          icharge = me%charge(i)
           call compute_pair()
           Eij = model%p1*Eij
           Wij = model%p1*Wij
@@ -1355,7 +1343,7 @@ contains
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),     intent(inout) :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer(ib) :: i, j, k, m, n, icell, jcell, npairs, itype, nlocal, ntotal, first, last
     real(rb)    :: xRc2, Rc2, r2, invR2, Eij, Wij, icharge
@@ -1368,14 +1356,10 @@ contains
     type(tModel), pointer :: model
     type(tList),  pointer :: cellAtom, threadCell, neighbor, excluded
 
-    type(tCell),    pointer, contiguous :: cell(:)
-    integer(ib),    pointer, contiguous :: atomType(:)
-    real(rb),       pointer, contiguous :: charge(:)
-    type(tList),    pointer, contiguous :: neighborLists(:)
+    type(tCell), pointer, contiguous :: cell(:)
+    type(tList), pointer, contiguous :: neighborLists(:)
 
     call c_f_pointer( me%cell, cell, [me%ncells] )
-    call c_f_pointer( me%atomType, atomType, [me%natoms] )
-    call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%excluded, excluded )
@@ -1413,8 +1397,8 @@ contains
       do k = 1, nlocal
         i = atom(k)
         neighbor%first(i) = npairs + 1
-        itype = atomType(i)
-        icharge = charge(i)
+        itype = me%atomType(i)
+        icharge = me%charge(i)
         Ri = Rs(:,i)
         Fi = zero
         xlist = index(excluded%item(excluded%first(i):excluded%last(i)))
@@ -1422,7 +1406,7 @@ contains
         do m = k + 1, ntotal
           if (include(m)) then
             j = atom(m)
-            call c_f_pointer( me%pairModel(itype,atomType(j)), model )
+            call c_f_pointer( me%model(itype,me%atomType(j)), model )
             if (associated(model)) then
               Rij = Ri - Rs(:,j)
               Rij = Rij - anint(Rij)
@@ -1472,12 +1456,8 @@ contains
     type(tModel), pointer :: model
     type(tList),  pointer :: cellAtom, threadCell, neighbor
 
-    integer(ib),    pointer, contiguous :: atomType(:)
-    real(rb),       pointer, contiguous :: charge(:)
     type(tList),    pointer, contiguous :: neighborLists(:)
 
-    call c_f_pointer( me%atomType, atomType, [me%natoms] )
-    call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%cellAtom, cellAtom )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
@@ -1488,10 +1468,10 @@ contains
     lastAtom = cellAtom%last(threadCell%last(thread))
     do m = firstAtom, lastAtom
       i = cellAtom%item(m)
-      itype = atomType(i)
+      itype = me%atomType(i)
       Ri = Rs(:,i)
       Fi = zero
-      icharge = charge(i)
+      icharge = me%charge(i)
       do k = neighbor%first(i), neighbor%last(i)
         j = neighbor%item(k)
         Rij = Ri - Rs(:,j)
@@ -1499,7 +1479,7 @@ contains
         r2 = sum(Rij*Rij)
         if (r2 < Rc2) then
           invR2 = me%invL2/r2
-          call c_f_pointer( me%pairModel(itype,atomType(j)), model )
+          call c_f_pointer( me%model(itype,me%atomType(j)), model )
           call compute_pair()
           Potential = Potential + Eij
           Virial = Virial + Wij
@@ -1531,13 +1511,11 @@ contains
     type(tModel), pointer :: model
     type(tList),  pointer :: threadCell, neighbor
 
-    integer(ib),    pointer, contiguous :: atomType(:), atomCell(:)
-    real(rb),       pointer, contiguous :: R(:,:), charge(:)
-    type(tList),    pointer, contiguous :: neighborLists(:)
+    integer(ib), pointer, contiguous :: atomCell(:)
+    real(rb),    pointer, contiguous :: R(:,:), charge(:)
+    type(tList), pointer, contiguous :: neighborLists(:)
 
-    call c_f_pointer( me%atomType, atomType, [me%natoms] )
     call c_f_pointer( me%coords, R, [3,me%natoms] )
-    call c_f_pointer( me%charge, charge, [me%natoms] )
     call c_f_pointer( me%atomCell, atomCell, [me%natoms] )
     call c_f_pointer( me%threadCell, threadCell )
     call c_f_pointer( me%neighbor, neighborLists, [me%nthreads] )
@@ -1550,7 +1528,7 @@ contains
     do m = 1, size(atom)
       i = atom(m)
       if ((atomCell(i) >= firstCell).and.(atomCell(i) <= lastCell)) then
-        itype = atomType(i)
+        itype = me%atomType(i)
         Ri = R(:,i)
         icharge = charge(i)
         do k = neighbor%first(i), neighbor%last(i)
@@ -1561,7 +1539,7 @@ contains
           if (r2 < me%RcSq) then
             invR2 = one/r2
             layer = 0
-            call c_f_pointer( me%pairModel(itype,atomType(j)), model )
+            call c_f_pointer( me%model(itype,me%atomType(j)), model )
             do while (associated(model))
               layer = layer + 1
               call compute_pair()

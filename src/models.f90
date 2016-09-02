@@ -44,10 +44,6 @@ type tModel
   type(tModel), pointer :: next => null()
 end type tModel
 
-type modelPtr
-  type(tModel), pointer :: model => null()
-end type modelPtr
-
 private :: set_data
 
 contains
