@@ -31,13 +31,42 @@ type tStruct
   type(tModel), pointer :: model => null()
 end type tStruct
 
-type tStructData
+type structList
   integer :: number = 0
   integer :: max = 0
+  logical :: exist = .false.
   type(tStruct), allocatable :: item(:)
-end type tStructData
+  contains
+    procedure :: add => structList_add
+end type structList
 
 contains
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine structList_add( struct, i, j, k, l, model )
+    class(structList), intent(inout) :: struct
+    integer(ib),        intent(in)    :: i, j, k, l
+    type(c_ptr),        intent(in)    :: model
+
+    type(tStruct), allocatable :: new(:)
+
+    if (.not.struct%exist) then
+      struct%max = extra
+      allocate( struct%item(struct%max) )
+      struct%exist = .true.
+    else if (struct%number == struct%max) then
+      struct%max = struct%max + extra
+      allocate( new(struct%max) )
+      new(1:struct%number) = struct%item
+      deallocate( struct%item )
+      call move_alloc( new, struct%item )
+    end if
+    struct%number = struct%number + 1
+    struct%item(struct%number) = tStruct( i, j, k, l )
+    call c_f_pointer( model, struct%item(struct%number)%model )
+
+  end subroutine structList_add
 
 !---------------------------------------------------------------------------------------------------
 
@@ -46,7 +75,7 @@ contains
     integer(ib), intent(in)    :: i, j, k, l
     type(c_ptr), intent(in)    :: model
 
-    type(tStructData), pointer :: ptr
+    type(structList), pointer :: ptr
     type(tStruct), allocatable :: new(:)
 
     if (c_associated(struct)) then
