@@ -8,16 +8,16 @@ BINDIR = ./test
 LIBDIR = ./lib
 INCDIR = ./include
 
-LIBFILE = $(LIBDIR)/libemdee.so
+EMDEELIB = -L$(LIBDIR) -lemdee
 
-LIBS = -L$(LIBDIR) -lemdee -lgfortran -lm
+obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
+src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
-OBJ = $(OBJDIR)/EmDeeCode.o $(OBJDIR)/ArBee.o $(OBJDIR)/math.o $(OBJDIR)/structs.o  \
-      $(OBJDIR)/models.o $(OBJDIR)/lists.o $(OBJDIR)/global.o
+OBJECTS = $(call obj,EmDeeCode ArBee math structs models lists global)
 
-.PHONY: all test clean install lib
+.PHONY: all test clean install uninstall lib
 
-all: test
+all: lib
 
 clean:
 	rm -rf $(OBJDIR)
@@ -25,42 +25,48 @@ clean:
 	rm -rf $(BINDIR)
 
 install:
-	cp $(LIBFILE) /usr/local/lib/
-	cp $(INCDIR)/* /usr/local/include/
+	cp $(LIBDIR)/libemdee.* /usr/local/lib/
+	cp $(INCDIR)/emdee.* /usr/local/include/
 
-test: $(BINDIR)/testfortran $(BINDIR)/testc $(BINDIR)/testjulia
+uninstall:
+	rm -f /usr/local/lib/libemdee.a /usr/local/lib/libemdee.so
+	rm -f /usr/local/include/emdee.h /usr/local/include/emdee.f03
 
-lib: $(LIBFILE)
+# Executables:
 
-$(BINDIR)/testfortran: $(OBJDIR)/testfortran.o
+test: $(addprefix $(BINDIR)/,testfortran testc testjulia)
+
+$(BINDIR)/testfortran: $(SRCDIR)/testfortran.f90 $(INCDIR)/emdee.f03 $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
-	$(FORT) $(OPTS) -o $@ -I$(INCDIR) -J$(OBJDIR) $< $(LIBS)
+	$(FORT) $(OPTS) -static-libgfortran -o $@ -J$(OBJDIR) $< $(EMDEELIB)
 
-$(OBJDIR)/testfortran.o: $(SRCDIR)/testfortran.f90 $(INCDIR)/emdee.f03 $(LIBFILE)
-	$(FORT) $(OPTS) -c -o $@ -J$(OBJDIR) $<
-
-$(BINDIR)/testc: $(OBJDIR)/testc.o
+$(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
-	$(CC) $(OPTS) -o $@ $< $(LIBS)
-
-$(OBJDIR)/testc.o: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBFILE)
-	$(CC) $(OPTS) -c -o $@ $< -I$(INCDIR)
+	$(CC) -static-libgfortran $(OPTS) -o $@ $< $(EMDEELIB) -lm
 
 $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl
 	mkdir -p $(BINDIR)
 	cp $< $@ && chmod +x $@
 
-$(LIBFILE): $(OBJ)
-	mkdir -p $(LIBDIR)
-	$(FORT) -shared -fPIC -o $(LIBFILE) $^
+# Static and shared libraries:
 
-$(OBJDIR)/EmDeeCode.o: $(SRCDIR)/EmDeeCode.f90 $(OBJDIR)/ArBee.o $(SRCDIR)/compute_pair.f90 \
-                        $(SRCDIR)/compute_bond.f90 $(SRCDIR)/compute_angle.f90    \
-                        $(SRCDIR)/compute_dihedral.f90 $(OBJDIR)/structs.o \
-                        $(OBJDIR)/models.o $(OBJDIR)/lists.o $(OBJDIR)/global.o
+lib: $(LIBDIR)/libemdee.so $(LIBDIR)/libemdee.a
+
+$(LIBDIR)/libemdee.so: $(OBJECTS)
+	mkdir -p $(LIBDIR)
+	$(FORT) -shared -fPIC -o $@ $^ -lgfortran -lm
+
+$(LIBDIR)/libemdee.a: $(OBJECTS)
+	mkdir -p $(LIBDIR)
+	ar cr $@ $^
+
+# Object files:
+
+$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode compute_pair compute_bond compute_angle compute_dihedral) \
+                       $(call obj,ArBee structs models lists global)
 	$(FORT) $(OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/ArBee.o: $(SRCDIR)/ArBee.f90 $(OBJDIR)/math.o $(OBJDIR)/global.o
+$(OBJDIR)/ArBee.o: $(SRCDIR)/ArBee.f90 $(call obj,math global)
 	$(FORT) $(OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
@@ -73,9 +79,6 @@ $(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o
 	$(FORT) $(OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/lists.o: $(SRCDIR)/lists.f90
-	$(FORT) $(OPTS) -J$(OBJDIR) -c -o $@ $<
-
-: $(SRCDIR)/c_binding.f90 $(OBJDIR)/global.o
 	$(FORT) $(OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/global.o: $(SRCDIR)/global.f90
