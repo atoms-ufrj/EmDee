@@ -18,7 +18,8 @@
 !            Federal University of Rio de Janeiro, Brazil
 
 ! TODO: 1) Add a field to tEmDee in order to store the degrees of freedom of the system
-! TODO: 2) Optimize parallel performance of upload and download in a unique omp parallel
+! TODO: 2) Optimize parallel performance of download in a unique omp parallel
+! TODO: 3) Create indexing for having sequential body particles and free particles in arrays
 
 module EmDeeCode
 
@@ -90,7 +91,8 @@ type, private :: tData
   real(rb) :: eshift                      ! Potential shifting factor for Coulombic interactions
   real(rb) :: fshift                      ! Force shifting factor for Coulombic interactions
 
-  logical :: coulomb = .false.            ! Flag for coulombic interactions
+  logical :: coulomb = .false.            ! Flag for checking if coulombic interactions occur
+  logical :: initialized = .false.        ! Flag for checking coordinates initialization
 
   type(kiss) :: random                    ! Random number generator
 
@@ -180,9 +182,7 @@ contains
 
     ! Initialize counters and other mutable entities:
     me%startTime = omp_get_wtime()
-    allocate( me%P(3,N), me%F(3,N) )
-    allocate( me%charge(N), source = zero )
-    allocate( me%R0(3,N), source = zero )
+    allocate( me%R(3,N), me%P(3,N), me%F(3,N), me%R0(3,N), me%charge(N), source = zero )
     allocate( me%cell(0) )
     allocate( me%atomCell(N) )
 
@@ -436,9 +436,9 @@ contains
     end if
     me%nbodies = me%nbodies + 1
     me%threadBodies = (me%nbodies + me%nthreads - 1)/me%nthreads
-    associate(b => body(me%nbodies))
+    associate(b => me%body(me%nbodies))
       call b % setup( atom, me%mass(atom) )
-      if (allocated(me%R)) then
+      if (me%initialized) then
         Rn = me%R(:,atom)
         forall (j=2:b%NP) Rn(:,j) = Rn(:,j) - me%Lbox*anint((Rn(:,j) - Rn(:,1))*me%invL)
         call b % update( Rn )
@@ -459,11 +459,16 @@ contains
     type(tEmDee), intent(inout) :: md
     type(c_ptr),  value         :: Lbox, coords, momenta, forces
 
-    real(rb) :: Virial
-    real(rb),    pointer :: L, Rext(:,:), Pext(:,:), Fext(:,:)
+    real(rb), pointer :: L
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
+
+    if (.not.me%initialized) then
+      if (.not.(c_associated(Lbox).and.c_associated(coords))) then
+        stop "ERROR in EmDee_upload: box side length and atomic coordinates are required."
+      end if
+    end if
 
     if (c_associated(Lbox)) then
       call c_f_pointer( Lbox, L )
@@ -472,30 +477,18 @@ contains
       me%invL2 = me%invL**2
     end if
 
-    if (c_associated(coords)) then
-      if (me%Lbox == zero) stop "ERROR: box side length has not been defined."
-      if (.not.allocated(me%R)) allocate( me%R(3,me%natoms) )
-      call c_f_pointer( coords, Rext, [3,me%natoms] )
-      !$omp parallel num_threads(me%nthreads)
-      call assign_coordinates( omp_get_thread_num() + 1 )
-      !$omp end parallel
-      if (.not.c_associated(forces)) call compute_forces( md )
-    end if
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      if (c_associated(coords)) call assign_coordinates( thread )
+      if (c_associated(momenta)) call assign_momenta( thread )
+      if (c_associated(forces)) call assign_forces( thread )
+    end block
+    !$omp end parallel
 
-    if (c_associated(momenta)) then
-      if (.not.allocated(me%R)) stop "ERROR: atomic coordinates have not been defined."
-      call c_f_pointer( momenta, Pext, [3,me%natoms] )
-      !$omp parallel num_threads(me%nthreads)
-      call assign_momenta( omp_get_thread_num() + 1 )
-      !$omp end parallel
-    end if
-
-    if (c_associated(forces)) then
-      if (.not.allocated(me%R)) stop "ERROR: atomic coordinates have not been defined."
-      call c_f_pointer( forces, Fext, [3,me%natoms] )
-      me%F = Fext
-      call rigid_body_forces( me, Virial )
-    end if
+    me%initialized = c_associated(coords)
+    if (me%initialized.and.(.not.c_associated(forces))) call compute_forces( md )
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -503,6 +496,8 @@ contains
         integer, intent(in) :: thread
         integer :: i, j
         real(rb), allocatable :: R(:,:)
+        real(rb), pointer :: Rext(:,:)
+        call c_f_pointer( coords, Rext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
           me%R(:,i) = Rext(:,i)
@@ -521,6 +516,8 @@ contains
         integer, intent(in) :: thread
         integer :: i, j
         real(rb) :: L(3), Pj(3)
+        real(rb), pointer :: Pext(:,:)
+        call c_f_pointer( momenta, Pext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
           me%P(:,i) = Pext(:,i)
@@ -535,10 +532,24 @@ contains
               L = L + cross_product( b%delta(:,j), Pj )
             end do
             b%pi = matmul( matrix_C(b%q), two*L )
-            me%P(:,b%index) = b % particle_momenta()
           end associate
         end do
       end subroutine assign_momenta
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine assign_forces( thread )
+        integer, intent(in) :: thread
+        integer :: i, j
+        real(rb) :: W
+        real(rb), pointer :: Fext(:,:)
+        call c_f_pointer( forces, Fext, [3,me%natoms] )
+        do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+          i = me%free(j)
+          me%F(:,i) = Fext(:,i)
+        end do
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          W = me%body(i) % force_torque_virial( Fext )
+        end do
+      end subroutine assign_forces
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 
@@ -602,14 +613,12 @@ contains
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
-
     if (me%random%seeding_required) call me % random % setup( seed )
-
     twoKEt = zero
+    TwoKEr = zero
     associate (rng => me%random)
       if (me%nbodies /= 0) then
-        if (.not.allocated(me%R)) stop "ERROR in random momenta: coordinates not defined."
-        TwoKEr = zero
+        if (.not.me%initialized) stop "ERROR in random momenta: coordinates not defined."
         do i = 1, me%nbodies
           associate (b => me%body(i))
             b%pcm = sqrt(b%mass*kT)*[rng%normal(), rng%normal(), rng%normal()]
@@ -635,21 +644,21 @@ contains
       subroutine adjust_momenta
         integer  :: i
         real(rb) :: vcm(3), factor
-        associate (free => me%free(1:me%nfree), body => me%body, P => me%P)
-          forall (i=1:3) vcm(i) = (sum(P(i,free)) + sum(me%body%pcm(i)))/me%totalMass
-          forall (i=1:me%nfree) P(:,free(i)) = P(:,free(i)) - me%mass(free(i))*vcm
+        associate (free => me%free(1:me%nfree), body => me%body(1:me%nbodies))
+          forall (i=1:3) vcm(i) = (sum(me%P(i,free)) + sum(body(1:me%nbodies)%pcm(i)))/me%totalMass
+          forall (i=1:me%nfree) me%P(:,free(i)) = me%P(:,free(i)) - me%mass(free(i))*vcm
           forall (i=1:me%nbodies) body(i)%pcm = body(i)%pcm - body(i)%mass*vcm
-          twoKEt = sum([(sum(P(:,free(i))**2)/me%mass(free(i)),i=1,me%nfree)]) + &
-                   sum([(body(i)%invMass*sum(body(i)%pcm**2),i=1,me%nbodies)])
-          factor = sqrt((me%nfree + sum(body%dof) - 3)*kT/(twoKEt + TwoKEr))
-          P(:,free) = factor*P(:,free)
+          twoKEt = sum([(sum(me%P(:,free(i))**2)*me%invMass(free(i)),i=1,me%nfree)]) + &
+                   sum([(sum(body(i)%pcm**2)*body(i)%invMass,i=1,me%nbodies)])
+          factor = sqrt((3*me%nfree + sum(body%dof) - 3)*kT/(twoKEt + TwoKEr))
+          me%P(:,free) = factor*me%P(:,free)
+          do i = 1, me%nbodies
+            associate( b => body(i) )
+              b%pcm = factor*b%pcm
+              b%pi = factor*b%pi
+            end associate
+          end do
         end associate
-        do i = 1, me%nbodies
-          associate( b => me%body(i) )
-            b%pcm = factor*b%pcm
-            b%pi = factor*b%pi
-          end associate
-        end do
         twoKEt = factor*factor*twoKEt
         TwoKEr = factor*factor*TwoKEr
       end subroutine adjust_momenta
