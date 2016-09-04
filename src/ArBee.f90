@@ -33,7 +33,7 @@ type tBody
   real(rb) :: MoI(3)    ! Principal moments of inertia
   real(rb) :: rcm(3)    ! Center-of-mass position
   real(rb) :: pcm(3)    ! Center-of-mass momentum vector
-  real(rb) :: q(0:3)    ! Unit quaternion of orientation
+  real(rb) :: q(0:3) = zero    ! Unit quaternion of orientation
   real(rb) :: pi(0:3)   ! Quaternion momentum
 
   real(rb) :: F(3)      ! Resultant force
@@ -61,25 +61,6 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine realloc_rigid_body_list( list, Nmax )
-    type(c_ptr), intent(inout) :: list
-    integer(ib), intent(inout) :: Nmax
-
-    type(tBody), pointer, contiguous :: old(:), new(:)
-
-    allocate( new(Nmax+extra) )
-    if (c_associated(list)) then
-      call c_f_pointer( list, old, [Nmax] )
-      new(1:Nmax) = old
-      deallocate( old )
-    end if
-    Nmax = Nmax + extra
-    list = c_loc(new(1))
-
-  end subroutine realloc_rigid_body_list
-
-!---------------------------------------------------------------------------------------------------
-
   subroutine tBody_setup( b, indexes, masses )
     class(tBody), intent(inout) :: b
     integer(ib),  intent(in)    :: indexes(:)
@@ -91,12 +72,6 @@ contains
     b%M = masses
     b%mass = sum(b%M)
     b%invMass = one/b%mass
-    b%rcm = zero
-    b%d = zero
-    b%delta = zero
-    b%q = zero
-    b%pcm = zero
-    b%pi  = zero
 
   end subroutine tBody_setup
 

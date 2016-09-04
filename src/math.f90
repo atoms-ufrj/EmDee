@@ -24,6 +24,7 @@ use global
 implicit none
 
 type, abstract :: i32rng
+  logical :: seeding_required = .true.
   integer(4), private :: kn(0:127)
   real(8),    private :: wn(0:127), fn(0:127)
   contains
@@ -67,6 +68,7 @@ contains
     real(8), parameter :: m1 = 2147483648.0_8
     real(8) :: q, dn, tn, vn
     call a%init( seed )
+    a%seeding_required = .false.
     dn = 3.442619855899_8
     tn = 3.442619855899_8
     vn = 0.00991256303526217_8

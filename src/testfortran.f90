@@ -19,9 +19,11 @@
 
 program testfortran
 
-use EmDee
+use iso_c_binding
 
 implicit none
+
+#include "emdee.f03"
 
 integer, parameter :: ib = 4, rb = 8
 
@@ -36,7 +38,6 @@ type(c_ptr), target :: lj, bond
 
 integer :: i, j, argcount, threads
 character(256) :: line
-!integer, pointer :: first(:), last(:), item(:)
 
 argcount = command_argument_count()
 if (argcount == 1) then
@@ -54,12 +55,10 @@ end if
 call read_data( file = line )
 call create_configuration
 
-md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr, 7834 )
+md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr )
 
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
-call EmDee_set_pair_type( md, 1, 1, c_loc(lj) )
-!print*, match( [1,7,5,3,2,4,8,6], [2,3,4,8])
-!stop
+call EmDee_set_pair_type( md, 1, 1, lj )
 
 do i = 1, N-1
   do j = i+1, N
@@ -68,33 +67,15 @@ do i = 1, N-1
 end do
 
 bond = EmDee_bond_harmonic( 1.0_rb, 1.0_rb )
-call EmDee_add_bond( md, 1, 2, c_loc(bond) )
-call EmDee_add_bond( md, 2, 3, c_loc(bond) )
-call EmDee_add_bond( md, 4, 5, c_loc(bond) )
+call EmDee_add_bond( md, 1, 2, bond )
+call EmDee_add_bond( md, 2, 3, bond )
+call EmDee_add_bond( md, 4, 5, bond )
 
-!call c_f_pointer( md%excluded%first, first, [md%natoms])
-!call c_f_pointer( md%excluded%last, last, [md%natoms])
-!call c_f_pointer( md%excluded%item, item, [md%excluded%nitems])
-
-!do i = 1, N
-!  print*, i, " --- ", item(first(i):last(i))
-!end do
-!stop
-
-!tf = secnds(0.0)
-!do step = 1, 20000
-!  call find_pairs( md, L+step/200 )
-!end do
-!print*, "execution time = ", secnds(0.0) - tf, " s."
-!stop
-
-!call EmDee_compute( md )
 call EmDee_upload( md, c_loc(L), c_loc(R(1,1)), c_loc(V(1,1)), c_null_ptr )
-print*, 0, md%Potential, md%Virial
+
 do step = 1, Nsteps
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
   call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )
-!  call EmDee_compute( md )
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2, 1, 1 )
   if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
 end do

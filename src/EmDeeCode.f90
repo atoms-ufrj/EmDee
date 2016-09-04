@@ -17,15 +17,12 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: 1) Change body from type(c_ptr) to allocatable type(tBody) in tData
-! TODO: 2) Add a field to tEmDee in order to store the degrees of freedom of the system
-! TODO: 3) Pass RNG seed only to routine random_momenta
-! TODO: 4) Optimize parallel performance of upload and download in a unique omp parallel
+! TODO: 1) Add a field to tEmDee in order to store the degrees of freedom of the system
+! TODO: 2) Optimize parallel performance of upload and download in a unique omp parallel
 
 module EmDeeCode
 
 use omp_lib
-use c_binding
 use lists
 use math
 use models
@@ -66,62 +63,61 @@ end type tCell
 type, private :: tData
 
   integer :: natoms                       ! Number of atoms in the system
-  real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
-  real(rb), allocatable :: P(:,:)         ! Momenta of all atoms
-  real(rb), allocatable :: F(:,:)         ! Resultant forces on all atoms
-  real(rb), allocatable :: charge(:)      ! Electric charges of all atoms
-
-  integer,  allocatable :: atomType(:)    ! Type indexes of all atoms
-  real(rb), allocatable :: mass(:)        ! Masses of all atoms
-  real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
-  real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
+  integer :: mcells = 0                   ! Number of cells at each dimension
+  integer :: ncells = 0                   ! Total number of cells
+  integer :: maxcells = 0                 ! Maximum number of cells
+  integer :: maxatoms = 0                 ! Maximum number of atoms in a cell
+  integer :: maxpairs = 0                 ! Maximum number of pairs formed by all atoms of a cell
+  integer :: ntypes                       ! Number of atom types
+  integer :: nbodies = 0                  ! Number of rigid bodies
+  integer :: maxbodies = 0                ! Maximum number of rigid bodies
+  integer :: nfree                        ! Number of independent atoms
+  integer :: nthreads                     ! Number of parallel openmp threads
+  integer :: threadAtoms                  ! Number of atoms per parallel thread
+  integer :: threadBodies = 0             ! Number of rigid bodies per parallel thread
 
   real(rb) :: Lbox = zero                 ! Length of the simulation box
+  real(rb) :: invL = huge(one)            ! Inverse length of the simulation box
+  real(rb) :: invL2 = huge(one)           ! Squared inverse length of the simulation box
 
   real(rb) :: Rc                          ! Cut-off distance
   real(rb) :: RcSq                        ! Cut-off distance squared
   real(rb) :: xRc                         ! Extended cutoff distance (including skin)
   real(rb) :: xRcSq                       ! Extended cutoff distance squared
   real(rb) :: skinSq                      ! Square of the neighbor list skin width
-  real(rb) :: invL = huge(one)            ! Inverse length of the simulation box
-  real(rb) :: invL2 = huge(one)           ! Squared inverse length of the simulation box
   real(rb) :: totalMass                   ! Sum of the masses of all atoms
   real(rb) :: startTime                   ! Time recorded at initialization
   real(rb) :: eshift                      ! Potential shifting factor for Coulombic interactions
   real(rb) :: fshift                      ! Force shifting factor for Coulombic interactions
-  logical  :: coulomb = .false.           ! Flag for coulombic interactions
 
-  integer :: mcells = 0                   ! Number of cells at each dimension
-  integer :: ncells = 0                   ! Total number of cells
-  integer :: maxcells = 0                 ! Maximum number of cells
-  integer :: maxatoms = 0                 ! Maximum number of atoms in a cell
-  integer :: maxpairs = 0                 ! Maximum number of pairs formed by all atoms of a cell
+  logical :: coulomb = .false.            ! Flag for coulombic interactions
+
+  type(kiss) :: random                    ! Random number generator
+
   type(tList) :: cellAtom                 ! List of atoms belonging to each cell
-  type(tCell), allocatable :: cell(:)     ! Array containing all neighbor cells of each cell
-  integer, allocatable :: atomCell(:)     ! Array containing the current cell of each atom
-
-  integer :: ntypes                       ! Number of atom types
-  type(c_ptr), allocatable :: model(:,:)  ! Model of each type of atom pair
+  type(tList) :: threadCell               ! List of cells to be dealt with in each parallel thread
+  type(tList) :: excluded                 ! List of pairs excluded from the neighbor lists
 
   type(structList) :: bonds               ! List of bonds
   type(structList) :: angles              ! List of angles
   type(structList) :: dihedrals           ! List of dihedrals
 
-  integer :: nbodies = 0                  ! Number of rigid bodies
-  integer :: maxbodies = 0                ! Maximum number of rigid bodies
-  type(c_ptr) :: body                     ! Pointer to the rigid bodies present in the system
-
-  integer :: nfree                        ! Number of independent atoms
+  integer, allocatable :: atomType(:)     ! Type indexes of all atoms
+  integer, allocatable :: atomCell(:)     ! Array containing the current cell of each atom
   integer, allocatable :: free(:)         ! Pointer to the list of independent atoms
 
-  integer :: nthreads                     ! Number of parallel openmp threads
-  type(tList), allocatable :: neighbor(:) ! Pointer to neighbor lists
+  real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
+  real(rb), allocatable :: P(:,:)         ! Momenta of all atoms
+  real(rb), allocatable :: F(:,:)         ! Resultant forces on all atoms
+  real(rb), allocatable :: charge(:)      ! Electric charges of all atoms
+  real(rb), allocatable :: mass(:)        ! Masses of all atoms
+  real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
+  real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
 
-  integer :: threadAtoms                  ! Number of atoms per parallel thread
-  integer :: threadBodies = 0             ! Number of rigid bodies per parallel thread
-  type(tList) :: threadCell               ! List of cells to be dealt with in each parallel thread
-  type(tList) :: excluded                 ! List of pairs excluded from the neighbor lists
-  type(kiss)  :: random                   ! Random number generator
+  type(c_ptr), allocatable :: model(:,:)  ! Model of each type of atom pair
+  type(tCell), allocatable :: cell(:)     ! Array containing all neighbor cells of each cell
+  type(tBody), allocatable :: body(:)     ! Pointer to the rigid bodies present in the system
+  type(tList), allocatable :: neighbor(:) ! Pointer to neighbor lists
 
 end type tData
 
@@ -134,8 +130,8 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  function EmDee_system( threads, rc, skin, N, types, masses, seed ) bind(C,name="EmDee_system")
-    integer(ib), value :: threads, N, seed
+  function EmDee_system( threads, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
+    integer(ib), value :: threads, N
     real(rb),    value :: rc, skin
     type(c_ptr), value :: types, masses
     type(tEmDee)       :: EmDee_system
@@ -145,6 +141,7 @@ contains
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
 
+    ! Allocate data structure:
     allocate( me )
 
     ! Set up fixed entities:
@@ -190,7 +187,7 @@ contains
     allocate( me%atomCell(N) )
 
     ! Allocate variables associated to rigid bodies:
-    me%body = c_null_ptr
+    allocate( me%body(me%nbodies) )
     me%nfree = N
     allocate( me%free(N), source = [(i,i=1,N)] )
     me%threadAtoms = (N + threads - 1)/threads
@@ -208,9 +205,6 @@ contains
     ! Allocate memory for pair models:
     allocate( me%model(me%ntypes,me%ntypes) )
     me%model = c_null_ptr
-
-    ! Initialize random number generators:
-    call me % random % setup( seed )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -412,30 +406,34 @@ contains
     type(c_ptr),  value :: indexes
     integer(ib),  value :: N
 
+    integer, parameter :: extraBodies = 100
+
     integer :: i, j
-    integer,  allocatable :: aux(:)
     logical,  allocatable :: isFree(:)
     real(rb), allocatable :: Rn(:,:)
     integer,      pointer :: atom(:)
     type(tData),  pointer :: me
-    type(tBody),  pointer :: body(:)
+
+    type(tBody), allocatable :: body(:)
 
     call c_f_pointer( indexes, atom, [N] )
     call c_f_pointer( md%data, me )
+
     allocate( isFree(me%natoms) )
     isFree = .false.
     isFree(me%free) = .true.
     isFree(atom) = .false.
     me%nfree = me%nfree - N
     if (count(isFree) /= me%nfree) stop "Error adding rigid body: only free atoms are allowed."
-    aux = pack([(i,i=1,me%natoms)],isFree)
-    deallocate( me%free )
-    call move_alloc( aux, me%free )
+    me%free(1:me%nfree) = pack([(i,i=1,me%natoms)],isFree)
     me%threadAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
-    if (me%nbodies == me%maxbodies) then
-      call realloc_rigid_body_list( me%body, me%maxbodies )
+
+    if (me%nbodies == size(me%body)) then
+      allocate( body(me%nbodies + extraBodies) )
+      body(1:me%nbodies) = me%body
+      deallocate( me%body )
+      call move_alloc( body, me%body )
     end if
-    call c_f_pointer( me%body, body, [me%nbodies+1] )
     me%nbodies = me%nbodies + 1
     me%threadBodies = (me%nbodies + me%nthreads - 1)/me%nthreads
     associate(b => body(me%nbodies))
@@ -464,10 +462,8 @@ contains
     real(rb) :: Virial
     real(rb),    pointer :: L, Rext(:,:), Pext(:,:), Fext(:,:)
     type(tData), pointer :: me
-    type(tBody), pointer :: body(:)
 
     call c_f_pointer( md%data, me )
-    call c_f_pointer( me%body, body, [me%nbodies] )
 
     if (c_associated(Lbox)) then
       call c_f_pointer( Lbox, L )
@@ -483,7 +479,7 @@ contains
       !$omp parallel num_threads(me%nthreads)
       call assign_coordinates( omp_get_thread_num() + 1 )
       !$omp end parallel
-      if (.not.c_associated(forces)) call EmDee_compute( md )
+      if (.not.c_associated(forces)) call compute_forces( md )
     end if
 
     if (c_associated(momenta)) then
@@ -512,7 +508,7 @@ contains
           me%R(:,i) = Rext(:,i)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => body(i))
+          associate(b => me%body(i))
             R = Rext(:,b%index)
             forall (j=2:b%NP) R(:,j) = R(:,j) - me%Lbox*anint((R(:,j) - R(:,1))*me%invL)
             call b % update( R )
@@ -530,7 +526,7 @@ contains
           me%P(:,i) = Pext(:,i)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => body(i))
+          associate(b => me%body(i))
             b%pcm = zero
             L = zero
             do j = 1, b%NP
@@ -554,7 +550,6 @@ contains
 
     real(rb),    pointer :: L, Pext(:,:), Rext(:,:), Fext(:,:)
     type(tData), pointer :: me
-    type(tBody), pointer :: body(:)
 
     call c_f_pointer( md%data, me )
 
@@ -575,7 +570,6 @@ contains
 
     if (c_associated(momenta)) then
       call c_f_pointer( momenta, Pext, [3,me%natoms] )
-      call c_f_pointer( me%body, body, [me%nbodies] )
       !$omp parallel num_threads(me%nthreads)
       call get_momenta( omp_get_thread_num() + 1 )
       !$omp end parallel
@@ -590,7 +584,7 @@ contains
           Pext(:,me%free(i)) = me%P(:,me%free(i))
         end forall
         forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
-          Pext(:,body(i)%index) = body(i) % particle_momenta()
+          Pext(:,me%body(i)%index) = me%body(i) % particle_momenta()
         end forall
       end subroutine get_momenta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -598,18 +592,18 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_random_momenta( md, kT, adjust ) bind(C,name="EmDee_random_momenta")
+  subroutine EmDee_random_momenta( md, kT, adjust, seed ) bind(C,name="EmDee_random_momenta")
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: kT
-    integer(ib),  value         :: adjust
+    integer(ib),  value         :: adjust, seed
 
     integer  :: i, j
     real(rb) :: twoKEt, TwoKEr, omega(3)
     type(tData), pointer :: me
-    type(tBody), pointer :: body(:)
 
     call c_f_pointer( md%data, me )
-    call c_f_pointer( me%body, body, [me%nbodies] )
+
+    if (me%random%seeding_required) call me % random % setup( seed )
 
     twoKEt = zero
     associate (rng => me%random)
@@ -617,7 +611,7 @@ contains
         if (.not.allocated(me%R)) stop "ERROR in random momenta: coordinates not defined."
         TwoKEr = zero
         do i = 1, me%nbodies
-          associate (b => body(i))
+          associate (b => me%body(i))
             b%pcm = sqrt(b%mass*kT)*[rng%normal(), rng%normal(), rng%normal()]
             omega = sqrt(b%invMoI*kT)*[rng%normal(), rng%normal(), rng%normal()]
             b%pi = matmul( matrix_B(b%q), two*b%MoI*omega )
@@ -641,8 +635,8 @@ contains
       subroutine adjust_momenta
         integer  :: i
         real(rb) :: vcm(3), factor
-        associate (free => me%free, P => me%P)
-          forall (i=1:3) vcm(i) = (sum(P(i,free)) + sum(body%pcm(i)))/me%totalMass
+        associate (free => me%free(1:me%nfree), body => me%body, P => me%P)
+          forall (i=1:3) vcm(i) = (sum(P(i,free)) + sum(me%body%pcm(i)))/me%totalMass
           forall (i=1:me%nfree) P(:,free(i)) = P(:,free(i)) - me%mass(free(i))*vcm
           forall (i=1:me%nbodies) body(i)%pcm = body(i)%pcm - body(i)%mass*vcm
           twoKEt = sum([(sum(P(:,free(i))**2)/me%mass(free(i)),i=1,me%nfree)]) + &
@@ -651,7 +645,7 @@ contains
           P(:,free) = factor*P(:,free)
         end associate
         do i = 1, me%nbodies
-          associate( b => body(i) )
+          associate( b => me%body(i) )
             b%pcm = factor*b%pcm
             b%pi = factor*b%pi
           end associate
@@ -664,37 +658,35 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_boost( md, lambda, alpha, dt, t_flag, r_flag ) bind(C,name="EmDee_boost")
+  subroutine EmDee_boost( md, lambda, alpha, dt, translation, rotation ) bind(C,name="EmDee_boost")
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: lambda, alpha, dt
-    integer(ib),  value         :: t_flag, r_flag
+    integer(ib),  value         :: translation, rotation
 
     real(rb) :: CP, CF, Ctau, twoKEt, eightKEr, KEt
-    logical  :: tboost, rboost
+    logical  :: tflag, rflag
     type(tData), pointer :: me
-    type(tBody), pointer :: body(:)
 
     call c_f_pointer( md%data, me )
-    call c_f_pointer( me%body, body, [me%nbodies] )
 
     CF = phi(alpha*dt)*dt
     CP = one - alpha*CF
     CF = lambda*CF
     Ctau = two*CF
 
-    tboost = t_flag /= 0
-    rboost = r_flag /= 0
+    tflag = translation /= 0
+    rflag = rotation /= 0
     twoKEt = zero
     eightKEr = zero
     !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,eightKEr)
     call boost( omp_get_thread_num() + 1, twoKEt, eightKEr )
     !$omp end parallel
-    if (tboost) then
+    if (tflag) then
       KEt = half*twoKEt
     else
       KEt = md%Kinetic - md%Rotational
     end if
-    if (rboost) md%Rotational = 0.125_rb*eightKEr
+    if (rflag) md%Rotational = 0.125_rb*eightKEr
     md%Kinetic = KEt + md%Rotational
 
     contains
@@ -704,26 +696,24 @@ contains
         real(rb), intent(inout) :: twoKEt, eightKEr
         integer  :: i, j
         real(rb) :: twoOmega(3)
-        if (tboost) then
-          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-            associate(b => body(i))
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          associate(b => me%body(i))
+            if (tflag) then
               b%pcm = CP*b%pcm + CF*b%F
               twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
-            end associate
-          end do
+            end if
+            if (rflag) then
+              b%pi = CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau )
+              twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
+              eightKEr = eightKEr + sum(b%MoI*twoOmega*twoOmega)
+            end if
+          end associate
+        end do
+        if (tflag) then
           do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
             j = me%free(i)
             me%P(:,j) = CP*me%P(:,j) + CF*me%F(:,j)
             twoKEt = twoKEt + me%invMass(j)*sum(me%P(:,j)**2)
-          end do
-        end if
-        if (rboost) then
-          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-            associate(b => body(i))
-              b%pi = CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau )
-              twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-              eightKEr = eightKEr + sum(b%MoI*twoOmega*twoOmega)
-            end associate
           end do
         end if
       end subroutine boost
@@ -738,10 +728,8 @@ contains
 
     real(rb) :: cR, cP
     type(tData), pointer :: me
-    type(tBody), pointer :: body(:)
 
     call c_f_pointer( md%data, me )
-    call c_f_pointer( me%body, body, [me%nbodies] )
 
     if (alpha /= zero) then
       cP = phi(alpha*dt)*dt
@@ -759,7 +747,7 @@ contains
     call move( omp_get_thread_num() + 1, cP, cR )
     !$omp end parallel
 
-    call EmDee_compute( md )
+    call compute_forces( md )
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -768,7 +756,7 @@ contains
         real(rb), intent(in) :: cP, cR
         integer :: i, j
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => body(i))
+          associate(b => me%body(i))
             b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
             call b % rotate( dt )
             forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
@@ -784,7 +772,33 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_compute( md ) bind(C,name="EmDee_compute")
+  subroutine EmDee_group_energy( md, na, atoms, ne, energies ) bind(C,name="EmDee_group_energy")
+    type(tEmDee), value :: md
+    integer(ib),  value :: na, ne
+    type(c_ptr),  value :: atoms, energies
+
+    real(rb) :: energy(ne)
+    integer,     pointer :: atom(:)
+    real(rb),    pointer :: Eext(:)
+    type(tData), pointer :: me
+
+    call c_f_pointer( md%data, me )
+    call c_f_pointer( atoms, atom, [na] )
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:energy)
+    call compute_group_energy( me, omp_get_thread_num() + 1, na, atom, ne, energy )
+    !$omp end parallel
+
+    call c_f_pointer( energies, Eext, [ne] )
+    Eext = energy
+
+  end subroutine EmDee_group_energy
+
+!===================================================================================================
+!                              A U X I L I A R Y   P R O C E D U R E S
+!===================================================================================================
+
+  subroutine compute_forces( md )
     type(tEmDee), intent(inout) :: md
 
     integer  :: M
@@ -835,86 +849,6 @@ contains
     md%pairTime = md%pairTime + time
     md%totalTime = time - me%startTime
 
-  end subroutine EmDee_compute
-
-!===================================================================================================
-
-  subroutine EmDee_group_energy( md, na, atoms, ne, energies ) bind(C,name="EmDee_group_energy")
-    type(tEmDee), value :: md
-    integer(ib),  value :: na, ne
-    type(c_ptr),  value :: atoms, energies
-
-    real(rb),    target  :: energy(ne)
-    integer,     pointer :: atom(:)
-    type(tData), pointer :: me
-
-    call c_f_pointer( md%data, me )
-    call c_f_pointer( atoms, atom, [na] )
-
-    !$omp parallel num_threads(me%nthreads) reduction(+:energy)
-    call compute_group_energy( me, omp_get_thread_num() + 1, na, atom, ne, energy )
-    !$omp end parallel
-
-    call copy_real( c_loc(energy(1)), energies, 1, ne )
-
-  end subroutine EmDee_group_energy
-
-!===================================================================================================
-!                              A U X I L I A R Y   P R O C E D U R E S
-!===================================================================================================
-
-  subroutine compute_forces( md, me, R, F )
-    type(tEmDee), intent(inout) :: md
-    type(tData),  intent(inout) :: me
-    real(rb),     intent(in)    :: R(3,me%natoms)
-    real(rb),     intent(out)   :: F(3,me%natoms)
-
-    integer  :: M
-    logical  :: buildList
-    real(rb) :: Potential, Virial, time
-    real(rb), allocatable :: Rs(:,:), Fs(:,:)
-
-    md%pairTime = md%pairTime - omp_get_wtime()
-
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
-    Rs = me%invL*R
-    Fs = zero
-    Potential = zero
-    Virial = zero
-
-    buildList = maximum_approach_sq( me%natoms, R - me%R0 ) > me%skinSq
-    if (buildList) then
-      M = floor(ndiv*me%Lbox/me%xRc)
-      if (M < 5) stop "ERROR: simulation box is too small."
-      call distribute_atoms( me, M, Rs )
-      me%R0 = R
-      md%builds = md%builds + 1
-    endif
-
-    !$omp parallel num_threads(me%nthreads) reduction(+:Fs,Potential,Virial)
-    block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
-      if (buildList) then
-        call find_pairs_and_compute( me, thread, Rs, Fs, Potential, Virial )
-      else
-        call compute_pairs( me, thread, Rs, Fs, Potential, Virial )
-      end if
-      if (me%bonds%exist) call compute_bonds( me, thread, Rs, Fs, Potential, Virial )
-      if (me%angles%exist) call compute_angles( me, thread, Rs, Fs, Potential, Virial )
-      if (me%dihedrals%exist) call compute_dihedrals(me, thread, Rs, Fs, Potential, Virial)
-    end block
-    !$omp end parallel
-
-    F = me%Lbox*Fs
-    md%Potential = Potential
-    md%Virial = third*Virial
-    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
-
-    time = omp_get_wtime()
-    md%pairTime = md%pairTime + time
-    md%totalTime = time - me%startTime
-
   end subroutine compute_forces
 
 !===================================================================================================
@@ -924,9 +858,7 @@ contains
     real(rb),    intent(inout) :: Virial
 
     real(rb) :: Wrb
-    type(tBody), pointer :: body(:)
 
-    call c_f_pointer( me%body, body, [me%nbodies] )
     !$omp parallel num_threads(me%nthreads) reduction(+:Wrb)
     call compute_body_forces( omp_get_thread_num() + 1, Wrb )
     !$omp end parallel
@@ -940,7 +872,7 @@ contains
         integer :: i
         Wrb = zero
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          Wrb = Wrb + body(i) % force_torque_virial( me%F )
+          Wrb = Wrb + me%body(i) % force_torque_virial( me%F )
         end do
       end subroutine compute_body_forces
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

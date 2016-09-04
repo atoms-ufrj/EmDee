@@ -1,4 +1,4 @@
-#include "EmDee.h"
+#include "emdee.h"
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -122,26 +122,20 @@ int main( int argc, char *argv[] )  {
   read_data( &par, filename );
   create_configuration( &par );
   tEmDee md = EmDee_system( threads, par.Rc, par.Rs, par.N, NULL, NULL );
-  EmDee_Model lj = EmDee_pair_lj( 1.0, 1.0 );   
-  EmDee_set_pair_type( &md, 1, 1, &lj );
-  EmDee_compute( &md, par.F, par.R, par.L );
-  printf("%d %lf %lf\n", 0, md.Energy, md.Virial);
-  clock_t start = clock();
+  void* lj = EmDee_pair_lj( 1.0, 1.0 );   
+  EmDee_set_pair_type( md, 1, 1, lj );
+  EmDee_upload( &md, &par.L, par.R, par.V, NULL );
+
+  printf("%d %lf %lf\n", 0, md.Potential, md.Virial);
   for (int passo = 1; passo <= par.Npassos; passo++) {
-    if (passo % par.Nprop == 0) printf("%d %lf %lf\n", passo, md.Energy, md.Virial);
-    for (int i = 0; i < 3*md.natoms; i++) {
-      par.V[i] += par.Dt_2*par.F[i];
-      par.R[i] += par.Dt*par.V[i];
-    }
-    EmDee_compute( &md, par.F, par.R, par.L );
-    for (int i = 0; i < 3*md.natoms; i++)
-      par.V[i] += par.Dt_2*par.F[i];
+    if (passo % par.Nprop == 0) printf("%d %lf %lf\n", passo, md.Potential, md.Virial);
+    EmDee_boost( &md, 1.0, 0.0, par.Dt_2, 1, 1 );
+    EmDee_move( &md, 1.0, 0.0, par.Dt );
+    EmDee_boost( &md, 1.0, 0.0, par.Dt_2, 1, 1 );
   }
-  clock_t diff = clock() - start;
-  int msec = diff * 1000 / CLOCKS_PER_SEC;
   printf("neighbor list builds = %d\n", md.builds);
-  printf("pair time = %f s.\n", md.time);
-  printf("excecution time = %f s.\n", msec/1000.0);
+  printf("pair time = %f s.\n", md.pairTime);
+  printf("excecution time = %f s.\n", md.totalTime);
   return EXIT_SUCCESS;
 }
 

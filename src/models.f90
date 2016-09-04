@@ -23,18 +23,19 @@ use global
 
 implicit none
 
-integer(ib), parameter :: mCOULOMB = 10000
+integer, parameter :: mCOULOMB = 10000
 
-integer(ib), parameter :: mNONE     = 0, &  ! No model
-                          mLJ       = 1, &  ! Lennard-Jones
-                          mLJSF     = 2, &  ! Lennard-Jones, Shifted-Force
-                          mHARMOMIC = 3, &  ! Harmonic
-                          mMORSE    = 4     ! Morse
+integer, parameter :: mNONE     = 0, &  ! No model
+                      mLJ       = 1, &  ! Lennard-Jones
+                      mLJSF     = 2, &  ! Lennard-Jones, Shifted-Force
+                      mSOFTCORE = 3, &  ! Softcore Model, Beutler et al. (1994)
+                      mHARMOMIC = 4, &  ! Harmonic
+                      mMORSE    = 5     ! Morse
 
 real(rb), parameter, private :: Deg2Rad = 3.14159265358979324_rb/180_rb
 
 type tModel
-  integer(ib) :: id = mNONE
+  integer :: id = mNONE
   real(rb), pointer :: data(:)
   real(rb) :: p1 = zero
   real(rb) :: p2 = zero
@@ -48,33 +49,40 @@ private :: set_data
 
 contains
 
+!---------------------------------------------------------------------------------------------------
+
+  type(c_ptr) function EmDee_model_none() bind(C,name="EmDee_model_none")
+    type(tModel), pointer :: model
+    allocate( model )
+    model%id = mNONE
+    EmDee_model_none = c_loc(model)
+  end function EmDee_model_none
+
 !===================================================================================================
 !                                      P A I R     M O D E L S
 !===================================================================================================
 
-  type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
-    type(tModel), pointer :: model
-    allocate( model )
-    model%id = mNONE
-    EmDee_pair_none = c_loc(model)
-  end function EmDee_pair_none
+  function EmDee_pair_lj( epsilon, sigma ) bind(C,name="EmDee_pair_lj")
+    real(rb), value :: epsilon, sigma
+    type(c_ptr)     :: EmDee_pair_lj
 
-!---------------------------------------------------------------------------------------------------
-
-  type(c_ptr) function EmDee_pair_lj( epsilon, sigma ) bind(C,name="EmDee_pair_lj")
-    real(rb), value   :: epsilon, sigma
     type(tModel), pointer :: model
+
     allocate( model )
     model = tModel( mLJ, set_data( [epsilon, sigma] ), sigma*sigma, 4.0_rb*epsilon )
     EmDee_pair_lj = c_loc(model)
+
   end function EmDee_pair_lj
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
-    real(rb), value   :: epsilon, sigma, cutoff
+  function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
+    real(rb), value :: epsilon, sigma, cutoff
+    type(c_ptr)     :: EmDee_pair_lj_sf
+
     type(tModel), pointer :: model
     real(rb) :: sr6, sr12, eps4, Ec, Fc
+
     sr6 = (sigma/cutoff)**6
     sr12 = sr6*sr6
     eps4 = 4.0_rb*epsilon
@@ -84,7 +92,22 @@ contains
     allocate( model )
     model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
     EmDee_pair_lj_sf = c_loc(model)
+
   end function EmDee_pair_lj_sf
+
+!---------------------------------------------------------------------------------------------------
+
+  function EmDee_pair_softcore( epsilon, sigma, lambda ) bind(C,name="EmDee_pair_softcore")
+    real(rb), value :: epsilon, sigma, lambda
+    type(c_ptr)     :: EmDee_pair_softcore
+
+    type(tModel), pointer :: model
+
+    allocate( model )
+    model = tModel( mSOFTCORE, set_data( [epsilon, sigma, lambda] ), sigma**2 )
+    EmDee_pair_softcore = c_loc(model)
+
+  end function EmDee_pair_softcore
 
 !===================================================================================================
 !                                     M I X I N G     R U L E S
@@ -99,14 +122,31 @@ contains
     if (c_associated(imodel).and.c_associated(jmodel)) then
       call c_f_pointer( imodel, i )
       call c_f_pointer( jmodel, j )
+
       if (match(mLJ,mLJ)) then
-        ijmodel = EmDee_pair_lj( geometric(1), arithmetic(2) )
+        ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
+                                 sigma = arithmetic(2)   )
+
       else if (match(mLJSF,mLJSF)) then
-        ijmodel = EmDee_pair_lj_sf( geometric(1), arithmetic(2), arithmetic(3) )
-      else if (match(mLJ,mNONE).or.match(mLJSF,mNONE)) then
-        ijmodel = EmDee_pair_none()
+        ijmodel = EmDee_pair_lj_sf( epsilon = geometric(1), &
+                                    sigma = arithmetic(2),  &
+                                    cutoff = arithmetic(3)  )
+
+      else if (match(mSOFTCORE,mSOFTCORE)) then
+        ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
+                                 sigma = arithmetic(2)   )
+
+      else if (match(mSOFTCORE,mLJ)) then
+        ijmodel = EmDee_pair_softcore( epsilon = geometric(1),    &
+                                       sigma = arithmetic(2),     &
+                                       lambda = from(mSOFTCORE,3) )
+
+      else if ((i%id == mNONE).or.(j%id == mNONE)) then
+        ijmodel = EmDee_model_none()
+
       else
         ijmodel = c_null_ptr
+
       end if
     else
       ijmodel = c_null_ptr
@@ -120,19 +160,30 @@ contains
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       logical function match( a, b )
-        integer(ib), intent(in) :: a, b
+        integer, intent(in) :: a, b
         match = ((i%id == a).and.(j%id == b)).or.((i%id == b).and.(j%id == a))
       end function match
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       real(rb) function arithmetic( k )
-        integer(ib), intent(in) :: k
+        integer, intent(in) :: k
         arithmetic = 0.5_rb*(i%data(k) + j%data(k))
       end function arithmetic
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       real(rb) function geometric( k )
-        integer(ib), intent(in) :: k
+        integer, intent(in) :: k
         geometric = sqrt(i%data(k)*j%data(k))
       end function geometric
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      real(rb) function from( id, k )
+        integer, intent(in) :: id, k
+        if (id == i%id) then
+          from = i%data(k)
+        else if (id == j%id) then
+          from = j%data(k)
+        else
+          stop "ERROR defining mixing rule"
+        end if
+      end function from
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end function cross_pair
 

@@ -19,17 +19,17 @@
 
 module lists
 
-use c_binding
+use iso_c_binding
 
 implicit none
 
 type tList
-  integer(ib) :: nitems
-  integer(ib) :: nobjects
-  integer(ib) :: count
-  integer(ib), allocatable :: first(:)
-  integer(ib), allocatable :: last(:)
-  integer(ib), allocatable :: item(:)
+  integer :: nitems
+  integer :: nobjects
+  integer :: count
+  integer, allocatable :: first(:)
+  integer, allocatable :: last(:)
+  integer, allocatable :: item(:)
   contains
     procedure :: allocate => tList_allocate
     procedure :: resize => tList_resize
@@ -41,15 +41,15 @@ contains
 
   elemental subroutine tList_allocate( list, nitems, nobjects )
     class(tList), intent(inout) :: list
-    integer(ib),  intent(in)    :: nitems, nobjects
+    integer,  intent(in)    :: nitems, nobjects
 
     list%nobjects = nobjects
     list%nitems = nitems
     list%count  = 0
     if (allocated(list%first)) deallocate( list%first, list%last, list%item )
     allocate( list%first(nobjects), list%last(nobjects), list%item(nitems) )
-    list%first = 1_ib
-    list%last = 0_ib
+    list%first = 1
+    list%last = 0
 
   end subroutine tList_allocate
 
@@ -57,10 +57,10 @@ contains
 
   subroutine tList_resize( list, size )
     class(tList), intent(inout) :: list
-    integer(ib),  intent(in)    :: size
+    integer,  intent(in)    :: size
 
-    integer(ib) :: n
-    integer(ib), allocatable :: new(:)
+    integer :: n
+    integer, allocatable :: new(:)
 
     allocate( new(size) )
     n = min(list%nitems,size)

@@ -19,7 +19,6 @@
 
 module structs
 
-use c_binding
 use models
 
 implicit none
