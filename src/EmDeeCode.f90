@@ -17,9 +17,8 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: 1) Add a field to tEmDee in order to store the degrees of freedom of the system
-! TODO: 2) Optimize parallel performance of download in a unique omp parallel
-! TODO: 3) Create indexing for having sequential body particles and free particles in arrays
+! TODO: 1) Optimize parallel performance of download in a unique omp parallel
+! TODO: 2) Create indexing for having sequential body particles and free particles in arrays
 
 module EmDeeCode
 
@@ -54,6 +53,8 @@ type, bind(C) :: tEmDee
   real(rb)    :: Kinetic        ! Total kinetic energy of the system
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
+  integer(ib) :: DOF            ! Total number of degrees of freedom
+  integer(ib) :: RotationDOF    ! Number of rotational degrees of freedom
   type(c_ptr) :: Data           ! Pointer to system data
 end type tEmDee
 
@@ -217,6 +218,8 @@ contains
     EmDee_system % Potential = zero
     EmDee_system % Kinetic = zero
     EmDee_system % Rotational = zero
+    EmDee_system % DOF = 3*(N - 1)
+    EmDee_system % RotationDOF = 0
     EmDee_system % data = c_loc(me)
 
   end function EmDee_system
@@ -442,6 +445,7 @@ contains
     isFree(me%free) = .true.
     isFree(atom) = .false.
     me%nfree = me%nfree - N
+    md%DOF = md%DOF - 3*N
     if (count(isFree) /= me%nfree) stop "Error adding rigid body: only free atoms are allowed."
     me%free(1:me%nfree) = pack([(i,i=1,me%natoms)],isFree)
     me%threadAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
@@ -462,6 +466,8 @@ contains
         call b % update( Rn )
         me%R(:,b%index) = Rn
       end if
+      md%DOF = md%DOF + b%dof
+      md%RotationDOF = md%RotationDOF + b%dof - 3
     end associate
     do i = 1, N-1
       do j = i+1, N
@@ -1263,30 +1269,32 @@ contains
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
           include(xlist) = .false.
-          do m = k + 1, ntotal
-            if (include(m)) then
-              j = atom(m)
-              call c_f_pointer( me%model(itype,me%atomType(j),me%layer), model )
-              if (associated(model)) then
-                Rij = Ri - Rs(:,j)
-                Rij = Rij - anint(Rij)
-                r2 = sum(Rij*Rij)
-                if (r2 < xRc2) then
-                  npairs = npairs + 1
-                  neighbor%item(npairs) = j
-                  if (r2 < Rc2) then
-                    invR2 = me%invL2/r2
-                    call compute_pair()
-                    Potential = Potential + Eij
-                    Virial = Virial + Wij
-                    Fij = Wij*invR2*Rij
-                    Fi = Fi + Fij
-                    F(:,j) = F(:,j) - Fij
+          associate (pairModel => me%model(:,itype,me%layer))
+            do m = k + 1, ntotal
+              if (include(m)) then
+                j = atom(m)
+                call c_f_pointer( pairModel(me%atomType(j)), model )
+                if (associated(model)) then
+                  Rij = Ri - Rs(:,j)
+                  Rij = Rij - anint(Rij)
+                  r2 = sum(Rij*Rij)
+                  if (r2 < xRc2) then
+                    npairs = npairs + 1
+                    neighbor%item(npairs) = j
+                    if (r2 < Rc2) then
+                      invR2 = me%invL2/r2
+                      call compute_pair()
+                      Potential = Potential + Eij
+                      Virial = Virial + Wij
+                      Fij = Wij*invR2*Rij
+                      Fi = Fi + Fij
+                      F(:,j) = F(:,j) - Fij
+                    end if
                   end if
-                end if
+               end if
               end if
-            end if
-          end do
+            end do
+          end associate
           F(:,i) = F(:,i) + Fi
           neighbor%last(i) = npairs
           include(xlist) = .true.
@@ -1326,22 +1334,24 @@ contains
         Ri = Rs(:,i)
         Fi = zero
         icharge = me%charge(i,me%layer)
-        do k = neighbor%first(i), neighbor%last(i)
-          j = neighbor%item(k)
-          Rij = Ri - Rs(:,j)
-          Rij = Rij - anint(Rij)
-          r2 = sum(Rij*Rij)
-          if (r2 < Rc2) then
-            invR2 = me%invL2/r2
-            call c_f_pointer( me%model(itype,me%atomType(j),me%layer), model )
-            call compute_pair()
-            Potential = Potential + Eij
-            Virial = Virial + Wij
-            Fij = Wij*invR2*Rij
-            Fi = Fi + Fij
-            F(:,j) = F(:,j) - Fij
-          end if
-        end do
+        associate (pairModel => me%model(:,itype,me%layer))
+          do k = neighbor%first(i), neighbor%last(i)
+            j = neighbor%item(k)
+            Rij = Ri - Rs(:,j)
+            Rij = Rij - anint(Rij)
+            r2 = sum(Rij*Rij)
+            if (r2 < Rc2) then
+              invR2 = me%invL2/r2
+              call c_f_pointer( pairModel(me%atomType(j)), model )
+              call compute_pair()
+              Potential = Potential + Eij
+              Virial = Virial + Wij
+              Fij = Wij*invR2*Rij
+              Fi = Fi + Fij
+              F(:,j) = F(:,j) - Fij
+            end if
+          end do
+        end associate
         F(:,i) = F(:,i) + Fi
       end do
     end associate

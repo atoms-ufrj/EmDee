@@ -1,11 +1,13 @@
 typedef struct {
-  int builds;            // Number of neighbor-list builds
+  int    builds;         // Number of neighbor-list builds
   double pairTime;       // Time taken in force calculations
   double totalTime;      // Total time since initialization
   double Potential;      // Total potential energy of the system
   double Kinetic;        // Total kinetic energy of the system
   double Rotational;     // Rotational kinetic energy of the system
   double Virial;         // Total internal virial of the system
+  int    DOF;            // Total number of degrees of freedom
+  int    RotationDOF     // Number of rotational degrees of freedom
   void*  Data;           // Pointer to system data
 } tEmDee;
 

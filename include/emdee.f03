@@ -25,6 +25,8 @@ type, bind(C) :: tEmDee
   real(c_double) :: Kinetic        ! Total kinetic energy of the system
   real(c_double) :: Rotational     ! Rotational kinetic energy of the system
   real(c_double) :: Virial         ! Total internal virial of the system
+  integer(c_int) :: DOF            ! Total number of degrees of freedom
+  integer(c_int) :: RotationDOF    ! Number of rotational degrees of freedom
   type(c_ptr)    :: Data           ! Pointer to EmDee system data
 end type tEmDee
 
