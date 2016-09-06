@@ -42,7 +42,6 @@ type tModel
   real(rb) :: p3 = zero
   real(rb) :: p4 = zero
   logical :: external = .true.
-  type(tModel), pointer :: next => null()
 end type tModel
 
 private :: set_data

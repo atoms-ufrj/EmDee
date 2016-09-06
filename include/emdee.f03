@@ -25,18 +25,26 @@ type, bind(C) :: tEmDee
   real(c_double) :: Kinetic        ! Total kinetic energy of the system
   real(c_double) :: Rotational     ! Rotational kinetic energy of the system
   real(c_double) :: Virial         ! Total internal virial of the system
+  integer(c_int) :: DOF            ! Total number of degrees of freedom
+  integer(c_int) :: RotationDOF    ! Number of rotational degrees of freedom
   type(c_ptr)    :: Data           ! Pointer to EmDee system data
 end type tEmDee
 
 interface
 
-  function EmDee_system( threads, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
+  function EmDee_system( threads, layers, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
     import :: c_int, c_double, c_ptr, tEmDee
-    integer(c_int), value :: threads, N
+    integer(c_int), value :: threads, layers, N
     real(c_double), value :: rc, skin
     type(c_ptr),    value :: types, masses
     type(tEmDee)          :: EmDee_system
   end function EmDee_system
+
+  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_set_layer")
+    import :: tEmDee, c_int
+    type(tEmDee),   intent(inout) :: md
+    integer(c_int), value         :: layer
+  end subroutine EmDee_switch_model_layer
 
   subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
     import :: tEmDee, c_ptr
