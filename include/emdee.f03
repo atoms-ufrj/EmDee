@@ -30,13 +30,19 @@ end type tEmDee
 
 interface
 
-  function EmDee_system( threads, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
+  function EmDee_system( threads, layers, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
     import :: c_int, c_double, c_ptr, tEmDee
-    integer(c_int), value :: threads, N
+    integer(c_int), value :: threads, layers, N
     real(c_double), value :: rc, skin
     type(c_ptr),    value :: types, masses
     type(tEmDee)          :: EmDee_system
   end function EmDee_system
+
+  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_set_layer")
+    import :: tEmDee, c_int
+    type(tEmDee),   intent(inout) :: md
+    integer(c_int), value         :: layer
+  end subroutine EmDee_switch_model_layer
 
   subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
     import :: tEmDee, c_ptr

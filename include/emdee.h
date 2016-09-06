@@ -10,6 +10,7 @@ typedef struct {
 } tEmDee;
 
 tEmDee EmDee_system( int threads, double rc, double skin, int N, int* types, double* masses );
+void EmDee_switch_model_layer( tEmDee* md, int layer );
 void EmDee_set_charges( tEmDee md, double* charges );
 void EmDee_set_pair_type( tEmDee md, int itype, int jtype, void* model );
 void EmDee_ignore_pair( tEmDee md, int i, int j );

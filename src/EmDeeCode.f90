@@ -47,7 +47,7 @@ integer, parameter, private :: nb(3,nbcells) = reshape( [ &
    2, 1, 2,   -2, 2, 2,   -1, 2, 2,    0, 2, 2,    1, 2, 2,    2, 2, 2 ], shape(nb) )
 
 type, bind(C) :: tEmDee
-  integer     :: builds         ! Number of neighbor-list builds
+  integer(ib) :: builds         ! Number of neighbor list builds
   real(rb)    :: pairTime       ! Time taken in force calculations
   real(rb)    :: totalTime      ! Total time since initialization
   real(rb)    :: Potential      ! Total potential energy of the system
@@ -76,6 +76,8 @@ type, private :: tData
   integer :: nthreads                     ! Number of parallel openmp threads
   integer :: threadAtoms                  ! Number of atoms per parallel thread
   integer :: threadBodies = 0             ! Number of rigid bodies per parallel thread
+  integer :: nlayers = 1                  ! Number of pair interaction model layers
+  integer :: layer = 1                    ! Current layer of pair interaction models
 
   real(rb) :: Lbox = zero                 ! Length of the simulation box
   real(rb) :: invL = huge(one)            ! Inverse length of the simulation box
@@ -111,15 +113,15 @@ type, private :: tData
   real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
   real(rb), allocatable :: P(:,:)         ! Momenta of all atoms
   real(rb), allocatable :: F(:,:)         ! Resultant forces on all atoms
-  real(rb), allocatable :: charge(:)      ! Electric charges of all atoms
+  real(rb), allocatable :: charge(:,:)    ! Electric charges of all atoms
   real(rb), allocatable :: mass(:)        ! Masses of all atoms
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
 
-  type(c_ptr), allocatable :: model(:,:)  ! Model of each type of atom pair
-  type(tCell), allocatable :: cell(:)     ! Array containing all neighbor cells of each cell
-  type(tBody), allocatable :: body(:)     ! Pointer to the rigid bodies present in the system
-  type(tList), allocatable :: neighbor(:) ! Pointer to neighbor lists
+  type(c_ptr), allocatable :: model(:,:,:) ! Model of each type of atom pair
+  type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
+  type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
+  type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
 end type tData
 
@@ -132,8 +134,8 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  function EmDee_system( threads, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
-    integer(ib), value :: threads, N
+  function EmDee_system( threads, layers, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
+    integer(ib), value :: threads, layers, N
     real(rb),    value :: rc, skin
     type(c_ptr), value :: types, masses
     type(tEmDee)       :: EmDee_system
@@ -148,6 +150,7 @@ contains
 
     ! Set up fixed entities:
     me%nthreads = threads
+    me%nlayers = layers
     me%Rc = rc
     me%RcSq = rc*rc
     me%xRc = rc + skin
@@ -182,7 +185,8 @@ contains
 
     ! Initialize counters and other mutable entities:
     me%startTime = omp_get_wtime()
-    allocate( me%R(3,N), me%P(3,N), me%F(3,N), me%R0(3,N), me%charge(N), source = zero )
+    allocate( me%R(3,N), me%P(3,N), me%F(3,N), me%R0(3,N), source = zero )
+    allocate( me%charge(N,layers), source = zero )
     allocate( me%cell(0) )
     allocate( me%atomCell(N) )
 
@@ -203,7 +207,7 @@ contains
     call me % excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( me%model(me%ntypes,me%ntypes) )
+    allocate( me%model(me%ntypes,me%ntypes,me%nlayers) )
     me%model = c_null_ptr
 
     ! Set up mutable entities:
@@ -216,6 +220,18 @@ contains
     EmDee_system % data = c_loc(me)
 
   end function EmDee_system
+
+!===================================================================================================
+
+  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_set_layer")
+    type(tEmDee), intent(inout) :: md
+    integer(ib),  value         :: layer
+    type(tData), pointer :: me
+    call c_f_pointer( md%data, me )
+    if ((layer < 1).or.(layer > me%nlayers)) stop "ERROR in model layer change: out of range"
+    me%layer = layer
+    if (me%initialized) call compute_forces( md )
+  end subroutine EmDee_switch_model_layer
 
 !===================================================================================================
 
@@ -233,13 +249,14 @@ contains
       me%coulomb = .true.
       do i = 1, me%ntypes
         do j = 1, me%ntypes
-          call c_f_pointer( me%model(i,j), model )
+          call c_f_pointer( me%model(i,j,me%layer), model )
           if (associated(model)) model%id = mCOULOMB + mod(model%id,mCOULOMB)
         end do
       end do
     end if
     call c_f_pointer( charges, Q, [me%natoms] )
-    me%charge = Q
+    me%charge(:,me%layer) = Q
+    if (me%initialized) call compute_forces( md )
 
   end subroutine EmDee_set_charges
 
@@ -256,14 +273,15 @@ contains
     type(tModel), pointer :: ikModel
 
     call c_f_pointer( md%data, me )
+    if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been provided"
     if (itype == jtype) then
       call associate_model( itype, itype, model )
       do k = 1, me%ntypes
         if (k /= itype) then
-          call c_f_pointer( me%model(itype,k), ikModel )
+          call c_f_pointer( me%model(itype,k,me%layer), ikModel )
           keep = associated(ikModel)
           if (keep) keep = ikModel%external
-          if (.not.keep) call replace( itype, k, cross_pair( model, me%model(k,k) ) )
+          if (.not.keep) call replace( itype, k, cross_pair( model, me%model(k,k,me%layer) ) )
         end if
       end do
     else
@@ -281,9 +299,9 @@ contains
             call c_f_pointer( model, pmodel )
             pmodel%id = mCOULOMB + mod(pmodel%id,mCOULOMB)
           end if
-          me%model(i,j) = model
+          me%model(i,j,me%layer) = model
         else
-          me%model(i,j) = c_null_ptr
+          me%model(i,j,me%layer) = c_null_ptr
         end if
       end subroutine associate_model
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -291,8 +309,8 @@ contains
         integer, intent(in) :: i, j
         type(c_ptr), intent(in) :: model
         type(tModel), pointer :: ij
-        if (c_associated(me%model(i,j))) then
-          call c_f_pointer( me%model(i,j), ij )
+        if (c_associated(me%model(i,j,me%layer))) then
+          call c_f_pointer( me%model(i,j,me%layer), ij )
           if (.not.ij%external) deallocate( ij )
         end if
         call associate_model( i, j, model )
@@ -781,24 +799,25 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_group_energy( md, na, atoms, ne, energies ) bind(C,name="EmDee_group_energy")
+  subroutine EmDee_group_energy( md, na, atoms, energies ) bind(C,name="EmDee_group_energy")
     type(tEmDee), value :: md
-    integer(ib),  value :: na, ne
+    integer(ib),  value :: na
     type(c_ptr),  value :: atoms, energies
 
-    real(rb) :: energy(ne)
+    real(rb), allocatable :: energy(:)
     integer,     pointer :: atom(:)
     real(rb),    pointer :: Eext(:)
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
     call c_f_pointer( atoms, atom, [na] )
+    allocate( energy(me%nlayers) )
 
     !$omp parallel num_threads(me%nthreads) reduction(+:energy)
-    call compute_group_energy( me, omp_get_thread_num() + 1, na, atom, ne, energy )
+    call compute_group_energy( me, omp_get_thread_num() + 1, na, atom, energy )
     !$omp end parallel
 
-    call c_f_pointer( energies, Eext, [ne] )
+    call c_f_pointer( energies, Eext, [me%nlayers] )
     Eext = energy
 
   end subroutine EmDee_group_energy
@@ -1161,8 +1180,8 @@ contains
           r2 = sum(rij*rij)
           if (r2 < me%RcSq) then
             invR2 = me%invL2/r2
-            call c_f_pointer( me%model(me%atomType(i),me%atomType(j)), model )
-            icharge = me%charge(i)
+            call c_f_pointer( me%model(me%atomType(i),me%atomType(j),me%layer), model )
+            icharge = me%charge(i,me%layer)
             call compute_pair()
             Eij = model%p1*Eij
             Wij = model%p1*Wij
@@ -1239,7 +1258,7 @@ contains
           i = atom(k)
           neighbor%first(i) = npairs + 1
           itype = me%atomType(i)
-          icharge = me%charge(i)
+          icharge = me%charge(i,me%layer)
           Ri = Rs(:,i)
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
@@ -1247,7 +1266,7 @@ contains
           do m = k + 1, ntotal
             if (include(m)) then
               j = atom(m)
-              call c_f_pointer( me%model(itype,me%atomType(j)), model )
+              call c_f_pointer( me%model(itype,me%atomType(j),me%layer), model )
               if (associated(model)) then
                 Rij = Ri - Rs(:,j)
                 Rij = Rij - anint(Rij)
@@ -1306,7 +1325,7 @@ contains
         itype = me%atomType(i)
         Ri = Rs(:,i)
         Fi = zero
-        icharge = me%charge(i)
+        icharge = me%charge(i,me%layer)
         do k = neighbor%first(i), neighbor%last(i)
           j = neighbor%item(k)
           Rij = Ri - Rs(:,j)
@@ -1314,7 +1333,7 @@ contains
           r2 = sum(Rij*Rij)
           if (r2 < Rc2) then
             invR2 = me%invL2/r2
-            call c_f_pointer( me%model(itype,me%atomType(j)), model )
+            call c_f_pointer( me%model(itype,me%atomType(j),me%layer), model )
             call compute_pair()
             Potential = Potential + Eij
             Virial = Virial + Wij
@@ -1335,10 +1354,10 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_group_energy( me, thread, na, atom, ne, energy )
+  subroutine compute_group_energy( me, thread, na, atom, energy )
     type(tData), intent(in)  :: me
-    integer,     intent(in)  :: thread, na, atom(na), ne
-    real(rb),    intent(out) :: energy(ne)
+    integer,     intent(in)  :: thread, na, atom(na)
+    real(rb),    intent(out) :: energy(me%nlayers)
 
     integer  :: i, j, k, m, layer, itype, firstCell, lastCell
     real(rb) :: r2, invR2, Eij, Wij, icharge
@@ -1355,7 +1374,7 @@ contains
         if ((me%atomCell(i) >= firstCell).and.(me%atomCell(i) <= lastCell)) then
           itype = me%atomType(i)
           Ri = me%R(:,i)
-          icharge = me%charge(i)
+          icharge = me%charge(i,me%layer)
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
             Rij = Ri - me%R(:,j)
@@ -1363,13 +1382,10 @@ contains
             r2 = sum(Rij*Rij)
             if (r2 < me%RcSq) then
               invR2 = one/r2
-              layer = 0
-              call c_f_pointer( me%model(itype,me%atomType(j)), model )
-              do while (associated(model))
-                layer = layer + 1
+              do layer = 1, me%nlayers
+                call c_f_pointer( me%model(me%atomType(j),itype,layer), model )
                 call compute_pair()
                 energy(layer) = energy(layer) + Eij
-                model => model%next
               end do
             end if
           end do
