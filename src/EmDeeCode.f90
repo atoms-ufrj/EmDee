@@ -54,7 +54,7 @@ type, bind(C) :: tEmDee
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
   integer(ib) :: DOF            ! Total number of degrees of freedom
-  integer(ib) :: RotationDOF    ! Number of rotational degrees of freedom
+  integer(ib) :: RDOF           ! Number of rotational degrees of freedom
   type(c_ptr) :: Data           ! Pointer to system data
 end type tEmDee
 
@@ -219,7 +219,7 @@ contains
     EmDee_system % Kinetic = zero
     EmDee_system % Rotational = zero
     EmDee_system % DOF = 3*(N - 1)
-    EmDee_system % RotationDOF = 0
+    EmDee_system % RDOF = 0
     EmDee_system % data = c_loc(me)
 
   end function EmDee_system
@@ -467,7 +467,7 @@ contains
         me%R(:,b%index) = Rn
       end if
       md%DOF = md%DOF + b%dof
-      md%RotationDOF = md%RotationDOF + b%dof - 3
+      md%RDOF = md%RDOF + b%dof - 3
     end associate
     do i = 1, N-1
       do j = i+1, N
@@ -595,12 +595,12 @@ contains
 
     if (c_associated(coords)) then
       call c_f_pointer( coords, Rext, [3,me%natoms] )
-      me%R = Rext
+      Rext = me%R
     end if
 
     if (c_associated(forces)) then
       call c_f_pointer( forces, Fext, [3,me%natoms] )
-      me%F = Fext
+      Fext = me%F
     end if
 
     if (c_associated(momenta)) then

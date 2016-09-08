@@ -7,11 +7,11 @@ typedef struct {
   double Rotational;     // Rotational kinetic energy of the system
   double Virial;         // Total internal virial of the system
   int    DOF;            // Total number of degrees of freedom
-  int    RotationDOF     // Number of rotational degrees of freedom
+  int    RDOF;           // Number of rotational degrees of freedom
   void*  Data;           // Pointer to system data
 } tEmDee;
 
-tEmDee EmDee_system( int threads, double rc, double skin, int N, int* types, double* masses );
+tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, double* masses );
 void EmDee_switch_model_layer( tEmDee* md, int layer );
 void EmDee_set_charges( tEmDee md, double* charges );
 void EmDee_set_pair_type( tEmDee md, int itype, int jtype, void* model );
