@@ -691,6 +691,22 @@ contains
 
 !===================================================================================================
 
+  subroutine EmDee_save_state( md, rigid )
+    type(tEmDee), intent(inout) :: md
+    integer(ib),  intent(in)    :: rigid
+    if (rigid /= 0) then
+    else
+    end if
+  end subroutine EmDee_save_state
+
+!===================================================================================================
+
+  subroutine EmDee_restore_state( md )
+    type(tEmDee), intent(inout) :: md
+  end subroutine EmDee_restore_state
+
+!===================================================================================================
+
   subroutine EmDee_boost( md, lambda, alpha, dt, translation, rotation ) bind(C,name="EmDee_boost")
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: lambda, alpha, dt
@@ -853,8 +869,7 @@ contains
     buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
     if (buildList) then
       M = floor(ndiv*me%Lbox/me%xRc)
-      if (M < 5) stop "ERROR: simulation box is too small."
-      call distribute_atoms( me, M, Rs )
+      call distribute_atoms( me, max(M,2*ndiv+1), Rs )
       me%R0 = me%R
       md%builds = md%builds + 1
     endif

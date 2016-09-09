@@ -27,10 +27,12 @@ clean:
 install:
 	cp $(LIBDIR)/libemdee.* /usr/local/lib/
 	cp $(INCDIR)/emdee.* /usr/local/include/
+	ldconfig
 
 uninstall:
 	rm -f /usr/local/lib/libemdee.a /usr/local/lib/libemdee.so
 	rm -f /usr/local/include/emdee.h /usr/local/include/emdee.f03
+	ldconfig
 
 # Executables:
 

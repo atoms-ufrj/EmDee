@@ -112,6 +112,17 @@ interface
     integer(c_int), value         :: adjust, seed
   end subroutine EmDee_random_momenta
 
+  subroutine EmDee_save_state( md, rigid )
+    import :: tEmDee, ib
+    type(tEmDee), intent(inout) :: md
+    integer(ib),  intent(in)    :: rigid
+  end subroutine EmDee_save_state
+
+  subroutine EmDee_restore_state( md )
+    import :: tEmDee
+    type(tEmDee), intent(inout) :: md
+  end subroutine EmDee_restore_state
+
   subroutine EmDee_boost( md, lambda, alpha, dt, translation, rotation ) bind(C,name="EmDee_boost")
     import :: tEmDee, c_ptr, c_double, c_int
     type(tEmDee),   intent(inout) :: md
