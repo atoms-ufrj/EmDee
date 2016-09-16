@@ -113,9 +113,9 @@ interface
   end subroutine EmDee_random_momenta
 
   subroutine EmDee_save_state( md, rigid )
-    import :: tEmDee, ib
-    type(tEmDee), intent(inout) :: md
-    integer(ib),  intent(in)    :: rigid
+    import :: tEmDee, c_int
+    type(tEmDee),   intent(inout) :: md
+    integer(c_int), intent(in)    :: rigid
   end subroutine EmDee_save_state
 
   subroutine EmDee_restore_state( md )

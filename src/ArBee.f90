@@ -77,7 +77,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  pure subroutine tBody_update( b, coords )
+  subroutine tBody_update( b, coords )
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: coords(3,b%NP)
 
@@ -97,9 +97,9 @@ contains
     inertia(2,3) = -sum(b%M*b%delta(2,:)*b%delta(3,:))
 
     ! Diagonalize the inertia tensor:
-    b%MoI = eigenvalues( inertia )
+    call dsyevv3( inertia, A, b%MoI )
+    A = transpose(A)
     b%invMoI = one/b%MoI
-    A = transpose(eigenvectors( inertia, b%MoI ))
 
     ! Compute quaternion:
     b%q = quaternion( A )
@@ -200,9 +200,7 @@ contains
     real(rb) :: omega(3), At(3,3)
     At = matmul( matrix_Ct(b%q), matrix_B(b%q) )
     omega = matmul(At, half*b%invMoI*matmul( matrix_Bt(b%q), b%pi ))
-    forall( k = 1: b%NP)
-      P(:,k) = b%M(k)*(b%invMass*b%pcm + cross_product(omega, b%delta(:,k)))
-    end forall
+    forall(k=1:b%NP) P(:,k) = b%M(k)*(b%invMass*b%pcm + cross_product(omega, b%delta(:,k)))
   end function tBody_particle_momenta
 
 !---------------------------------------------------------------------------------------------------

@@ -483,13 +483,15 @@ contains
     type(tEmDee), intent(inout) :: md
     type(c_ptr),  value         :: Lbox, coords, momenta, forces
 
+    real(rb) :: twoKEt, eightKEr
     real(rb), pointer :: L
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
 
     if (.not.me%initialized) then
-      if (.not.(c_associated(Lbox).and.c_associated(coords))) then
+      me%initialized = c_associated(Lbox) .and. c_associated(coords)
+      if (.not.me%initialized) then
         stop "ERROR in EmDee_upload: box side length and atomic coordinates are required."
       end if
     end if
@@ -501,18 +503,21 @@ contains
       me%invL2 = me%invL**2
     end if
 
-    !$omp parallel num_threads(me%nthreads)
+    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,eightKEr)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
       if (c_associated(coords)) call assign_coordinates( thread )
-      if (c_associated(momenta)) call assign_momenta( thread )
+      if (c_associated(momenta)) call assign_momenta( thread, twoKEt, eightKEr )
       if (c_associated(forces)) call assign_forces( thread )
     end block
     !$omp end parallel
 
-    me%initialized = c_associated(coords)
-    if (me%initialized.and.(.not.c_associated(forces))) call compute_forces( md )
+    if (c_associated(coords).and.(.not.c_associated(forces))) call compute_forces( md )
+    if (c_associated(momenta)) then
+      md%Rotational = 0.125_rb*eightKEr
+      md%Kinetic = half*twoKEt + md%Rotational
+    end if
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -536,15 +541,19 @@ contains
         end do
       end subroutine assign_coordinates
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_momenta( thread )
-        integer, intent(in) :: thread
+      subroutine assign_momenta( thread, twoKEt, eightKEr )
+        integer,  intent(in)  :: thread
+        real(rb), intent(out) :: twoKEt, eightKEr
         integer :: i, j
-        real(rb) :: L(3), Pj(3)
+        real(rb) :: L(3), Pj(3), twoOmega(3)
         real(rb), pointer :: Pext(:,:)
+        twoKEt = zero
+        eightKEr = zero
         call c_f_pointer( momenta, Pext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
           me%P(:,i) = Pext(:,i)
+          twoKEt = twoKEt + me%invMass(i)*sum(Pext(:,i)**2)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
@@ -555,7 +564,10 @@ contains
               b%pcm = b%pcm + Pj
               L = L + cross_product( b%delta(:,j), Pj )
             end do
+            twoKEt = twoKEt + b%invMass*sum(b%pcm**2)
             b%pi = matmul( matrix_C(b%q), two*L )
+            twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
+            eightKEr = eightKEr + sum(b%MoI*twoOmega**2)
           end associate
         end do
       end subroutine assign_momenta
