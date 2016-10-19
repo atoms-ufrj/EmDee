@@ -23,6 +23,8 @@ use global
 
 implicit none
 
+integer(c_int), public, bind(C) :: GSL_PREC_DOUBLE = 0
+
 type, abstract :: i32rng
   logical :: seeding_required = .true.
   integer(4), private :: kn(0:127)
@@ -56,6 +58,31 @@ type, extends(i32rng) :: kiss
     procedure :: init => kiss_init
     procedure :: i32  => kiss_i32
 end type kiss
+
+interface
+
+  function gsl_sf_elljac_e( u, m, sn, cn, dn ) bind(C,name="gsl_sf_elljac_e")
+    import :: c_double, c_ptr, c_int
+    real(c_double), value :: u, m
+    type(c_ptr),    value :: sn, cn, dn
+    integer(c_int)        :: jacobi_functions
+  end function gsl_sf_elljac_e
+
+  function gsl_sf_ellint_RF( x, y, z, mode ) bind(C,name="gsl_sf_ellint_RF")
+    import :: c_double, c_int
+    real(c_double), value :: x, y, z
+    integer(c_int), value :: mode
+    real(c_double)        :: gsl_sf_ellint_RF
+  end function gsl_sf_ellint_RF
+
+  function gsl_sf_ellint_RJ( x, y, z, p, mode ) bind(C,name="gsl_sf_ellint_RJ")
+    import :: c_double, c_int
+    real(c_double), value :: x, y, z, p
+    integer(c_int), value :: mode
+    real(c_double)        :: gsl_sf_ellint_RJ
+  end function gsl_sf_ellint_RJ
+
+end interface
 
 contains
 
@@ -165,9 +192,7 @@ contains
   pure function cross_product(a, b) result( c )
     real(rb), intent(in) :: a(3), b(3)
     real(rb)             :: c(3)
-
     c = [ a(2)*b(3) - a(3)*b(2), a(3)*b(1) - a(1)*b(3), a(1)*b(2) - a(2)*b(1) ]
-
   end function cross_product
 
 !---------------------------------------------------------------------------------------------------
@@ -175,6 +200,8 @@ contains
   pure function quaternion( A ) result( Q )
     real(rb), intent(in) :: A(3,3)
     real(rb)             :: Q(4)
+
+    ! Reference: S. W. Shepperd, Journal of Guidance and Control 1, 223 (1978)
 
     integer :: imax
     real(rb) :: Q2(4), a11, a22, a33, Q2max
@@ -189,10 +216,14 @@ contains
     imax = maxloc(Q2,1)
     Q2max = Q2(imax)
     select case(imax)
-      case (1); Q = 0.5_rb*[Q2max, A(2,3) - A(3,2), A(3,1) - A(1,3), A(1,2) - A(2,1)]/sqrt(Q2max)
-      case (2); Q = 0.5_rb*[A(2,3) - A(3,2), Q2max, A(1,2) + A(2,1), A(1,3) + A(3,1)]/sqrt(Q2max)
-      case (3); Q = 0.5_rb*[A(3,1) - A(1,3), A(1,2) + A(2,1), Q2max, A(2,3) + A(3,2)]/sqrt(Q2max)
-      case (4); Q = 0.5_rb*[A(1,2) - A(2,1), A(1,3) + A(3,1), A(2,3) + A(3,2), Q2max]/sqrt(Q2max)
+      case (1)
+        Q = 0.5_rb*[Q2max, A(2,3) - A(3,2), A(3,1) - A(1,3), A(1,2) - A(2,1)]*sqrt(one/Q2max)
+      case (2)
+        Q = 0.5_rb*[A(2,3) - A(3,2), Q2max, A(1,2) + A(2,1), A(1,3) + A(3,1)]*sqrt(one/Q2max)
+      case (3)
+        Q = 0.5_rb*[A(3,1) - A(1,3), A(1,2) + A(2,1), Q2max, A(2,3) + A(3,2)]*sqrt(one/Q2max)
+      case (4)
+        Q = 0.5_rb*[A(1,2) - A(2,1), A(1,3) + A(3,1), A(2,3) + A(3,2), Q2max]*sqrt(one/Q2max)
     end select
 
   end function quaternion
@@ -213,59 +244,7 @@ contains
 ! Copyright (C) 2006  Joachim Kopp
 !---------------------------------------------------------------------------------------------------
 
-  pure subroutine dsyevc3( a, w1, w2, w3 )
-    real(rb), intent(in)  :: a(3,3)
-    real(rb), intent(out) :: w1, w2, w3
-
-    ! ----------------------------------------------------------------------------
-    ! Calculates the eigenvalues of a symmetric 3x3 matrix A using Cardano's
-    ! analytical algorithm.
-    ! Only the diagonal and upper triangular parts of A are accessed. The access
-    ! is read-only.
-    ! ----------------------------------------------------------------------------
-    ! Parameters:
-    !   a: The symmetric input matrix
-    !   w: Storage buffer for eigenvalues
-    ! ----------------------------------------------------------------------------
-
-    real(rb), parameter :: sqrt3 = 1.73205080756887729352744634151_rb
- 
-    real(rb) :: m, c1, c0
-    real(rb) :: de, dd, ee, ff
-    real(rb) :: p, sqrtp, q, c, s, phi
-   
-    ! Determine coefficients of characteristic poynomial. We write
-    !       | A   D   F  |
-    !  A =  | D*  B   E  |
-    !       | F*  E*  C  |
-
-    de = a(1,2) * a(2,3)
-    dd = a(1,2)**2
-    ee = a(2,3)**2
-    ff = a(1,3)**2
-    m  = a(1,1) + a(2,2) + a(3,3)
-    c1 = (a(1,1)*a(2,2) + a(1,1)*a(3,3) + a(2,2)*a(3,3)) - (dd + ee + ff)
-    c0 = a(3,3)*dd + a(1,1)*ee + a(2,2)*ff - a(1,1)*a(2,2)*a(3,3) - 2.0_rb*a(1,3)*de
- 
-    p = m**2 - 3.0_rb * c1
-    q = m*(p - (3.0_rb/2.0_rb)*c1) - (27.0_rb/2.0_rb)*c0
-    sqrtp = sqrt(abs(p))
-    phi = 27.0_rb*(0.25d0*c1**2*(p - c1) + c0*(q + (27.0_rb/4.0_rb)*c0))
-    phi = (1.0_rb/3.0_rb)*atan2(sqrt(abs(phi)),q)
- 
-    c = sqrtp*cos(phi)
-    s = (1.0_rb/sqrt3)*sqrtp*sin(phi)
- 
-    w2 = (1.0_rb/3.0_rb)*(m - c)
-    w3 = w2 + s
-    w1 = w2 + c
-    w2 = w2 - s
- 
-  end subroutine dsyevc3
-
-!---------------------------------------------------------------------------------------------------
-
-  pure subroutine dsyevv3( matrix, q, w )
+  pure subroutine diagonalization( matrix, q, w )
     real(rb), intent(in)  :: matrix(3,3)
     real(rb), intent(out) :: q(3,3), w(3)
 
@@ -283,15 +262,39 @@ contains
     !   w: Storage buffer for eigenvalues
     ! ----------------------------------------------------------------------------
 
-    real(rb), parameter :: eps = 2.2204460492503131E-16_rb
- 
-    integer  :: i, j, k
-    real(rb) :: a(3,3), norm, n1, n2, w1, w2, w3
-    real(rb) :: thresh, wmax, t, wmax8eps
- 
-    ! Calculate eigenvalues
+    real(rb), parameter :: eps = epsilon(one)
+    real(rb), parameter :: sqrt3 = sqrt(3.0_rb)
+
+    integer  :: i, j
+    real(rb) :: a(3,3), norm, n1, n2, w1, w2, w3, thresh, wmax, t, wmax8eps
+    real(rb) :: m, c1, c0, de, dd, ee, ff, p, sqrtp, r, c, s, phi
+    logical  :: success
+
     a = matrix
-    call dsyevc3( a, w1, w2, w3 )
+
+    ! Calculate the eigenvalues of a symmetric 3x3 matrix a using Cardano's
+    ! analytical algorithm. Only the diagonal and upper triangular parts of A are
+    ! accessed. The access is read-only.
+    de = a(1,2)*a(2,3)
+    dd = a(1,2)**2
+    ee = a(2,3)**2
+    ff = a(1,3)**2
+    m  = a(1,1) + a(2,2) + a(3,3)
+    c1 = (a(1,1)*a(2,2) + a(1,1)*a(3,3) + a(2,2)*a(3,3)) - (dd + ee + ff)
+    c0 = 27.0_rb*(a(3,3)*dd + a(1,1)*ee + a(2,2)*ff - a(1,1)*a(2,2)*a(3,3) - two*a(1,3)*de)
+
+    p = m*m - 3.0_rb*c1
+    r = m*(p - 1.5_rb*c1) - half*c0
+    sqrtp = sqrt(abs(p))
+    phi = third*atan2(sqrt(abs(6.75_rb*c1*c1*(p - c1) + c0*(r + 0.25_rb*c0))),r)
+
+    c = sqrtp*cos(phi)
+    s = (one/sqrt3)*sqrtp*sin(phi)
+
+    p = third*(m - c)
+    w1 = p + c
+    w2 = p - s
+    w3 = p + s
 
     ! Sort eigenvalues in decreasing order:
     if (abs(w1) < abs(w3)) call swap( w1, w3 )
@@ -301,7 +304,7 @@ contains
 
     wmax8eps = 8.0_rb*eps*wmax
     thresh = wmax8eps**2
- 
+
     ! Prepare calculation of eigenvectors
     n1 = a(1,2)**2 + a(1,3)**2
     n2 = a(1,2)**2 + a(2,3)**2
@@ -310,8 +313,8 @@ contains
     q(2,1) = a(1,3)*a(1,2) - a(2,3)*a(1,1)
     q(2,2) = q(2,1)
     q(3,2) = a(1,2)**2
- 
-    ! Calculate first eigenvector by the formula v[0] = (A - lambda[0]).e1 x (A - lambda[0]).e2
+
+    ! Calculate first eigenvector by the formula v(1) = (A - lambda(1)).e1 x (A - lambda(1)).e2
     a(1,1) = a(1,1) - w1
     a(2,2) = a(2,2) - w1
     q(:,1) = [q(1,2) + a(1,3)*w1, q(2,2) + a(2,3)*w1, a(1,1)*a(2,2) - q(3,2)]
@@ -319,7 +322,7 @@ contains
 
     ! Prepare calculation of second eigenvector     
     t = w1 - w2
- 
+
     ! Is this eigenvalue degenerate?
     if (abs(t) > wmax8eps) then
 
@@ -333,7 +336,7 @@ contains
     else
 
       ! For degenerate eigenvalue, calculate second eigenvector according to
-      !         v[1] = v[0] x (A - lambda[1]).e[i]
+      !         v[1] = v(1) x (A - lambda[1]).e[i]
 
       ! This would really get too complicated if we could not assume all of A to
       !       contain meaningful values.
@@ -342,36 +345,36 @@ contains
       a(3,2) = a(2,3)
       a(1,1) = a(1,1) + w1
       a(2,2) = a(2,2) + w1
-      do i = 1, 3
+      i = 0
+      success = .false.
+      do while ((i < 3).and.(.not.success))
+        i = i + 1
         a(i,i) = a(i,i) - w2
         n1 = sum(a(:,i)**2)
-        if (n1 > thresh) then
+        success = n1 > thresh
+        if (success) then
           q(:,2) = cross_product( q(:,1), a(:,i) )
           norm = sum(q(:,2)**2)
-          if (norm > (256.0_rb*eps)**2*n1) then
-            q(:,2) = q(:,2)*sqrt(1.0_rb/norm)
-            exit
-          end if
+          success = norm > (256.0_rb*eps)**2*n1
+          if (success) q(:,2) = q(:,2)*sqrt(one/norm)
         end if
       end do
 
-      ! This means that any vector orthogonal to v[0] is an EV.
-      if (i == 4) then
-        do j = 1, 3
-          ! Find nonzero element of v[0] and swap it with the next one
-          if (q(j,1) /= 0.0_rb) then
-            k = 1 + mod(j,3)
-            norm = 1.0_rb/sqrt(q(j,1)**2 + q(k,1)**2)
-            q(j,2) =  q(k,1)*norm
-            q(k,2) = -q(j,1)*norm
-            q(1+mod(j+1,3),2) = 0.0_rb
-            exit
-          end if
+      ! This means that any vector orthogonal to v(1) is an EV.
+      if (.not.success) then
+        i = 1
+        do while (q(i,1) == zero)
+          i = i + 1
         end do
+        j = 1 + mod(i,3)
+        norm = one/sqrt(q(i,1)**2 + q(j,1)**2)
+        q(i,2) =  q(j,1)*norm
+        q(j,2) = -q(i,1)*norm
+        q(1+mod(i+1,3),2) = zero
       end if
     end if
 
-    ! Calculate third eigenvector according to v[2] = v[0] x v[1]
+    ! Calculate third eigenvector according to v[2] = v(1) x v[1]
     q(:,3) = cross_product( q(:,1), q(:,2) )
 
     contains
@@ -389,11 +392,11 @@ contains
 
         ! If the first column is zero, then (1, 0, 0) is an eigenvector
         if (n1 <= thresh) then
-          q = [1.0_rb, 0.0_rb, 0.0_rb]
+          q = [one, zero, zero]
 
         ! If the second column is zero, then (0, 1, 0) is an eigenvector
         else if (n2 <= thresh) then
-          q = [0.0_rb, 1.0_rb, 0.0_rb]
+          q = [zero, one, zero]
 
         ! If angle between A(*,1) and A(*,2) is too small, don't use
         !  cross product, but calculate v ~ (1, -A0/A1, 0)
@@ -405,12 +408,12 @@ contains
             f = -a(1,2)/a(2,2)
           end if
           if (abs(a(2,3)) > t) f = -a(1,3)/a(2,3)
-          norm = 1.0_rb/sqrt(1.0_rb + f**2)
-          q = [norm, f*norm, 0.0_rb]
+          norm = one/sqrt(one + f**2)
+          q = [norm, f*norm, zero]
 
         ! This is the standard branch
         else
-          q = q*sqrt(1.0_rb/norm)
+          q = q*sqrt(one/norm)
         end if
 
       end subroutine compute_eigenvector
@@ -421,7 +424,7 @@ contains
         c = a; a = b; b = c
       end subroutine swap
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine dsyevv3
+  end subroutine diagonalization
 
 !---------------------------------------------------------------------------------------------------
 

@@ -1,6 +1,7 @@
 FORT = gfortran
 CC   = gcc
 OPTS = -march=native -ffast-math -fstrict-aliasing -Ofast -fPIC -m64 -fopenmp -Wunused -cpp
+LIBS = -lgfortran -lm -lgsl
 
 SRCDIR = ./src
 OBJDIR = $(SRCDIR)/obj
@@ -56,7 +57,7 @@ lib: $(LIBDIR)/libemdee.so $(LIBDIR)/libemdee.a
 
 $(LIBDIR)/libemdee.so: $(OBJECTS)
 	mkdir -p $(LIBDIR)
-	$(FORT) -shared -fPIC -o $@ $^ -lgfortran -lm
+	$(FORT) -shared -fPIC -o $@ $^ $(LIBS)
 
 $(LIBDIR)/libemdee.a: $(OBJECTS)
 	mkdir -p $(LIBDIR)

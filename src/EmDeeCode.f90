@@ -483,7 +483,7 @@ contains
     type(tEmDee), intent(inout) :: md
     type(c_ptr),  value         :: Lbox, coords, momenta, forces
 
-    real(rb) :: twoKEt, eightKEr
+    real(rb) :: twoKEt, twoKEr
     real(rb), pointer :: L
     type(tData), pointer :: me
 
@@ -503,19 +503,19 @@ contains
       me%invL2 = me%invL**2
     end if
 
-    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,eightKEr)
+    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,twoKEr)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
       if (c_associated(coords)) call assign_coordinates( thread )
-      if (c_associated(momenta)) call assign_momenta( thread, twoKEt, eightKEr )
+      if (c_associated(momenta)) call assign_momenta( thread, twoKEt, twoKEr )
       if (c_associated(forces)) call assign_forces( thread )
     end block
     !$omp end parallel
 
     if (c_associated(coords).and.(.not.c_associated(forces))) call compute_forces( md )
     if (c_associated(momenta)) then
-      md%Rotational = 0.125_rb*eightKEr
+      md%Rotational = half*twoKEr
       md%Kinetic = half*twoKEt + md%Rotational
     end if
 
@@ -541,14 +541,14 @@ contains
         end do
       end subroutine assign_coordinates
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_momenta( thread, twoKEt, eightKEr )
+      subroutine assign_momenta( thread, twoKEt, twoKEr )
         integer,  intent(in)  :: thread
-        real(rb), intent(out) :: twoKEt, eightKEr
+        real(rb), intent(out) :: twoKEt, twoKEr
         integer :: i, j
-        real(rb) :: L(3), Pj(3), twoOmega(3)
+        real(rb) :: L(3), Pj(3)
         real(rb), pointer :: Pext(:,:)
         twoKEt = zero
-        eightKEr = zero
+        twoKEr = zero
         call c_f_pointer( momenta, Pext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
@@ -566,8 +566,8 @@ contains
             end do
             twoKEt = twoKEt + b%invMass*sum(b%pcm**2)
             b%pi = matmul( matrix_C(b%q), two*L )
-            twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-            eightKEr = eightKEr + sum(b%MoI*twoOmega**2)
+            b%omega= half*b%invMoI*matmul( matrix_Bt(b%q), b%pi )
+            twoKEr = twoKEr + sum(b%MoI*b%omega**2)
           end associate
         end do
       end subroutine assign_momenta
@@ -645,7 +645,7 @@ contains
     integer(ib),  value         :: adjust, seed
 
     integer  :: i, j
-    real(rb) :: twoKEt, TwoKEr, omega(3)
+    real(rb) :: twoKEt, TwoKEr
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -658,10 +658,9 @@ contains
         do i = 1, me%nbodies
           associate (b => me%body(i))
             b%pcm = sqrt(b%mass*kT)*[rng%normal(), rng%normal(), rng%normal()]
-            omega = sqrt(b%invMoI*kT)*[rng%normal(), rng%normal(), rng%normal()]
-            b%pi = matmul( matrix_B(b%q), two*b%MoI*omega )
+            call b%assign_momenta( sqrt(b%invMoI*kT)*[rng%normal(), rng%normal(), rng%normal()] )
             twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
-            TwoKEr = TwoKEr + sum(b%MoI*omega*omega)
+            TwoKEr = TwoKEr + sum(b%MoI*b%omega**2)
           end associate
         end do
       end if
@@ -691,7 +690,7 @@ contains
           do i = 1, me%nbodies
             associate( b => body(i) )
               b%pcm = factor*b%pcm
-              b%pi = factor*b%pi
+              call b%assign_momenta( factor*b%omega )
             end associate
           end do
         end associate
@@ -724,7 +723,7 @@ contains
     real(rb),     value         :: lambda, alpha, dt
     integer(ib),  value         :: translation, rotation
 
-    real(rb) :: CP, CF, Ctau, twoKEt, eightKEr, KEt
+    real(rb) :: CP, CF, Ctau, twoKEt, twoKEr, KEt
     logical  :: tflag, rflag
     type(tData), pointer :: me
 
@@ -738,25 +737,24 @@ contains
     tflag = translation /= 0
     rflag = rotation /= 0
     twoKEt = zero
-    eightKEr = zero
-    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,eightKEr)
-    call boost( omp_get_thread_num() + 1, twoKEt, eightKEr )
+    twoKEr = zero
+    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,twoKEr)
+    call boost( omp_get_thread_num() + 1, twoKEt, twoKEr )
     !$omp end parallel
     if (tflag) then
       KEt = half*twoKEt
     else
       KEt = md%Kinetic - md%Rotational
     end if
-    if (rflag) md%Rotational = 0.125_rb*eightKEr
+    if (rflag) md%Rotational = half*twoKEr
     md%Kinetic = KEt + md%Rotational
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine boost( thread, twoKEt, eightKEr )
+      subroutine boost( thread, twoKEt, twoKEr )
         integer,  intent(in)    :: thread
-        real(rb), intent(inout) :: twoKEt, eightKEr
+        real(rb), intent(inout) :: twoKEt, twoKEr
         integer  :: i, j
-        real(rb) :: twoOmega(3)
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
             if (tflag) then
@@ -764,9 +762,8 @@ contains
               twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
             end if
             if (rflag) then
-              b%pi = CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau )
-              twoOmega = b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-              eightKEr = eightKEr + sum(b%MoI*twoOmega*twoOmega)
+              call b%assign_momenta( CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau ) )
+              twoKEr = twoKEr + sum(b%MoI*b%omega*b%Omega)
             end if
           end associate
         end do
