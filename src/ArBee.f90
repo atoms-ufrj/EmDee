@@ -166,7 +166,7 @@ contains
     call uniaxial_rotation( b, 1, dt )
     call uniaxial_rotation( b, 2, half_dt )
     call uniaxial_rotation( b, 3, half_dt )
-    b%delta = matmul( matmul( matrix_Ct(b%q), matrix_B(b%q) ), b%d )
+    b%delta = matmul( matrix_Ct(b%q), matmul( matrix_B(b%q), b%d ) )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental subroutine uniaxial_rotation( b, k, dt )
@@ -201,7 +201,7 @@ contains
     real(rb),     intent(in)    :: dt
 
     integer  :: status
-    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, l1, l3, a(3), ksq, wp, s0, u0, u
+    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, l1, l3, a(3), ksq, wp, s0, u0, u, LmIw1
     real(rb) :: L, deltaF, phi, z0(4), z(4)
     real(rb), target :: cn, sn, dn
 
@@ -210,7 +210,8 @@ contains
     TwoKr = sum(Iw*w0)
     Lsq = sum(Iw*Iw)
     L = sqrt(Lsq)
-    z0 = [Iw(3), Iw(2), L - Iw(1), zero]/sqrt(two*L*(L - Iw(1)))
+    LmIw1 = L - Iw(1)
+    z0 = [Iw(3), Iw(2), LmIw1, zero]/sqrt(two*L*LmIw1)
     associate (I1 => b%MoI(1), I2 => b%MoI(2), I3 => b%MoI(3))
       l1 = sqrt((Lsq - TwoKr*I3)/(I2*(I2 - I3)))
       l3 = sqrt((TwoKr*I1 - Lsq)/(I2*(I1 - I2)))
@@ -231,11 +232,12 @@ contains
       phi = (Lsq*(u - u0) + (TwoKr*I1 - Lsq)*deltaF)/(two*L*I1*wp)
     end associate
     Iw = b%MoI*b%omega
-    z = ([ Iw(3), Iw(2), L - Iw(1), zero]*cos(phi) + &
-         [-Iw(2), Iw(3), zero, L - Iw(1)]*sin(phi) )/sqrt(two*L*(L - Iw(1)))
-    b%q = z*sum(z0*b%q) + matmul(matrix_C(z),matmul(matrix_Ct(z0),b%q))
-    b%pi = matmul( matrix_B(b%q), two*b%MoI*b%omega )
-    b%delta = matmul( matmul( matrix_Ct(b%q), matrix_B(b%q) ), b%d )
+    LmIw1 = L - Iw(1)
+    z = ([ Iw(3), Iw(2), LmIw1, zero]*cos(phi) + &
+         [-Iw(2), Iw(3), zero, LmIw1]*sin(phi) )/sqrt(two*L*LmIw1)
+    b%q = z*sum(z0*b%q) + matmul( matrix_C(z), matmul( matrix_Ct(z0), b%q ) )
+    b%pi = matmul( matrix_B(b%q), two*Iw )
+    b%delta = matmul( matrix_Ct(b%q), matmul( matrix_B(b%q), b%d ) )
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -268,7 +270,8 @@ contains
         real(rb)             :: deltaFdn
         integer  :: jump
         real(rb) :: eta, k2eta, C, inv2K
-        eta = alpha**2/(one - alpha**2)
+        eta = alpha**2
+        eta = eta/(one - eta)
         k2eta = ksq*eta
         C = sqrt(one + k2eta)
         deltaFdn = u - u0 + sign(one,cn)*Theta(sn,k2eta,ksq) - sign(one,c0)*Theta(s0,k2eta,ksq) &
