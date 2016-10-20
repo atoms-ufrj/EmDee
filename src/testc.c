@@ -121,7 +121,7 @@ int main( int argc, char *argv[] )  {
   simpar par;
   read_data( &par, filename );
   create_configuration( &par );
-  tEmDee md = EmDee_system( threads, par.Rc, par.Rs, par.N, NULL, NULL );
+  tEmDee md = EmDee_system( threads, 1, par.Rc, par.Rs, par.N, NULL, NULL );
   void* lj = EmDee_pair_lj( 1.0, 1.0 );   
   EmDee_set_pair_type( md, 1, 1, lj );
   EmDee_upload( &md, &par.L, par.R, par.V, NULL );

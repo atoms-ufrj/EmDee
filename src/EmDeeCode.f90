@@ -31,6 +31,8 @@ use ArBee
 
 implicit none
 
+character(11), parameter :: VERSION = "20 Oct 2016"
+
 integer, parameter, private :: extra = 2000
 
 integer, parameter, private :: ndiv = 2
@@ -145,6 +147,8 @@ contains
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
+
+    write(*,'("EmDee (",A11,")")') VERSION
 
     ! Allocate data structure:
     allocate( me )

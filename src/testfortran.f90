@@ -55,7 +55,7 @@ end if
 call read_data( file = line )
 call create_configuration
 
-md = EmDee_system( threads, Rc, Rs, N, c_null_ptr, c_null_ptr )
+md = EmDee_system( threads, 1, Rc, Rs, N, c_null_ptr, c_null_ptr )
 
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
 call EmDee_set_pair_type( md, 1, 1, lj )
