@@ -61,52 +61,6 @@ type, extends(i32rng) :: kiss
     procedure :: i32  => kiss_i32
 end type kiss
 
-!interface
-
-!  function gsl_sf_elljac_e( u, m, sn, cn, dn ) bind(C,name="gsl_sf_elljac_e")
-!    import :: c_double, c_ptr, c_int
-!    real(c_double), value :: u, m
-!    type(c_ptr),    value :: sn, cn, dn
-!    integer(c_int)        :: jacobi_functions
-!  end function gsl_sf_elljac_e
-
-!  function gsl_sf_ellint_RF( x, y, z, mode ) bind(C,name="gsl_sf_ellint_RF")
-!    import :: c_double, c_int
-!    real(c_double), value :: x, y, z
-!    integer(c_int), value :: mode
-!    real(c_double)        :: gsl_sf_ellint_RF
-!  end function gsl_sf_ellint_RF
-
-!  pure function gsl_sf_ellint_RJ( x, y, z, p, mode ) bind(C,name="gsl_sf_ellint_RJ")
-!    import :: c_double, c_int
-!    real(c_double), value :: x, y, z, p
-!    integer(c_int), value :: mode
-!    real(c_double)        :: gsl_sf_ellint_RJ
-!  end function gsl_sf_ellint_RJ
-
-!  function gsl_sf_ellint_Kcomp( k, mode ) bind(C,name="gsl_sf_ellint_Kcomp")
-!    import :: c_double, c_int
-!    real(c_double), value :: k
-!    integer(c_int), value :: mode
-!    real(c_double)        :: gsl_sf_ellint_Kcomp
-!  end function gsl_sf_ellint_Kcomp
-
-!  function gsl_sf_ellint_Pcomp( k, n, mode ) bind(C,name="gsl_sf_ellint_Pcomp")
-!    import :: c_double, c_int
-!    real(c_double), value :: k, n
-!    integer(c_int), value :: mode
-!    real(c_double)        :: gsl_sf_ellint_Pcomp
-!  end function gsl_sf_ellint_Pcomp
-
-!end interface
-
-real(rb),dimension(5),parameter :: d1mach = &
-        [  tiny(1.0_rb), &
-           huge(1.0_rb), &
-           real(radix(1.0_rb),rb)**(-digits(1.0_rb)), &
-           epsilon(1.0_rb), &
-           log10(real(radix(1.0_rb),rb)) ]
-
 contains
 
 !---------------------------------------------------------------------------------------------------

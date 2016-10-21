@@ -864,6 +864,62 @@ contains
     type(tEmDee), intent(inout) :: md
 
     integer  :: M
+    real(rb) :: time, E, W
+    logical  :: buildList
+    real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
+    type(tData), pointer :: me
+
+    call c_f_pointer( md%data, me )
+    md%pairTime = md%pairTime - omp_get_wtime()
+
+    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
+    Rs = me%invL*me%R
+    Fs = zero
+    E = zero
+    W = zero
+
+    buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
+    if (buildList) then
+      M = floor(ndiv*me%Lbox/me%xRc)
+      call distribute_atoms( me, max(M,2*ndiv+1), Rs )
+      me%R0 = me%R
+      md%builds = md%builds + 1
+    endif
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      associate( F => Fs(:,:,thread) )
+        if (buildList) then
+          call find_pairs_and_compute( me, thread, Rs, F, E, W )
+        else
+          call compute_pairs( me, thread, Rs, F, E, W )
+        end if
+        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
+        if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
+        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E, W )
+      end associate
+    end block
+    !$omp end parallel
+
+    me%F = me%Lbox*sum(Fs,3)
+    md%Potential = E
+    md%Virial = third*W
+    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
+
+    time = omp_get_wtime()
+    md%pairTime = md%pairTime + time
+    md%totalTime = time - me%startTime
+
+  end subroutine compute_forces
+
+!===================================================================================================
+
+  subroutine compute_forces_old( md )
+    type(tEmDee), intent(inout) :: md
+
+    integer  :: M
     real(rb) :: Potential, Virial, time
     logical  :: buildList
     real(rb), allocatable :: Rs(:,:), Fs(:,:)
@@ -910,7 +966,7 @@ contains
     md%pairTime = md%pairTime + time
     md%totalTime = time - me%startTime
 
-  end subroutine compute_forces
+  end subroutine compute_forces_old
 
 !===================================================================================================
 
