@@ -19,6 +19,8 @@
 
 module math
 
+use, intrinsic :: ieee_arithmetic
+
 use global
 
 implicit none
@@ -59,30 +61,51 @@ type, extends(i32rng) :: kiss
     procedure :: i32  => kiss_i32
 end type kiss
 
-interface
+!interface
 
-  function gsl_sf_elljac_e( u, m, sn, cn, dn ) bind(C,name="gsl_sf_elljac_e")
-    import :: c_double, c_ptr, c_int
-    real(c_double), value :: u, m
-    type(c_ptr),    value :: sn, cn, dn
-    integer(c_int)        :: jacobi_functions
-  end function gsl_sf_elljac_e
+!  function gsl_sf_elljac_e( u, m, sn, cn, dn ) bind(C,name="gsl_sf_elljac_e")
+!    import :: c_double, c_ptr, c_int
+!    real(c_double), value :: u, m
+!    type(c_ptr),    value :: sn, cn, dn
+!    integer(c_int)        :: jacobi_functions
+!  end function gsl_sf_elljac_e
 
-  function gsl_sf_ellint_RF( x, y, z, mode ) bind(C,name="gsl_sf_ellint_RF")
-    import :: c_double, c_int
-    real(c_double), value :: x, y, z
-    integer(c_int), value :: mode
-    real(c_double)        :: gsl_sf_ellint_RF
-  end function gsl_sf_ellint_RF
+!  function gsl_sf_ellint_RF( x, y, z, mode ) bind(C,name="gsl_sf_ellint_RF")
+!    import :: c_double, c_int
+!    real(c_double), value :: x, y, z
+!    integer(c_int), value :: mode
+!    real(c_double)        :: gsl_sf_ellint_RF
+!  end function gsl_sf_ellint_RF
 
-  function gsl_sf_ellint_RJ( x, y, z, p, mode ) bind(C,name="gsl_sf_ellint_RJ")
-    import :: c_double, c_int
-    real(c_double), value :: x, y, z, p
-    integer(c_int), value :: mode
-    real(c_double)        :: gsl_sf_ellint_RJ
-  end function gsl_sf_ellint_RJ
+!  pure function gsl_sf_ellint_RJ( x, y, z, p, mode ) bind(C,name="gsl_sf_ellint_RJ")
+!    import :: c_double, c_int
+!    real(c_double), value :: x, y, z, p
+!    integer(c_int), value :: mode
+!    real(c_double)        :: gsl_sf_ellint_RJ
+!  end function gsl_sf_ellint_RJ
 
-end interface
+!  function gsl_sf_ellint_Kcomp( k, mode ) bind(C,name="gsl_sf_ellint_Kcomp")
+!    import :: c_double, c_int
+!    real(c_double), value :: k
+!    integer(c_int), value :: mode
+!    real(c_double)        :: gsl_sf_ellint_Kcomp
+!  end function gsl_sf_ellint_Kcomp
+
+!  function gsl_sf_ellint_Pcomp( k, n, mode ) bind(C,name="gsl_sf_ellint_Pcomp")
+!    import :: c_double, c_int
+!    real(c_double), value :: k, n
+!    integer(c_int), value :: mode
+!    real(c_double)        :: gsl_sf_ellint_Pcomp
+!  end function gsl_sf_ellint_Pcomp
+
+!end interface
+
+real(rb),dimension(5),parameter :: d1mach = &
+        [  tiny(1.0_rb), &
+           huge(1.0_rb), &
+           real(radix(1.0_rb),rb)**(-digits(1.0_rb)), &
+           epsilon(1.0_rb), &
+           log10(real(radix(1.0_rb),rb)) ]
 
 contains
 
@@ -425,6 +448,208 @@ contains
       end subroutine swap
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine diagonalization
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function jacobi( u, m )
+    real(rb), intent(in) :: u, m
+    real(rb)             :: jacobi(3)
+
+    integer, parameter :: NN = 16
+
+    integer :: n
+    real(rb) :: mu(0:NN-1), nu(0:NN-1), c(0:NN-1), d(0:NN-1)
+    real(rb) :: sin_umu, cos_umu, t, r, dn, cn, sn
+
+    if (abs(m) > one) then
+      jacobi = ieee_value(one,ieee_quiet_NaN)
+    else if (abs(m) < two*epsilon(one)) then
+      jacobi = [sin(u), cos(u), one]
+    else if (abs(m - one) < two*epsilon(one)) then
+      jacobi(1) = tanh(u)
+      jacobi(2:3) = one/cosh(u)
+    else
+      n = 0
+      mu(0) = one
+      nu(0) = sqrt(one - m)
+      do while (abs(mu(n) - nu(n)) > 4.0_rb*epsilon(one)*abs(mu(n)+nu(n)))
+        mu(n+1) = half*(mu(n) + nu(n))
+        nu(n+1) = sqrt(mu(n)*nu(n))
+        n = n + 1
+        if (n >= NN - 1) then
+          jacobi = ieee_value(one,ieee_quiet_NaN)
+          return
+        end if
+      end do
+      sin_umu = sin(u * mu(n))
+      cos_umu = cos(u * mu(n))
+      if (abs(sin_umu) < abs(cos_umu)) then
+        t = sin_umu / cos_umu
+        c(n) = mu(n) * t
+        d(n) = one
+        do while (n > 0)
+          c(n-1) = d(n)*c(n);
+          r = (c(n)*c(n))/mu(n)
+          n = n - 1
+          d(n) = (r + nu(n))/(r + mu(n))
+        end do
+        dn = sqrt(one-m)/d(n)
+        cn = dn*sign(one,cos_umu)/hypot(one, c(n))
+        sn = cn*c(n)/sqrt(one-m)
+      else
+        t = cos_umu / sin_umu
+        c(n) = mu(n) * t
+        d(n) = one
+        do while (n > 0)
+          c(n-1) = d(n)*c(n)
+          r = (c(n)*c(n))/mu(n)
+          n = n - 1
+          d(n) = (r + nu(n))/(r + mu(n))
+        end do
+        dn = d(n)
+        sn = sign(one,sin_umu)/hypot(one, c(n))
+        cn = c(n)*sn
+      end if
+      jacobi = [sn,cn,dn]
+    end if
+  end function jacobi
+
+!---------------------------------------------------------------------------------------------------
+
+  pure real(rb) function RF( x, y, z )
+    real(rb), intent(in) :: x, y, z
+
+    real(rb), parameter :: errtol = 0.001_rb
+    real(rb), parameter :: lolim  = (5.0_rb*tiny(1.0_rb))**(1.0_rb/3.0_rb)
+    real(rb), parameter :: uplim  = 0.3_rb*(0.2_rb*huge(1.0_rb))**(1.0_rb/3.0_rb)
+
+    real(rb), parameter :: c1 = 1.0_rb/24.0_rb
+    real(rb), parameter :: c2 = 3.0_rb/44.0_rb
+    real(rb), parameter :: c3 = 1.0_rb/14.0_rb
+
+    real(rb) :: epslon, e2, e3, lamda
+    real(rb) :: mu, s, xn, xndev
+    real(rb) :: xnroot, yn, yndev, ynroot, zn, zndev, znroot
+
+    if ((min(x,y,z) < zero).or.(max(x,y,z) > uplim).or.(min(x+y,x+z,y+z) < lolim)) then
+      RF = ieee_value(one,ieee_quiet_NaN)
+    else
+      xn = x
+      yn = y
+      zn = z
+      do
+        mu = (xn + yn + zn)/3.0_rb
+        xndev = 2.0_rb - (mu + xn)/mu
+        yndev = 2.0_rb - (mu + yn)/mu
+        zndev = 2.0_rb - (mu + zn)/mu
+        epslon = max(abs(xndev),abs(yndev),abs(zndev))
+        if (epslon < errtol) exit
+        xnroot = sqrt(xn)
+        ynroot = sqrt(yn)
+        znroot = sqrt(zn)
+        lamda = xnroot*(ynroot + znroot) + ynroot*znroot
+        xn = (xn + lamda)*0.250_rb
+        yn = (yn + lamda)*0.250_rb
+        zn = (zn + lamda)*0.250_rb
+      end do
+      e2 = xndev*yndev - zndev*zndev
+      e3 = xndev*yndev*zndev
+      s = 1.0_rb + (c1*e2 - 0.10_rb-c2*e3)*e2 + c3*e3
+      RF = s/sqrt(mu)
+    end if
+  end function RF
+
+!---------------------------------------------------------------------------------------------------
+
+  pure real(rb) function RC( x, y )
+    real(rb), intent(in) :: x, y
+
+    real(rb), parameter :: errtol = 0.001_rb
+    real(rb), parameter :: lolim = 5.0_rb*tiny(one)
+    real(rb), parameter :: uplim = 0.2_rb*huge(one)
+    real(rb), parameter :: c1 = 1.0_rb/7.0_rb
+    real(rb), parameter :: c2 = 9.0_rb/22.0_rb
+
+    real(rb) :: lamda, mu, s, sn, xn, yn
+
+    if ((x < zero).or.(y <= zero).or.(max(x,y) > uplim).or.(x + y < lolim)) then
+      RC = ieee_value(one,ieee_quiet_NaN)
+    else
+      xn = x
+      yn = y
+      do
+        mu = (xn + yn + yn)/3.0_rb
+        sn = (yn + mu)/mu - 2.0_rb
+        if (abs(sn) < errtol) exit
+        lamda = 2.0_rb*sqrt(xn)*sqrt(yn) + yn
+        xn = (xn + lamda)*0.250_rb
+        yn = (yn + lamda)*0.250_rb
+      end do
+      s = sn*sn*(0.30_rb + sn*(c1 + sn*(0.3750_rb + sn*c2)))
+      RC = (1.0_rb + s)/sqrt(mu)
+    end if
+  end function RC
+
+!---------------------------------------------------------------------------------------------------
+
+  pure real(rb) function RJ( x, y, z, p )
+    real(rb), intent(in) :: x, y, z, p
+
+    real(rb), parameter :: errtol = 0.001_rb
+    real(rb), parameter :: lolim = (5.0_rb*tiny(one))**(1.0_rb/3.0_rb)
+    real(rb), parameter :: uplim = 0.30_rb*(0.2_rb*huge(one))**(1.0_rb/3.0_rb)
+    real(rb), parameter :: c1 = 3.0_rb/14.0_rb
+    real(rb), parameter :: c2 = 1.0_rb/3.0_rb
+    real(rb), parameter :: c3 = 3.0_rb/22.0_rb
+    real(rb), parameter :: c4 = 3.0_rb/26.0_rb
+
+    real(rb) :: alfa, beta, ea, eb, ec, e2, e3, epslon
+    real(rb) :: lamda, mu, pn, pndev
+    real(rb) :: power4, sigma, s1, s2, s3, xn, xndev
+    real(rb) :: xnroot, yn, yndev, ynroot, zn, zndev, znroot
+
+    if ((min(x,y,z) < zero).or.(max(x,y,z,p) > uplim).or.(min(x+y,x+z,y+z,p) < lolim)) then
+      RJ = ieee_value(one,ieee_quiet_NaN)
+    else
+      xn = x
+      yn = y
+      zn = z
+      pn = p
+      sigma  = 0.0_rb
+      power4 = 1.0_rb
+      do
+        mu = (xn + yn + zn + pn + pn)*0.20_rb
+        xndev = (mu - xn)/mu
+        yndev = (mu - yn)/mu
+        zndev = (mu - zn)/mu
+        pndev = (mu - pn)/mu
+        epslon = max(abs(xndev),abs(yndev),abs(zndev),abs(pndev))
+        if (epslon < errtol) exit
+        xnroot = sqrt(xn)
+        ynroot = sqrt(yn)
+        znroot = sqrt(zn)
+        lamda = xnroot*(ynroot + znroot) + ynroot*znroot
+        alfa = pn*(xnroot + ynroot + znroot) + xnroot*ynroot*znroot
+        alfa = alfa*alfa
+        beta = pn*(pn + lamda)*(pn + lamda)
+        sigma = sigma + power4*RC(alfa,beta)
+        power4 = power4*0.250_rb
+        xn = (xn + lamda)*0.250_rb
+        yn = (yn + lamda)*0.250_rb
+        zn = (zn + lamda)*0.250_rb
+        pn = (pn + lamda)*0.250_rb
+      end do
+      ea = xndev*(yndev + zndev) + yndev*zndev
+      eb = xndev*yndev*zndev
+      ec = pndev*pndev
+      e2 = ea - 3.0_rb*ec
+      e3 = eb + 2.0_rb*pndev*(ea-ec)
+      s1 = 1.0_rb + e2*(-c1 + 0.750_rb*c3*e2 - 1.50_rb*c4*e3)
+      s2 = eb*(0.50_rb*c2 + pndev*(-c3-c3 + pndev*c4))
+      s3 = pndev*ea*(c2 - pndev*c3) - c2*pndev*ec
+      RJ = 3.0_rb*sigma + power4*(s1 + s2 + s3)/(mu*sqrt(mu))
+    end if
+  end function RJ
 
 !---------------------------------------------------------------------------------------------------
 

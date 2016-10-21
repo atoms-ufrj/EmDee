@@ -39,6 +39,7 @@ type tBody
   real(rb) :: omega(3)  ! angular velocities
   real(rb) :: F(3)      ! Resultant force
   real(rb) :: tau(3)    ! Resultant torque
+  real(rb) :: virial    ! Contribution to internal virial
 
   integer,  allocatable :: index(:)
   real(rb), allocatable :: M(:)
@@ -64,7 +65,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine tBody_setup( b, indexes, masses )
+  pure subroutine tBody_setup( b, indexes, masses )
     class(tBody), intent(inout) :: b
     integer(ib),  intent(in)    :: indexes(:)
     real(rb),     intent(in)    :: masses(size(indexes))
@@ -156,7 +157,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  elemental subroutine tBody_rotate_no_squish( b, dt )
+  pure subroutine tBody_rotate_no_squish( b, dt )
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: dt
     real(rb) :: half_dt
@@ -196,14 +197,13 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine tBody_rotate_analytical( b, dt )
+  pure subroutine tBody_rotate_analytical( b, dt )
+
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: dt
 
-    integer  :: status
-    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, l1, l3, a(3), ksq, wp, s0, u0, u, LmIw1
-    real(rb) :: L, deltaF, phi, z0(4), z(4)
-    real(rb), target :: cn, sn, dn
+    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, l1, l3, a(3), k, ksq, wp, s0, u0, u, QP, LmIw1
+    real(rb) :: L, deltaF, phi, z0(4), z(4), jac(3)
 
     w0 = b%omega
     Iw = b%MoI*w0
@@ -212,22 +212,25 @@ contains
     L = sqrt(Lsq)
     LmIw1 = L - Iw(1)
     z0 = [Iw(3), Iw(2), LmIw1, zero]/sqrt(two*L*LmIw1)
-    associate (I1 => b%MoI(1), I2 => b%MoI(2), I3 => b%MoI(3))
+    associate (I1 => b%MoI(1), I2 => b%MoI(2), I3 => b%MoI(3), &
+               sn => jac(1),   cn => jac(2),   dn => jac(3)    )
       l1 = sqrt((Lsq - TwoKr*I3)/(I2*(I2 - I3)))
       l3 = sqrt((TwoKr*I1 - Lsq)/(I2*(I1 - I2)))
       a = [ w0(1)/sqrt(one - (w0(2)/l1)**2), min(l1,l3), w0(3)/sqrt(one - (w0(2)/l3)**2) ]
-      ksq = (a(2)/max(l1,l3))**2
+      k = a(2)/max(l1,l3)
+      ksq = k*k
       wp = (I3 - I1)*a(1)*a(3)/(I2*a(2))
       s0 = w0(2)/a(2)
-      u0 = s0*gsl_sf_ellint_RF( one - s0*s0, one - ksq*s0*s0, one, GSL_PREC_DOUBLE )
+      u0 = s0*RF( one - s0*s0, one - ksq*s0*s0, one )
       u = wp*dt + u0
-      status = gsl_sf_elljac_e( u, ksq, c_loc(sn), c_loc(cn), c_loc(dn) )
+      jac = jacobi( u, ksq )
+      QP = RF( zero, one - ksq, one )
       if (l1 < l3) then
         b%omega = a*[cn,sn,dn]
-        deltaF = deltaFcn( u0, w0(1)/a(1), s0, w0(3)/a(3), u, cn, sn, dn, ksq, I1*a(1)/L )
+        deltaF = deltaFcn( u0, w0(1)/a(1), s0, w0(3)/a(3), u, cn, sn, dn, ksq, I1*a(1)/L, QP )
       else
         b%omega = a*[dn,sn,cn]
-        deltaF = deltaFdn( u0, w0(3)/a(3), s0, u, cn, sn, ksq, I1*a(1)/L )
+        deltaF = deltaFdn( u0, w0(3)/a(3), s0, u, cn, sn, ksq, I1*a(1)/L, QP )
       end if
       phi = (Lsq*(u - u0) + (TwoKr*I1 - Lsq)*deltaF)/(two*L*I1*wp)
     end associate
@@ -241,17 +244,16 @@ contains
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function Theta( x, n, m )
+      pure function Theta( x, n, m )
         real(rb), intent(in) :: x, n, m
         real(rb)             :: Theta
-        real(rb) :: xsq
-        xsq = x*x
-        Theta = -third*n*x*xsq* &
-                 gsl_sf_ellint_RJ( one - xsq, one - m*xsq, one, one + n*xsq, GSL_PREC_DOUBLE )
+        real(rb) :: x2
+        x2 = x*x
+        Theta = -third*n*x*x2*RJ( one - x2, one - m*x2, one, one + n*x2 )
       end function Theta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function deltaFcn( u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha )
-        real(rb), intent(in) :: u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha
+      pure function deltaFcn( u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha, K )
+        real(rb), intent(in) :: u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha, K
         real(rb)             :: deltaFcn
         integer  :: jump
         real(rb) :: eta, C, inv2K
@@ -259,14 +261,14 @@ contains
         C = sqrt(ksq + eta)
         deltaFcn = u - u0 + sign(one,cn)*Theta(sn,eta,ksq) - sign(one,c0)*Theta(s0,eta,ksq) &
                           + (alpha/C)*(atan(C*sn/dn) - atan(C*s0/d0))
-        inv2K = half/gsl_sf_ellint_RF( zero, one - ksq, one, GSL_PREC_DOUBLE )
+        inv2K = half/K
         jump = nint(u*inv2K) - nint(u0*inv2K)
         if (jump /= 0) deltaFcn = deltaFcn + jump*two*Theta(one,eta,ksq)
         deltaFcn = (eta + one)*deltaFcn
       end function deltaFcn
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function deltaFdn( u0, c0, s0, u, cn, sn, ksq, alpha )
-        real(rb), intent(in) :: u0, c0, s0, u, cn, sn, ksq, alpha
+      pure function deltaFdn( u0, c0, s0, u, cn, sn, ksq, alpha, K )
+        real(rb), intent(in) :: u0, c0, s0, u, cn, sn, ksq, alpha, K
         real(rb)             :: deltaFdn
         integer  :: jump
         real(rb) :: eta, k2eta, C, inv2K
@@ -276,7 +278,7 @@ contains
         C = sqrt(one + k2eta)
         deltaFdn = u - u0 + sign(one,cn)*Theta(sn,k2eta,ksq) - sign(one,c0)*Theta(s0,k2eta,ksq) &
                           + (alpha/C)*(atan(C*sn/cn) - atan(C*s0/c0))
-        inv2K = half/gsl_sf_ellint_RF( zero, one - ksq, one, GSL_PREC_DOUBLE )
+        inv2K = half/K
         jump = nint(u*inv2K) - nint(u0*inv2K)
         if (jump /= 0) deltaFdn = deltaFdn + jump*(two*Theta(one,k2eta,ksq) + (alpha/C)*Pi)
         deltaFdn = (eta + one)*deltaFdn
@@ -298,36 +300,33 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function tBody_force_torque_virial( b, F ) result( virial )
+  subroutine tBody_force_torque_virial( b, F )
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: F(:,:)
-    real(rb)                    :: virial
     integer :: j
     real(rb) :: Fj(3)
     b%F = zero
     b%tau = zero
-    virial = zero
+    b%virial = zero
     do j = 1, b%NP
       Fj = F(:,b%index(j))
       b%F = b%F + Fj
       b%tau = b%tau + cross_product( b%delta(:,j), Fj )
-      virial = virial + sum(b%delta(:,j)*Fj)
+      b%virial = b%virial + sum(b%delta(:,j)*Fj)
     end do
-  end function tBody_force_torque_virial
+  end subroutine tBody_force_torque_virial
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine tBody_assign_momenta( b, input )
+  pure subroutine tBody_assign_momenta( b, input )
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: input(:)
     if (size(input) == 3) then
       b%omega = input
       b%pi = matmul( matrix_B(b%q), two*b%MoI*b%omega )
-    else if (size(input) == 4) then
+    else
       b%pi = input
       b%omega = half*b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-    else
-      stop "ERROR: invalid rigid body momentum assignment"
     end if
   end subroutine tBody_assign_momenta
 

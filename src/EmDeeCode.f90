@@ -148,7 +148,7 @@ contains
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
 
-    write(*,'("EmDee (",A11,")")') VERSION
+    write(*,'("EmDee (version ",A11,")")') VERSION
 
     ! Allocate data structure:
     allocate( me )
@@ -579,7 +579,6 @@ contains
       subroutine assign_forces( thread )
         integer, intent(in) :: thread
         integer :: i, j
-        real(rb) :: W
         real(rb), pointer :: Fext(:,:)
         call c_f_pointer( forces, Fext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
@@ -587,7 +586,7 @@ contains
           me%F(:,i) = Fext(:,i)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          W = me%body(i) % force_torque_virial( Fext )
+          call me % body(i) % force_torque_virial( Fext )
         end do
       end subroutine assign_forces
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -934,7 +933,10 @@ contains
         integer :: i
         Wrb = zero
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          Wrb = Wrb + me%body(i) % force_torque_virial( me%F )
+          associate (b => me%body(i))
+            call b % force_torque_virial( me%F )
+            Wrb = Wrb + b%virial
+          end associate
         end do
       end subroutine compute_body_forces
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
