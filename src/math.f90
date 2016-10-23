@@ -443,7 +443,7 @@ contains
       sin_umu = sin(u * mu(n))
       cos_umu = cos(u * mu(n))
       if (abs(sin_umu) < abs(cos_umu)) then
-        t = sin_umu / cos_umu
+        t = sin_umu/cos_umu
         c(n) = mu(n) * t
         d(n) = one
         do while (n > 0)
@@ -456,7 +456,7 @@ contains
         cn = dn*sign(one,cos_umu)/hypot(one, c(n))
         sn = cn*c(n)/sqrt(one-m)
       else
-        t = cos_umu / sin_umu
+        t = cos_umu/sin_umu
         c(n) = mu(n) * t
         d(n) = one
         do while (n > 0)
@@ -478,7 +478,7 @@ contains
   pure real(rb) function RF( x, y, z )
     real(rb), intent(in) :: x, y, z
 
-    real(rb), parameter :: errtol = 0.001_rb
+    real(rb), parameter :: errtol = 0.0001_rb
     real(rb), parameter :: lolim  = (5.0_rb*tiny(1.0_rb))**(1.0_rb/3.0_rb)
     real(rb), parameter :: uplim  = 0.3_rb*(0.2_rb*huge(1.0_rb))**(1.0_rb/3.0_rb)
 
@@ -513,7 +513,7 @@ contains
       end do
       e2 = xndev*yndev - zndev*zndev
       e3 = xndev*yndev*zndev
-      s = 1.0_rb + (c1*e2 - 0.10_rb-c2*e3)*e2 + c3*e3
+      s = 1.0_rb + (c1*e2 - 0.10_rb - c2*e3)*e2 + c3*e3
       RF = s/sqrt(mu)
     end if
   end function RF
@@ -523,7 +523,7 @@ contains
   pure real(rb) function RC( x, y )
     real(rb), intent(in) :: x, y
 
-    real(rb), parameter :: errtol = 0.001_rb
+    real(rb), parameter :: errtol = 0.0001_rb
     real(rb), parameter :: lolim = 5.0_rb*tiny(one)
     real(rb), parameter :: uplim = 0.2_rb*huge(one)
     real(rb), parameter :: c1 = 1.0_rb/7.0_rb
@@ -554,7 +554,7 @@ contains
   pure real(rb) function RJ( x, y, z, p )
     real(rb), intent(in) :: x, y, z, p
 
-    real(rb), parameter :: errtol = 0.001_rb
+    real(rb), parameter :: errtol = 0.0001_rb
     real(rb), parameter :: lolim = (5.0_rb*tiny(one))**(1.0_rb/3.0_rb)
     real(rb), parameter :: uplim = 0.30_rb*(0.2_rb*huge(one))**(1.0_rb/3.0_rb)
     real(rb), parameter :: c1 = 3.0_rb/14.0_rb

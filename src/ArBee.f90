@@ -210,7 +210,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  elemental subroutine tBody_rotate_analytical( b, dt )
+  pure subroutine tBody_rotate_analytical( b, dt )
 
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: dt
@@ -248,7 +248,6 @@ contains
     phi = (Lsq*(u - u0) + r3*deltaF)/(two*L*b%MoI(1)*wp)
     z0 = [Iw(3), Iw(2), L - Iw(1), zero]
     Iw = b%MoI*b%omega
-!if (abs(TwoKr - sum(Iw*b%omega)) > 1.e-16_rb) print*, TwoKr - sum(Iw*b%omega)
     z = [ Iw(3), Iw(2), L - Iw(1), zero]*cos(phi) + &
         [-Iw(2), Iw(3), zero, L - Iw(1)]*sin(phi)
     b%q = normalize( z*sum(z0*b%q) + matmul( matrix_C(z), matmul( matrix_Ct(z0), b%q ) ) )
