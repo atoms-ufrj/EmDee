@@ -19,13 +19,10 @@
 
 module math
 
+use global
 use, intrinsic :: ieee_arithmetic
 
-use global
-
 implicit none
-
-integer(c_int), public, bind(C) :: GSL_PREC_DOUBLE = 0
 
 type, abstract :: i32rng
   logical :: seeding_required = .true.
@@ -204,6 +201,14 @@ contains
     end select
 
   end function quaternion
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function normalize( v ) result( vn )
+    real(rb), intent(in) :: v(:)
+    real(rb)             :: vn(size(v))
+    vn = v/sqrt(sum(v*v))
+  end function normalize
 
 !---------------------------------------------------------------------------------------------------
 
@@ -405,23 +410,23 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  pure function jacobi( u, m )
-    real(rb), intent(in) :: u, m
-    real(rb)             :: jacobi(3)
+  pure function jacobi( u, m ) result( jac )
+    real(rb), intent(in)  :: u, m
+    real(rb)              :: jac(3)
 
     integer, parameter :: NN = 16
 
     integer :: n
     real(rb) :: mu(0:NN-1), nu(0:NN-1), c(0:NN-1), d(0:NN-1)
-    real(rb) :: sin_umu, cos_umu, t, r, dn, cn, sn
+    real(rb) :: sin_umu, cos_umu, t, r, sn, cn, dn
 
     if (abs(m) > one) then
-      jacobi = ieee_value(one,ieee_quiet_NaN)
+      jac = ieee_value(one,ieee_quiet_NaN)
     else if (abs(m) < two*epsilon(one)) then
-      jacobi = [sin(u), cos(u), one]
+      jac = [sin(u), cos(u), one]
     else if (abs(m - one) < two*epsilon(one)) then
-      jacobi(1) = tanh(u)
-      jacobi(2:3) = one/cosh(u)
+      jac(1) = tanh(u)
+      jac(2:3) = one/cosh(u)
     else
       n = 0
       mu(0) = one
@@ -431,7 +436,7 @@ contains
         nu(n+1) = sqrt(mu(n)*nu(n))
         n = n + 1
         if (n >= NN - 1) then
-          jacobi = ieee_value(one,ieee_quiet_NaN)
+          jac = ieee_value(one,ieee_quiet_NaN)
           return
         end if
       end do
@@ -464,7 +469,7 @@ contains
         sn = sign(one,sin_umu)/hypot(one, c(n))
         cn = c(n)*sn
       end if
-      jacobi = [sn,cn,dn]
+      jac = [sn, cn, dn]
     end if
   end function jacobi
 

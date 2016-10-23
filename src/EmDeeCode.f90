@@ -22,6 +22,8 @@
 
 module EmDeeCode
 
+use, intrinsic :: ieee_arithmetic
+
 use omp_lib
 use lists
 use math
@@ -31,7 +33,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "20 Oct 2016"
+character(11), parameter :: VERSION = "21 Oct 2016"
 
 integer, parameter, private :: extra = 2000
 

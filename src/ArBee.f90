@@ -49,6 +49,12 @@ type tBody
   real(rb) :: invMass    ! Inverse of body mass
   real(rb) :: invMoI(3)  ! Inverses of principal moments of inertia
 
+  real(rb) :: I113       ! 1/(I1*(I1 - I3))
+  real(rb) :: I313       ! 1/(I3*(I1 - I3))
+  real(rb) :: I223       ! 1/(I2*(I2 - I3))
+  real(rb) :: I212       ! 1/(I2*(I1 - I2))
+  real(rb) :: m312       ! (I3 - I1)/I2
+
   contains
 
     procedure :: setup => tBody_setup
@@ -104,6 +110,13 @@ contains
     call diagonalization( inertia, A, b%MoI )
     A = transpose(A)
     b%invMoI = one/b%MoI
+    associate(I1 => b%MoI(1), I2 => b%MoI(2), I3 => b%MoI(3))
+      b%I113 = one/(I1*(I1 - I3))
+      b%I313 = one/(I3*(I1 - I3))
+      b%I223 = one/(I2*(I2 - I3))
+      b%I212 = one/(I2*(I1 - I2))
+      b%m312 = (I3 - I1)/I2
+    end associate
 
     ! Compute quaternion:
     b%q = quaternion( A )
@@ -197,12 +210,12 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  pure subroutine tBody_rotate_analytical( b, dt )
+  elemental subroutine tBody_rotate_analytical( b, dt )
 
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: dt
 
-    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, l1, l3, a(3), k, ksq, wp, s0, u0, u, QP, LmIw1
+    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, r1, r3, l1, l3, lmin, a(3), ksq, wp, s0, u0, u
     real(rb) :: L, deltaF, phi, z0(4), z(4), jac(3)
 
     w0 = b%omega
@@ -210,38 +223,37 @@ contains
     TwoKr = sum(Iw*w0)
     Lsq = sum(Iw*Iw)
     L = sqrt(Lsq)
-    LmIw1 = L - Iw(1)
-    z0 = [Iw(3), Iw(2), LmIw1, zero]/sqrt(two*L*LmIw1)
-    associate (I1 => b%MoI(1), I2 => b%MoI(2), I3 => b%MoI(3), &
-               sn => jac(1),   cn => jac(2),   dn => jac(3)    )
-      l1 = sqrt((Lsq - TwoKr*I3)/(I2*(I2 - I3)))
-      l3 = sqrt((TwoKr*I1 - Lsq)/(I2*(I1 - I2)))
-      a = [ w0(1)/sqrt(one - (w0(2)/l1)**2), min(l1,l3), w0(3)/sqrt(one - (w0(2)/l3)**2) ]
-      k = a(2)/max(l1,l3)
-      ksq = k*k
-      wp = (I3 - I1)*a(1)*a(3)/(I2*a(2))
-      s0 = w0(2)/a(2)
-      u0 = s0*RF( one - s0*s0, one - ksq*s0*s0, one )
-      u = wp*dt + u0
-      jac = jacobi( u, ksq )
-      QP = RF( zero, one - ksq, one )
+    r1 = Lsq - TwoKr*b%MoI(3)
+    r3 = TwoKr*b%MoI(1) - Lsq
+    l1 = b%I223*r1
+    l3 = b%I212*r3
+    lmin = min(l1,l3)
+    a = [ sign(one,w0(1))*sqrt(b%I113*r1), sqrt(lmin), sign(one,w0(3))*sqrt(b%I313*r3) ]
+    ksq = lmin/max(l1,l3)
+    s0 = w0(2)/a(2)
+    if (abs(s0) > one) s0 = sign(one,s0)
+    u0 = s0*RF( one - s0*s0, one - ksq*s0*s0, one )
+    wp = b%m312*a(1)*a(3)/a(2)
+    u = wp*dt + u0
+    jac = jacobi( u, ksq )
+    associate(sn => jac(1), cn => jac(2), dn => jac(3))
       if (l1 < l3) then
         b%omega = a*[cn,sn,dn]
-        deltaF = deltaFcn( u0, w0(1)/a(1), s0, w0(3)/a(3), u, cn, sn, dn, ksq, I1*a(1)/L, QP )
+        deltaF = deltaFcn( u0, w0(1)/a(1), s0, w0(3)/a(3), u, cn, sn, dn, ksq, b%MoI(1)*a(1)/L )
       else
         b%omega = a*[dn,sn,cn]
-        deltaF = deltaFdn( u0, w0(3)/a(3), s0, u, cn, sn, ksq, I1*a(1)/L, QP )
+        deltaF = deltaFdn( u0, w0(3)/a(3), s0, u, cn, sn, ksq, b%MoI(1)*a(1)/L )
       end if
-      phi = (Lsq*(u - u0) + (TwoKr*I1 - Lsq)*deltaF)/(two*L*I1*wp)
     end associate
+    phi = (Lsq*(u - u0) + r3*deltaF)/(two*L*b%MoI(1)*wp)
+    z0 = [Iw(3), Iw(2), L - Iw(1), zero]
     Iw = b%MoI*b%omega
-    LmIw1 = L - Iw(1)
-    z = ([ Iw(3), Iw(2), LmIw1, zero]*cos(phi) + &
-         [-Iw(2), Iw(3), zero, LmIw1]*sin(phi) )/sqrt(two*L*LmIw1)
-    b%q = z*sum(z0*b%q) + matmul( matrix_C(z), matmul( matrix_Ct(z0), b%q ) )
+!if (abs(TwoKr - sum(Iw*b%omega)) > 1.e-16_rb) print*, TwoKr - sum(Iw*b%omega)
+    z = [ Iw(3), Iw(2), L - Iw(1), zero]*cos(phi) + &
+        [-Iw(2), Iw(3), zero, L - Iw(1)]*sin(phi)
+    b%q = normalize( z*sum(z0*b%q) + matmul( matrix_C(z), matmul( matrix_Ct(z0), b%q ) ) )
     b%pi = matmul( matrix_B(b%q), two*Iw )
     b%delta = matmul( matrix_Ct(b%q), matmul( matrix_B(b%q), b%d ) )
-
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       pure function Theta( x, n, m )
@@ -252,8 +264,8 @@ contains
         Theta = -third*n*x*x2*RJ( one - x2, one - m*x2, one, one + n*x2 )
       end function Theta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure function deltaFcn( u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha, K )
-        real(rb), intent(in) :: u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha, K
+      pure function deltaFcn( u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha )
+        real(rb), intent(in) :: u0, c0, s0, d0, u, cn, sn, dn, ksq, alpha
         real(rb)             :: deltaFcn
         integer  :: jump
         real(rb) :: eta, C, inv2K
@@ -261,14 +273,14 @@ contains
         C = sqrt(ksq + eta)
         deltaFcn = u - u0 + sign(one,cn)*Theta(sn,eta,ksq) - sign(one,c0)*Theta(s0,eta,ksq) &
                           + (alpha/C)*(atan(C*sn/dn) - atan(C*s0/d0))
-        inv2K = half/K
+        inv2K = half/RF( zero, one - ksq, one )
         jump = nint(u*inv2K) - nint(u0*inv2K)
         if (jump /= 0) deltaFcn = deltaFcn + jump*two*Theta(one,eta,ksq)
         deltaFcn = (eta + one)*deltaFcn
       end function deltaFcn
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure function deltaFdn( u0, c0, s0, u, cn, sn, ksq, alpha, K )
-        real(rb), intent(in) :: u0, c0, s0, u, cn, sn, ksq, alpha, K
+      pure function deltaFdn( u0, c0, s0, u, cn, sn, ksq, alpha )
+        real(rb), intent(in) :: u0, c0, s0, u, cn, sn, ksq, alpha
         real(rb)             :: deltaFdn
         integer  :: jump
         real(rb) :: eta, k2eta, C, inv2K
@@ -278,7 +290,7 @@ contains
         C = sqrt(one + k2eta)
         deltaFdn = u - u0 + sign(one,cn)*Theta(sn,k2eta,ksq) - sign(one,c0)*Theta(s0,k2eta,ksq) &
                           + (alpha/C)*(atan(C*sn/cn) - atan(C*s0/c0))
-        inv2K = half/K
+        inv2K = half/RF( zero, one - ksq, one )
         jump = nint(u*inv2K) - nint(u0*inv2K)
         if (jump /= 0) deltaFdn = deltaFdn + jump*(two*Theta(one,k2eta,ksq) + (alpha/C)*Pi)
         deltaFdn = (eta + one)*deltaFdn
