@@ -410,6 +410,18 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
+  pure function staircase( x )
+    real(rb), intent(in) :: x
+    integer              :: staircase
+    if (x > zero) then
+      staircase = ceiling(x - half)
+    else
+      staircase = floor(x + half)
+    end if
+  end function staircase
+
+!---------------------------------------------------------------------------------------------------
+
   pure function jacobi( u, m ) result( jac )
     real(rb), intent(in)  :: u, m
     real(rb)              :: jac(3)
@@ -478,7 +490,7 @@ contains
   pure real(rb) function RF( x, y, z )
     real(rb), intent(in) :: x, y, z
 
-    real(rb), parameter :: errtol = 0.0001_rb
+    real(rb), parameter :: errtol = 0.03_rb
     real(rb), parameter :: lolim  = (5.0_rb*tiny(1.0_rb))**(1.0_rb/3.0_rb)
     real(rb), parameter :: uplim  = 0.3_rb*(0.2_rb*huge(1.0_rb))**(1.0_rb/3.0_rb)
 
@@ -523,7 +535,7 @@ contains
   pure real(rb) function RC( x, y )
     real(rb), intent(in) :: x, y
 
-    real(rb), parameter :: errtol = 0.0001_rb
+    real(rb), parameter :: errtol = 0.03_rb
     real(rb), parameter :: lolim = 5.0_rb*tiny(one)
     real(rb), parameter :: uplim = 0.2_rb*huge(one)
     real(rb), parameter :: c1 = 1.0_rb/7.0_rb
@@ -554,7 +566,7 @@ contains
   pure real(rb) function RJ( x, y, z, p )
     real(rb), intent(in) :: x, y, z, p
 
-    real(rb), parameter :: errtol = 0.0001_rb
+    real(rb), parameter :: errtol = 0.03_rb
     real(rb), parameter :: lolim = (5.0_rb*tiny(one))**(1.0_rb/3.0_rb)
     real(rb), parameter :: uplim = 0.30_rb*(0.2_rb*huge(one))**(1.0_rb/3.0_rb)
     real(rb), parameter :: c1 = 3.0_rb/14.0_rb
