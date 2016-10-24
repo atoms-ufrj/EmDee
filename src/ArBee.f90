@@ -210,13 +210,13 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine tBody_rotate_analytical( b, dt )
+  pure subroutine tBody_rotate_analytical( b, dt )
 
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: dt
 
     integer  :: i0, jump
-    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, r1, r3, l1, l3, lmin, a(3), m, K, wp, s0, u0, u
+    real(rb) :: w0(3), Iw(3), Lsq, TwoKr, r1, r3, l1, l3, lmin, a(3), m, K, wp, s0, c0, u0, u
     real(rb) :: L, deltaF, phi, z0(4), z(4), jac(3), inv2K
 
     w0 = b%omega
@@ -234,14 +234,16 @@ contains
     K = RF( zero, one - m, one )
     inv2K = half/K
     s0 = w0(2)/a(2)
-    if (abs(s0) >= one) then
-      a(2) = abs(w0(2))
-      s0 = sign(one,s0)
-      u0 = sign(K,s0)
-      i0 = 0
-    else
+    if (abs(s0) < one) then
+      c0 = merge( w0(1)/a(1), w0(3)/a(3), l1 < l3 )
       u0 = s0*RF( one - s0*s0, one - m*s0*s0, one )
       i0 = staircase(u0*inv2K)
+    else
+      a(2) = abs(w0(2))
+      s0 = sign(one,s0)
+      c0 = zero
+      u0 = sign(K,s0)
+      i0 = 0
     end if
     wp = b%m312*a(1)*a(3)/a(2)
     u = wp*dt + u0
@@ -250,10 +252,10 @@ contains
     associate(sn => jac(1), cn => jac(2), dn => jac(3))
       if (l1 < l3) then
         b%omega = a*[cn,sn,dn]
-        deltaF = deltaFcn( u0, w0(1)/a(1), s0, w0(3)/a(3), u, cn, sn, dn, m, jump, b%MoI(1)*a(1)/L )
+        deltaF = deltaFcn( u0, c0, s0, w0(3)/a(3), u, cn, sn, dn, m, jump, b%MoI(1)*a(1)/L )
       else
         b%omega = a*[dn,sn,cn]
-        deltaF = deltaFdn( u0, w0(3)/a(3), s0, u, cn, sn, m, jump, b%MoI(1)*a(1)/L )
+        deltaF = deltaFdn( u0, c0, s0, u, cn, sn, m, jump, b%MoI(1)*a(1)/L )
       end if
     end associate
     phi = (Lsq*(u - u0) + r3*deltaF)/(two*L*b%MoI(1)*wp)
@@ -266,7 +268,7 @@ contains
     b%delta = matmul( matrix_Ct(b%q), matmul( matrix_B(b%q), b%d ) )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function Theta( x, n, m )
+      pure function Theta( x, n, m )
         real(rb), intent(in) :: x, n, m
         real(rb)             :: Theta
         real(rb) :: x2
@@ -274,7 +276,7 @@ contains
         Theta = -third*n*x*x2*RJ( one - x2, one - m*x2, one, one + n*x2 )
       end function Theta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function deltaFcn( u0, c0, s0, d0, u, cn, sn, dn, m, jump, alpha )
+      pure function deltaFcn( u0, c0, s0, d0, u, cn, sn, dn, m, jump, alpha )
         integer,  intent(in) :: jump
         real(rb), intent(in) :: u0, c0, s0, d0, u, cn, sn, dn, m, alpha
         real(rb)             :: deltaFcn
@@ -287,7 +289,7 @@ contains
         deltaFcn = (eta + one)*deltaFcn
       end function deltaFcn
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function deltaFdn( u0, c0, s0, u, cn, sn, m, jump, alpha )
+      pure function deltaFdn( u0, c0, s0, u, cn, sn, m, jump, alpha )
         integer,  intent(in) :: jump
         real(rb), intent(in) :: u0, c0, s0, u, cn, sn, m, alpha
         real(rb)             :: deltaFdn
