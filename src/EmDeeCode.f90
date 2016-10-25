@@ -33,7 +33,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "23 Oct 2016"
+character(11), parameter :: VERSION = "24 Oct 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -59,6 +59,7 @@ type, bind(C) :: tEmDee
   real(rb)    :: Virial         ! Total internal virial of the system
   integer(ib) :: DOF            ! Total number of degrees of freedom
   integer(ib) :: RDOF           ! Number of rotational degrees of freedom
+  integer(ib) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
   type(c_ptr) :: Data           ! Pointer to system data
 end type tEmDee
 
@@ -150,7 +151,7 @@ contains
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
 
-    write(*,'("EmDee (version ",A11,")")') VERSION
+    write(*,'("EmDee (version: ",A11,")")') VERSION
 
     ! Allocate data structure:
     allocate( me )
@@ -226,6 +227,7 @@ contains
     EmDee_system % Rotational = zero
     EmDee_system % DOF = 3*(N - 1)
     EmDee_system % RDOF = 0
+    EmDee_system % rotationMode = 0
     EmDee_system % data = c_loc(me)
 
   end function EmDee_system
@@ -821,7 +823,11 @@ contains
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
             b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
-            call b % rotate( dt )
+            if (md%rotationMode == 0) then
+              call b % rotate_exact( dt )
+            else
+              call b % rotate_approx( dt, n = md%rotationMode )
+            end if
             forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
           end associate
         end do

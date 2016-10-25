@@ -60,8 +60,8 @@ type tBody
     procedure :: setup => tBody_setup
     procedure :: update => tBody_update
     procedure :: particle_momenta => tBody_particle_momenta
-!    procedure :: rotate => tBody_rotate_no_squish
-    procedure :: rotate => tBody_rotate_analytical
+    procedure :: rotate_approx => tBody_rotate_no_squish
+    procedure :: rotate_exact => tBody_rotate_exact
     procedure :: force_torque_virial => tBody_force_torque_virial
     procedure :: assign_momenta => tBody_assign_momenta
 
@@ -170,16 +170,21 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  pure subroutine tBody_rotate_no_squish( b, dt )
+  pure subroutine tBody_rotate_no_squish( b, delta_t, n )
     class(tBody), intent(inout) :: b
-    real(rb),     intent(in)    :: dt
-    real(rb) :: half_dt
+    real(rb),     intent(in)    :: delta_t
+    integer(ib),  intent(in)    :: n
+    integer :: i
+    real(rb) :: dt, half_dt
+    dt = delta_t/n
     half_dt = half*dt
-    call uniaxial_rotation( b, 3, half_dt )
-    call uniaxial_rotation( b, 2, half_dt )
-    call uniaxial_rotation( b, 1, dt )
-    call uniaxial_rotation( b, 2, half_dt )
-    call uniaxial_rotation( b, 3, half_dt )
+    do i = 1, n
+      call uniaxial_rotation( b, 3, half_dt )
+      call uniaxial_rotation( b, 2, half_dt )
+      call uniaxial_rotation( b, 1, dt )
+      call uniaxial_rotation( b, 2, half_dt )
+      call uniaxial_rotation( b, 3, half_dt )
+    end do
     b%delta = matmul( matrix_Ct(b%q), matmul( matrix_B(b%q), b%d ) )
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -210,7 +215,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  pure subroutine tBody_rotate_analytical( b, dt )
+  pure subroutine tBody_rotate_exact( b, dt )
 
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: dt
@@ -304,7 +309,7 @@ contains
         deltaFdn = (eta + one)*deltaFdn
       end function deltaFdn
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine tBody_rotate_analytical
+  end subroutine tBody_rotate_exact
 
 !---------------------------------------------------------------------------------------------------
 

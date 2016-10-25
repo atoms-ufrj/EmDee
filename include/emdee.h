@@ -8,6 +8,7 @@ typedef struct {
   double Virial;         // Total internal virial of the system
   int    DOF;            // Total number of degrees of freedom
   int    RDOF;           // Number of rotational degrees of freedom
+  int    rotationMode;   // Algorithm used for free rotation of rigid bodies
   void*  Data;           // Pointer to system data
 } tEmDee;
 

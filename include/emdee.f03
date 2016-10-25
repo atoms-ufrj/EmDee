@@ -27,6 +27,7 @@ type, bind(C) :: tEmDee
   real(c_double) :: Virial         ! Total internal virial of the system
   integer(c_int) :: DOF            ! Total number of degrees of freedom
   integer(c_int) :: RDOF           ! Number of rotational degrees of freedom
+  integer(c_int) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
   type(c_ptr)    :: Data           ! Pointer to EmDee system data
 end type tEmDee
 
