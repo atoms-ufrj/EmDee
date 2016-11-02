@@ -191,5 +191,11 @@ interface
     type(c_ptr)           :: EmDee_dihedral_harmonic
   end function EmDee_dihedral_harmonic
 
+  subroutine EmDee_Rotational_Energies( md, Kr ) bind(C,name="EmDee_Rotational_Energies")
+    import :: tEmDee, rb
+    type(tEmDee), value   :: md
+    real(rb), intent(out) :: Kr(3) 
+  end subroutine EmDee_Rotational_Energies
+
 end interface
 

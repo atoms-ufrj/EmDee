@@ -1505,4 +1505,23 @@ contains
 
 !===================================================================================================
 
+  subroutine EmDee_Rotational_Energies( md, Kr ) bind(C,name="EmDee_Rotational_Energies")
+    type(tEmDee), value   :: md
+    real(rb), intent(out) :: Kr(3) 
+
+    integer :: i
+    type(tData), pointer :: me
+
+    call c_f_pointer( md%data, me )
+
+    Kr = zero
+    do i = 1, me%nbodies
+      Kr = Kr + me%body(i)%MoI*me%body(i)%omega**2
+    end do
+    Kr = half*Kr
+
+  end subroutine EmDee_Rotational_Energies
+
+!===================================================================================================
+
 end module EmDeeCode
