@@ -33,7 +33,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "24 Oct 2016"
+character(11), parameter :: VERSION = "02 Nov 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -450,7 +450,7 @@ contains
 
     allocate( isFree(me%natoms) )
     isFree = .false.
-    isFree(me%free) = .true.
+    isFree(me%free(1:me%nfree)) = .true.
     isFree(atom) = .false.
     me%nfree = me%nfree - N
     md%DOF = md%DOF - 3*N
