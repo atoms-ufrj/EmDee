@@ -1,7 +1,7 @@
 FORT = gfortran
 CC   = gcc
 OPTS = -march=native -ffast-math -fstrict-aliasing -Ofast -fPIC -m64 -fopenmp -Wunused -cpp
-LIBS = -lgfortran -lm
+LIBS = -lgfortran -lm -lgomp
 
 SRCDIR = ./src
 OBJDIR = $(SRCDIR)/obj

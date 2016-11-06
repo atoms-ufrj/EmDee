@@ -1,58 +1,59 @@
 #!/usr/local/bin/julia
 
-using EmDee
+include("../src/EmDee.jl")
 
 #---------------------------------------------------------------------------------------------------
 
-function main()
+function main(nthreads, file)
 
-  N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp = read_data()
+  N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp = read_data(file)
 
-  L = (N/rho)^(1.0/3.0)
+  L = fill((N/rho)^(1.0/3.0),3)
   Dt_2 = 0.5*Dt
 
-  md = EmDee.system( 2, Rc, Rs, N, fill(Int(1),N) )
+  md = EmDee.system( nthreads, 1, Rc, Rs, N, C_NULL, C_NULL )
   lj = EmDee.pair_lj( 1.0, 1.0 )
+#  lj = EmDee.pair_lj_sf( 1.0, 1.0, Rc )
   EmDee.set_pair_type( md, 1, 1, lj )
 
-  R, V = generate_configuration( seed, N, L, Temp )
-  F = Array(Float64,3,N)
-  EmDee.compute( md, F, R, L )
-  println(0, " ", md.Energy, " ", md.Virial)
+  R = generate_configuration( N, L[1] )
+
+  EmDee.upload( md, L, R, C_NULL, C_NULL )
+  EmDee.random_momenta( md, Temp, 1, seed )
+
+  println(0, " ", md.Potential, " ", md.Virial)
   for step = 1:Nsteps
-    V = V + Dt_2*F
-    R = R + Dt*V
-    EmDee.compute( md, F, R, L )
-    V = V + Dt_2*F
-    if mod(step,50) == 0
-      println(step, " ", md.Energy, " ", md.Virial)
-    end
+    EmDee.boost( md, 1.0, 0.0, Dt_2, 1, 1 )
+    EmDee.move( md, 1.0, 0.0, Dt )
+    EmDee.boost( md, 1.0, 0.0, Dt_2, 1, 1 )
+    mod(step,50) == 0 && println(step, " ", md.Potential, " ", md.Virial)
   end
-  println("Pair time = ",md.time," s.")
+  println("Pair time  = ",md.pairTime," s.")
+  println("Total time = ",md.totalTime," s.")
 
 end
 
 #---------------------------------------------------------------------------------------------------
 
-function read_data()
-  readline(); N = parse(Int,chomp(readline()))
-  readline(); Rc = parse(Float64,chomp(readline()))
-  readline(); Rs = parse(Float64,chomp(readline()))
-  readline(); seed = parse(Int,chomp(readline()))
-  readline(); Dt = parse(Float64,chomp(readline()))
-  readline(); Nsteps = parse(Int,chomp(readline()))
-  readline(); Nprop = parse(Int,chomp(readline()))
-  readline(); rho = parse(Float64,chomp(readline()))
-  readline(); Temp = parse(Float64,chomp(readline()))
+function read_data(file)
+  f = open(file)
+  readline(f); N = parse(Int,chomp(readline(f)))
+  readline(f); Rc = parse(Float64,chomp(readline(f)))
+  readline(f); Rs = parse(Float64,chomp(readline(f)))
+  readline(f); seed = parse(Int,chomp(readline(f)))
+  readline(f); Dt = parse(Float64,chomp(readline(f)))
+  readline(f); Nsteps = parse(Int,chomp(readline(f)))
+  readline(f); Nprop = parse(Int,chomp(readline(f)))
+  readline(f); rho = parse(Float64,chomp(readline(f)))
+  readline(f); Temp = parse(Float64,chomp(readline(f)))
+  close(f)
   return N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp
 end
 
 #---------------------------------------------------------------------------------------------------
 
-function generate_configuration( seed, N, L, Temp )
+function generate_configuration( N, L )
   R = Array(Float64,3,N)
-  V = Array(Float64,3,N)
-  RNG = MersenneTwister(seed)
   Nd = ceil(Int,N^(1.0/3.0))
   for ind = 1:N
     m = ind - 1
@@ -60,17 +61,16 @@ function generate_configuration( seed, N, L, Temp )
     j = div(m - k*Nd*Nd,Nd)
     i = m - j*Nd - k*Nd*Nd
     R[:,ind] = (L/Nd)*([i j k]' + 0.5)
-    V[:,ind] = [randn(RNG) randn(RNG) randn(RNG)]'
   end
-  Vcm = mean(V,2)
-  for i = 1:N
-    V[:,i] -= Vcm
-  end
-  V = sqrt(Temp*(3*N-3)/sum(V.*V))*V
-  return R, V
+  return R
 end
 
 #---------------------------------------------------------------------------------------------------
 
-main()
-
+if length(ARGS) == 1
+  main(1,ARGS[1])
+elseif length(ARGS) == 2
+  main(parse(Int,ARGS[1]),ARGS[2])
+else
+  println("Usage: testjulia [number-of-threads] input-file")
+end
