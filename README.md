@@ -43,20 +43,20 @@ Standard installation and testing
 
 * to run the julia script test:
 
-       sudo apt-get install julia
+        sudo apt-get install julia
 
 ### Compiling the library
 
 * Clone the repository
 
-       git init
-       git remote add upstream https://github.com/craabreu/EmDee
-       git pull upstream master
+         git init
+          git remote add upstream https://github.com/craabreu/EmDee
+           git pull upstream master
   This will create a local copy of the repository on your device.
 
 * Execute the Makefile in the root directory of the repository tree
 
-       make
+            make
   This will build the shared and static libraries (libemdee.so and libemdee.a).
 
 ### Running the tests:
