@@ -49,30 +49,30 @@ Standard installation and testing
 
 * Clone the repository
 
-         git init
-          git remote add upstream https://github.com/craabreu/EmDee
-           git pull upstream master
+        git init
+        git remote add upstream https://github.com/craabreu/EmDee
+         git pull upstream master
   This will create a local copy of the repository on your device.
 
 * Execute the Makefile in the root directory of the repository tree
 
-            make
+        make
   This will build the shared and static libraries (libemdee.so and libemdee.a).
 
 ### Running the tests:
 
 * Run the label **install** from the Makefile with administrator permissions:
 
-       sudo make install
+        sudo make install
   This will copy the library, c header, and fortran 2003 header-like files) to your system folders (`/usr/local/lib/` and `/usr/local/include/`) and run `ldconfig`.
 
 * Run the label **test**
 
-       make test
+        make test
   This will compile the c and fortran test programs and  create a copy of the default julia test script inside the `test` directory.
 
 * Run each test using the input file provided in the `example` directory.
 
-       ./test/testfortran examples/data.inp
-       ./test/testc examples/data.inp
-       julia ./test/testjulia examples/data.inp
+        ./test/testfortran examples/data.inp
+        ./test/testc examples/data.inp
+        julia ./test/testjulia examples/data.inp
