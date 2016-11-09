@@ -37,6 +37,7 @@ Standard installation and testing
 >
 >
 > **Can usually be installed via apt:**
+>
 >      $ sudo apt-get install gfortran
 
 #### Further dependencies for running the test
