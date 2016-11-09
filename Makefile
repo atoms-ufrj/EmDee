@@ -18,6 +18,8 @@ OBJECTS = $(call obj,EmDeeCode ArBee math structs models lists global)
 
 .PHONY: all test clean install uninstall lib
 
+.DEFAULT_GOAL := all
+
 all: lib
 
 clean:
@@ -87,4 +89,3 @@ $(OBJDIR)/lists.o: $(SRCDIR)/lists.f90
 $(OBJDIR)/global.o: $(SRCDIR)/global.f90
 	mkdir -p $(OBJDIR)
 	$(FORT) $(OPTS) -J$(OBJDIR) -c -o $@ $<
-
