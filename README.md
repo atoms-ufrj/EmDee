@@ -41,9 +41,16 @@ Standard installation and testing
 
 #### Further dependencies for running the test
 
-* to run the julia script test:
+##### To run the julia script test:
 
-        sudo apt-get install julia
+* julia
+
+> **Tested with:**
+>- julia version 0.4.5
+>
+> **Can usually be installed via apt:**
+>
+>      sudo apt install julia
 
 ### Compiling the library
 
