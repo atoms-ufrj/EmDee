@@ -82,4 +82,4 @@ Standard installation and testing
 
         ./test/testfortran examples/data.inp
         ./test/testc examples/data.inp
-        julia ./test/testjulia examples/data.inp
+        ./test/testjulia examples/data.inp
