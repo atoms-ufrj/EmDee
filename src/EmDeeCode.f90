@@ -358,24 +358,13 @@ contains
         integer :: start, end
         start = excluded%first(i)
         end = excluded%last(i)
-! ORIGINAL INTENTION:
-!        if ((end < start) .or. (j > excluded%item(end)) &
-!          ) then
-!          excluded%item(end+2:n+1) = excluded%item(end+1:n)
-!          excluded%item(end+1) = j
-!        else
-!          do while (j > excluded%item(start))
-!            start = start + 1
-!          end do
-!          if (j == excluded%item(start)) return
-!          excluded%item(start+1:n+1) = excluded%item(start:n)
-!          excluded%item(start) = j
-!          start = start + 1
-!        end if
-! ALTERNATIVE IMPLEMENTATION
-        if ( (end < start) .or. jgteie(j,excluded,end) ) then
-          excluded%item(end+2:n+1) = excluded%item(end+1:n)
-          excluded%item(end+1) = j
+#define core1 excluded%item(end+2:n+1) = excluded%item(end+1:n)
+#define core2 excluded%item(end+1) = j
+#define core core1; core2
+        if (end < start) then
+          core
+        elseif (j > excluded%item(end)) then
+          core
         else
           do while (j > excluded%item(start))
             start = start + 1
@@ -383,29 +372,16 @@ contains
           if (j == excluded%item(start)) return
           excluded%item(start+1:n+1) = excluded%item(start:n)
           excluded%item(start) = j
+          start = start + 1 
         end if
-! END OF ALTERNATIVE
+#undef core
+#undef core2
+#undef core1
         excluded%first(i+1:) = excluded%first(i+1:) + 1
         excluded%last(i:) = excluded%last(i:) + 1
         n = n + 1
       end subroutine add_item
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function jgteie(j,excluded,end) result(ans)
-      !this function was created to overcome what looked like a run time bug when using bounds check option
-      !what happened: if end was equal to zero, and start was greater than zero
-      !despite the second option of the conditional from where this function is called would not run if the first option is met
-      !the bounds check option would check the consistency of that option and raise an error associated with trying to access element end=zero of the array excluded%item        logical ans
-      !the function calling overhead created with this seems negligible according to a few tests.
-      !the following conditionals used in this function to handle the allegedly exception aren't even actually required
-        logical :: ans
-        integer, intent(in) :: j, end
-        type(tList), intent(in) :: excluded
-        !if (end > 0) then
-          ans = j > excluded%item(end)
-        !else
-        !  ans = .False.
-        !endif
-      end function
   end subroutine EmDee_ignore_pair
 
 !===================================================================================================
