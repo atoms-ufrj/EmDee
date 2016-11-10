@@ -40,12 +40,19 @@ module EmDee
   typealias MatOrPtr Union{Matrix{Float64},Ptr{Void}}
 
 #---------------------------------------------------------------------------------------------------
-  function system( threads::Int, layers::Int, rc::Float64, skin::Float64, N::Int,
-                   types::Ptr{Void}, masses::VecOrPtr )
-    return ccall( @dlsym("EmDee_system", EmDee_libvar), tEmDee,
-                  (Int32, Int32, Float64, Float64, Int32, Ptr{Int32}, Ptr{Float64}),
-                  threads, layers, rc, skin, N, types, masses )
-  end
+function system( threads::Int, layers::Int, rc::Float64, skin::Float64, N::Int,
+                 types::Vector{Int}, masses::VecOrPtr )
+  return ccall( @dlsym("EmDee_system", EmDee_libvar) tEmDee,
+                (Int32, Int32, Float64, Float64, Int32, Ptr{Int32}, Ptr{Float64}),
+                threads, layers, rc, skin, N, Vector{Int32}(types), masses )
+end
+
+function system( threads::Int, layers::Int, rc::Float64, skin::Float64, N::Int,
+                 types::Ptr{Void}, masses::VecOrPtr )
+  return ccall( @dlsym("EmDee_system", EmDee_libvar) tEmDee,
+                (Int32, Int32, Float64, Float64, Int32, Ptr{Int32}, Ptr{Float64}),
+                threads, layers, rc, skin, N, types, masses )
+end
 #---------------------------------------------------------------------------------------------------
   function set_pair_type( md::tEmDee, itype::Int, jtype::Int, model::Ptr{Void} )
     ccall( @dlsym("EmDee_set_pair_type", EmDee_libvar), Void,
