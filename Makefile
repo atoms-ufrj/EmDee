@@ -49,6 +49,16 @@ src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
 OBJECTS = $(call obj,EmDeeCode ArBee math structs models lists global)
 
+LN_INC_OPT = -I$(INCDIR)
+
+#LN_SO_OPT #1: relative path steming from executable location
+LN_SO_OPT = -Wl,-rpath,'$$ORIGIN/../lib'
+
+#LN_SO_OPT #2: absolute path provided by Makefile location (beware of special characters)
+#LN_SO_OPT = -Wl,-rpath,'$$ORIGIN/../../lib1/so'
+
+LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
+
 .PHONY: all test clean install uninstall lib
 
 .DEFAULT_GOAL := all
@@ -60,15 +70,17 @@ clean:
 	rm -rf $(LIBDIR)
 	rm -rf $(BINDIR)
 
-install:
-	cp $(LIBDIR)/libemdee.* /usr/local/lib/
-	cp $(INCDIR)/emdee.* /usr/local/include/
-	ldconfig
+#DEPRECATED
+#install:
+#	cp $(LIBDIR)/libemdee.* /usr/local/lib/
+#	cp $(INCDIR)/emdee.* /usr/local/include/
+#	ldconfig
 
-uninstall:
-	rm -f /usr/local/lib/libemdee.a /usr/local/lib/libemdee.so
-	rm -f /usr/local/include/emdee.h /usr/local/include/emdee.f03
-	ldconfig
+#DEPRECATED
+#uninstall:
+#	rm -f /usr/local/lib/libemdee.a /usr/local/lib/libemdee.so
+#	rm -f /usr/local/include/emdee.h /usr/local/include/emdee.f03
+#	ldconfig
 
 # Executables:
 
@@ -76,11 +88,11 @@ test: $(addprefix $(BINDIR)/,testfortran testc testjulia)
 
 $(BINDIR)/testfortran: $(SRCDIR)/testfortran.f90 $(INCDIR)/emdee.f03 $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
-	$(FORT) $(F_OPTS) -static-libgfortran -o $@ -J$(OBJDIR) $< $(EMDEELIB)
+	$(FORT) $(F_OPTS) -static-libgfortran -o $@ $(LN_OPTS) -J$(OBJDIR) $< $(EMDEELIB)
 
 $(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
-	$(CC) -static-libgfortran $(C_OPTS) -o $@ $< $(EMDEELIB) -lm
+	$(CC) -static-libgfortran $(C_OPTS) -o $@ $(LN_OPTS) $< $(EMDEELIB) -lm
 
 $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl
 	mkdir -p $(BINDIR)

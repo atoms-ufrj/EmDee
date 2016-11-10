@@ -23,7 +23,7 @@ This repository contains:
   * A julia script
 * An example input data file for the test program
 
-Standard installation and testing
+Standard compilation and testing
 ------------
 
 ### Dependencies (considering a Ubuntu 16.04.1 LTS fresh install):
@@ -67,11 +67,6 @@ Standard installation and testing
   This will build the shared and static libraries (libemdee.so and libemdee.a).
 
 ### Running the tests:
-
-* Run the label **install** from the Makefile with administrator permissions:
-
-        sudo make install
-  This will copy the library, c header, and fortran 2003 header-like files) to your system folders (`/usr/local/lib/` and `/usr/local/include/`) and run `ldconfig`.
 
 * Run the label **test**
 

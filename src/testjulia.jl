@@ -5,7 +5,8 @@ include("../src/EmDee.jl")
 #---------------------------------------------------------------------------------------------------
 
 function main(nthreads, file)
-
+  print("\n","running test julia from", pwd(), "\n","\n")
+  Libdl.dlopen("./lib/libemdee.so")
   N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp = read_data(file)
 
   L = fill((N/rho)^(1.0/3.0),3)
