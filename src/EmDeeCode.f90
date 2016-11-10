@@ -361,10 +361,16 @@ contains
 #define core1 excluded%item(end+2:n+1) = excluded%item(end+1:n)
 #define core2 excluded%item(end+1) = j
 #define core core1; core2
+!ORIGINAL VERSION SUBJECT TO A FALSE ALARM ERROR BY BOUNDS-CHECK
+!       if ((end < start).or.(j > excluded%item(end))) then
+!         excluded%item(end+2:n+1) = excluded%item(end+1:n)
+!         excluded%item(end+1) = j
+! ALTERNATIVE USING -CPP #DEFINE AND #UNDEF
         if (end < start) then
           core
         elseif (j > excluded%item(end)) then
           core
+!END ALTERNATIVE
         else
           do while (j > excluded%item(start))
             start = start + 1
@@ -372,7 +378,7 @@ contains
           if (j == excluded%item(start)) return
           excluded%item(start+1:n+1) = excluded%item(start:n)
           excluded%item(start) = j
-          start = start + 1 
+          start = start + 1
         end if
 #undef core
 #undef core2
