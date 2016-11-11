@@ -358,9 +358,19 @@ contains
         integer :: start, end
         start = excluded%first(i)
         end = excluded%last(i)
-        if ((end < start).or.(j > excluded%item(end))) then
-          excluded%item(end+2:n+1) = excluded%item(end+1:n)
-          excluded%item(end+1) = j
+#define core1 excluded%item(end+2:n+1) = excluded%item(end+1:n)
+#define core2 excluded%item(end+1) = j
+#define core core1; core2
+!ORIGINAL VERSION SUBJECT TO A FALSE ALARM ERROR BY BOUNDS-CHECK
+!       if ((end < start).or.(j > excluded%item(end))) then
+!         excluded%item(end+2:n+1) = excluded%item(end+1:n)
+!         excluded%item(end+1) = j
+! ALTERNATIVE USING -CPP #DEFINE AND #UNDEF
+        if (end < start) then
+          core
+        elseif (j > excluded%item(end)) then
+          core
+!END ALTERNATIVE
         else
           do while (j > excluded%item(start))
             start = start + 1
@@ -368,7 +378,11 @@ contains
           if (j == excluded%item(start)) return
           excluded%item(start+1:n+1) = excluded%item(start:n)
           excluded%item(start) = j
+          start = start + 1
         end if
+#undef core
+#undef core2
+#undef core1
         excluded%first(i+1:) = excluded%first(i+1:) + 1
         excluded%last(i:) = excluded%last(i:) + 1
         n = n + 1
@@ -1011,7 +1025,7 @@ contains
   real(rb) function maximum_approach_sq( N, delta )
     integer, intent(in) :: N
     real(rb),    intent(in) :: delta(3,N)
- 
+
     integer  :: i
     real(rb) :: maximum, next, deltaSq
 
@@ -1392,7 +1406,7 @@ contains
           F(:,i) = F(:,i) + Fi
           neighbor%last(i) = npairs
           include(xlist) = .true.
-        end do      
+        end do
         index(atom(1:ntotal)) = 0
 
       end do
@@ -1507,7 +1521,7 @@ contains
 
   subroutine EmDee_Rotational_Energies( md, Kr ) bind(C,name="EmDee_Rotational_Energies")
     type(tEmDee), value   :: md
-    real(rb), intent(out) :: Kr(3) 
+    real(rb), intent(out) :: Kr(3)
 
     integer :: i
     type(tData), pointer :: me
