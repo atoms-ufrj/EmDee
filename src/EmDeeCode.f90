@@ -358,19 +358,12 @@ contains
         integer :: start, end
         start = excluded%first(i)
         end = excluded%last(i)
-#define core1 excluded%item(end+2:n+1) = excluded%item(end+1:n)
-#define core2 excluded%item(end+1) = j
-#define core core1; core2
-!ORIGINAL VERSION SUBJECT TO A FALSE ALARM ERROR BY BOUNDS-CHECK
-!       if ((end < start).or.(j > excluded%item(end))) then
-!         excluded%item(end+2:n+1) = excluded%item(end+1:n)
-!         excluded%item(end+1) = j
-! ALTERNATIVE USING -CPP #DEFINE AND #UNDEF
         if (end < start) then
-          core
-        elseif (j > excluded%item(end)) then
-          core
-!END ALTERNATIVE
+          excluded%item(end+2:n+1) = excluded%item(end+1:n)
+          excluded%item(end+1) = j
+        elseif (j > excluded%item(end)) then ! Repetition avoids exception in DEBUB mode
+          excluded%item(end+2:n+1) = excluded%item(end+1:n)
+          excluded%item(end+1) = j
         else
           do while (j > excluded%item(start))
             start = start + 1
@@ -380,9 +373,6 @@ contains
           excluded%item(start) = j
           start = start + 1
         end if
-#undef core
-#undef core2
-#undef core1
         excluded%first(i+1:) = excluded%first(i+1:) + 1
         excluded%last(i:) = excluded%last(i:) + 1
         n = n + 1
@@ -723,19 +713,19 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_save_state( md, rigid )
-    type(tEmDee), intent(inout) :: md
-    integer(ib),  intent(in)    :: rigid
-    if (rigid /= 0) then
-    else
-    end if
-  end subroutine EmDee_save_state
+!  subroutine EmDee_save_state( md, rigid )
+!    type(tEmDee), intent(inout) :: md
+!    integer(ib),  intent(in)    :: rigid
+!    if (rigid /= 0) then
+!    else
+!    end if
+!  end subroutine EmDee_save_state
 
 !===================================================================================================
 
-  subroutine EmDee_restore_state( md )
-    type(tEmDee), intent(inout) :: md
-  end subroutine EmDee_restore_state
+!  subroutine EmDee_restore_state( md )
+!    type(tEmDee), intent(inout) :: md
+!  end subroutine EmDee_restore_state
 
 !===================================================================================================
 

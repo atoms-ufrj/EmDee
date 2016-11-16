@@ -74,7 +74,7 @@ contains
     tn = 3.442619855899_8
     vn = 0.00991256303526217_8
     q = vn*exp(0.5_8*dn*dn)
-    a%kn(0) = (dn/q)*m1
+    a%kn(0) = int((dn/q)*m1)
     a%kn(1) = 0_4
     a%wn(0) = q/m1
     a%wn(127) = dn/m1
@@ -82,7 +82,7 @@ contains
     a%fn(127) = exp( -0.5_8*dn*dn )
     do i = 126, 1, -1
       dn = sqrt( -2.0_8 * log( vn/dn + exp( -0.5_8*dn*dn ) ) )
-      a%kn(i+1) = (dn/tn)*m1
+      a%kn(i+1) = int((dn/tn)*m1)
       tn = dn
       a%fn(i) = exp(-0.5_8*dn*dn)
       a%wn(i) = dn/m1
@@ -248,7 +248,7 @@ contains
     real(rb), parameter :: sqrt3 = sqrt(3.0_rb)
 
     integer  :: i, j
-    real(rb) :: a(3,3), norm, n1, n2, w1, w2, w3, thresh, wmax, t, wmax8eps
+    real(rb) :: a(3,3), norm, n1, n2, w1, w2, w3, thresh, t, wmax8eps
     real(rb) :: m, c1, c0, de, dd, ee, ff, p, sqrtp, r, c, s, phi
     logical  :: success
 
@@ -284,7 +284,7 @@ contains
     if (abs(w2) < abs(w3)) call swap( w2, w3 )
     w = [w1, w2, w3]
 
-    wmax8eps = 8.0_rb*eps*wmax
+    wmax8eps = 8.0_rb*eps*abs(w1)
     thresh = wmax8eps**2
 
     ! Prepare calculation of eigenvectors

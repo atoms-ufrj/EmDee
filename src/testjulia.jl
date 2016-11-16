@@ -1,20 +1,15 @@
-#!/usr/bin/env julia
-
-include("../src/EmDee.jl")
 
 #---------------------------------------------------------------------------------------------------
 
-function main(nthreads, file)
-  print("\n","running test julia from", pwd(), "\n","\n")
-  Libdl.dlopen("./lib/libemdee.so")
+function run(nthreads, file)
+
   N, Rc, Rs, seed, Dt, Nsteps, Nprop, rho, Temp = read_data(file)
 
   L = fill((N/rho)^(1.0/3.0),3)
   Dt_2 = 0.5*Dt
 
   md = EmDee.system( nthreads, 1, Rc, Rs, N, C_NULL, C_NULL )
-  lj = EmDee.pair_lj( 1.0, 1.0 )
-#  lj = EmDee.pair_lj_sf( 1.0, 1.0, Rc )
+  lj = EmDee.pair_lj_sf( 1.0, 1.0, Rc )
   EmDee.set_pair_type( md, 1, 1, lj )
 
   R = generate_configuration( N, L[1] )
@@ -68,10 +63,14 @@ end
 
 #---------------------------------------------------------------------------------------------------
 
+push!(Base.DL_LOAD_PATH,string(DIR,"/lib"))
+include(string(DIR,"/src/EmDee.jl"))
 if length(ARGS) == 1
-  main(1,ARGS[1])
+  run(1,ARGS[1])
 elseif length(ARGS) == 2
-  main(parse(Int,ARGS[1]),ARGS[2])
+  run(parse(Int,ARGS[1]),ARGS[2])
 else
   println("Usage: testjulia [number-of-threads] input-file")
 end
+pop!(Base.DL_LOAD_PATH)
+

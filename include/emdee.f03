@@ -164,7 +164,7 @@ interface
   function EmDee_pair_softcore( epsilon, sigma, lambda ) bind(C,name="EmDee_pair_softcore")
     import :: c_double, c_ptr
     real(c_double), value :: epsilon, sigma, lambda
-    type(c_ptr)           :: EmDee_pair_lj_sf
+    type(c_ptr)           :: EmDee_pair_softcore
   end function EmDee_pair_softcore
 
   function EmDee_bond_harmonic( k, r0 ) bind(C,name="EmDee_bond_harmonic")
