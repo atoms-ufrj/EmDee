@@ -8,8 +8,12 @@ typedef struct {
   double Virial;         // Total internal virial of the system
   int    DOF;            // Total number of degrees of freedom
   int    RDOF;           // Number of rotational degrees of freedom
-  int    rotationMode;   // Algorithm used for free rotation of rigid bodies
   void*  Data;           // Pointer to system data
+  struct {
+    int translate;       // Flag to activate/deactivate translations
+    int rotate;          // Flag to activate/deactivate rotations
+    int rotationMode;    // Algorithm used for free rotation of rigid bodies
+  } Options;
 } tEmDee;
 
 tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, double* masses );
@@ -24,9 +28,9 @@ void EmDee_add_rigid_body( tEmDee md, int N, int* indexes );
 void EmDee_upload( tEmDee* md, double* Lbox, double* coords, double* momenta, double* forces );
 void EmDee_download( tEmDee md, double* Lbox, double* coords, double* momenta, double* forces );
 void EmDee_random_momenta( tEmDee* md, double kT, int adjust, int seed );
-void EmDee_save_state( tEmDee md, int rigid );
-void EmDee_restore_state( tEmDee md );
-void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt, int translation, int rotation );
+//void EmDee_save_state( tEmDee md, int rigid );
+//void EmDee_restore_state( tEmDee md );
+void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_move( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_group_energy( tEmDee md, int na, double* atoms, int ne, double* energies );
 void* EmDee_model_none( double sigma, double epsilon );

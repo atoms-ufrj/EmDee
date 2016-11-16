@@ -17,6 +17,12 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+type, bind(C) :: tOptions
+  integer(c_int) :: translate      ! Flag to activate/deactivate translations
+  integer(c_int) :: rotate         ! Flag to activate/deactivate rotations
+  integer(c_int) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
+end type tOptions
+
 type, bind(C) :: tEmDee
   integer(c_int) :: builds         ! Number of neighbor-list builds
   real(c_double) :: pairTime       ! Time taken in force calculations
@@ -27,8 +33,8 @@ type, bind(C) :: tEmDee
   real(c_double) :: Virial         ! Total internal virial of the system
   integer(c_int) :: DOF            ! Total number of degrees of freedom
   integer(c_int) :: RDOF           ! Number of rotational degrees of freedom
-  integer(c_int) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
   type(c_ptr)    :: Data           ! Pointer to EmDee system data
+  type(tOptions) :: Options        ! List of options to change EmDee's behavior
 end type tEmDee
 
 interface
@@ -113,22 +119,21 @@ interface
     integer(c_int), value         :: adjust, seed
   end subroutine EmDee_random_momenta
 
-  subroutine EmDee_save_state( md, rigid )
-    import :: tEmDee, c_int
-    type(tEmDee),   intent(inout) :: md
-    integer(c_int), intent(in)    :: rigid
-  end subroutine EmDee_save_state
+!  subroutine EmDee_save_state( md, rigid )
+!    import :: tEmDee, c_int
+!    type(tEmDee),   intent(inout) :: md
+!    integer(c_int), intent(in)    :: rigid
+!  end subroutine EmDee_save_state
 
-  subroutine EmDee_restore_state( md )
-    import :: tEmDee
-    type(tEmDee), intent(inout) :: md
-  end subroutine EmDee_restore_state
+!  subroutine EmDee_restore_state( md )
+!    import :: tEmDee
+!    type(tEmDee), intent(inout) :: md
+!  end subroutine EmDee_restore_state
 
-  subroutine EmDee_boost( md, lambda, alpha, dt, translation, rotation ) bind(C,name="EmDee_boost")
+  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
     import :: tEmDee, c_ptr, c_double, c_int
     type(tEmDee),   intent(inout) :: md
     real(c_double), value         :: lambda, alpha, dt
-    integer(c_int), value         :: translation, rotation
   end subroutine EmDee_boost
 
   subroutine EmDee_move( md, lambda, alpha, dt ) bind(C,name="EmDee_move")

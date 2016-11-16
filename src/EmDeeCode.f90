@@ -22,8 +22,6 @@
 
 module EmDeeCode
 
-use, intrinsic :: ieee_arithmetic
-
 use omp_lib
 use lists
 use math
@@ -33,7 +31,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "04 Nov 2016"
+character(11), parameter :: VERSION = "16 Nov 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -49,6 +47,12 @@ integer, parameter, private :: nb(3,nbcells) = reshape( [ &
   -1, 0, 2,    0, 0, 2,    1, 0, 2,    2, 0, 2,   -2, 1, 2,   -1, 1, 2,    0, 1, 2,    1, 1, 2,  &
    2, 1, 2,   -2, 2, 2,   -1, 2, 2,    0, 2, 2,    1, 2, 2,    2, 2, 2 ], shape(nb) )
 
+type, bind(C) :: tOpts
+  integer(ib) :: translate      ! Flag to activate/deactivate translations
+  integer(ib) :: rotate         ! Flag to activate/deactivate rotations
+  integer(ib) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
+end type tOpts
+
 type, bind(C) :: tEmDee
   integer(ib) :: builds         ! Number of neighbor list builds
   real(rb)    :: pairTime       ! Time taken in force calculations
@@ -58,9 +62,9 @@ type, bind(C) :: tEmDee
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
   integer(ib) :: DOF            ! Total number of degrees of freedom
-  integer(ib) :: RDOF           ! Number of rotational degrees of freedom
-  integer(ib) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
+  integer(ib) :: rotationDOF    ! Number of rotational degrees of freedom
   type(c_ptr) :: Data           ! Pointer to system data
+  type(tOpts) :: Options        ! List of options to change EmDee's behavior
 end type tEmDee
 
 type, private :: tCell
@@ -226,9 +230,11 @@ contains
     EmDee_system % Kinetic = zero
     EmDee_system % Rotational = zero
     EmDee_system % DOF = 3*(N - 1)
-    EmDee_system % RDOF = 0
-    EmDee_system % rotationMode = 0
+    EmDee_system % rotationDOF = 0
     EmDee_system % data = c_loc(me)
+    EmDee_system % Options % translate = 1
+    EmDee_system % Options % rotate = 1
+    EmDee_system % Options % rotationMode = 0
 
   end function EmDee_system
 
@@ -479,7 +485,7 @@ contains
         me%R(:,b%index) = Rn
       end if
       md%DOF = md%DOF + b%dof
-      md%RDOF = md%RDOF + b%dof - 3
+      md%rotationDOF = md%rotationDOF + b%dof - 3
     end associate
     do i = 1, N-1
       do j = i+1, N
@@ -729,10 +735,9 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_boost( md, lambda, alpha, dt, translation, rotation ) bind(C,name="EmDee_boost")
+  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: lambda, alpha, dt
-    integer(ib),  value         :: translation, rotation
 
     real(rb) :: CP, CF, Ctau, twoKEt, twoKEr, KEt
     logical  :: tflag, rflag
@@ -745,8 +750,8 @@ contains
     CF = lambda*CF
     Ctau = two*CF
 
-    tflag = translation /= 0
-    rflag = rotation /= 0
+    tflag = md % Options % translate /= 0
+    rflag = md % Options % rotate /= 0
     twoKEt = zero
     twoKEr = zero
     !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,twoKEr)
@@ -796,6 +801,7 @@ contains
     real(rb),     value         :: lambda, alpha, dt
 
     real(rb) :: cR, cP
+    logical  :: tflag, rflag
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -812,6 +818,9 @@ contains
     end if
     cP = lambda*cP
 
+    tflag = md % Options % translate /= 0
+    rflag = md % Options % rotate /= 0
+
     !$omp parallel num_threads(me%nthreads)
     call move( omp_get_thread_num() + 1, cP, cR )
     !$omp end parallel
@@ -826,19 +835,23 @@ contains
         integer :: i, j
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
-            b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
-            if (md%rotationMode == 0) then
-              call b % rotate_exact( dt )
-            else
-              call b % rotate_approx( dt, n = md%rotationMode )
+            if (tflag) b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
+            if (rflag) then
+              if (md%Options%rotationMode == 0) then
+               call b % rotate_exact( dt )
+              else
+                call b % rotate_approx( dt, n = md%options%rotationMode )
+              end if
+              forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
             end if
-            forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
           end associate
         end do
-        do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
-          j = me%free(i)
-          me%R(:,j) = cR*me%R(:,j) + cP*me%P(:,j)*me%invMass(j)
-        end do
+        if (tflag) then
+          do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+            j = me%free(i)
+            me%R(:,j) = cR*me%R(:,j) + cP*me%P(:,j)*me%invMass(j)
+          end do
+        end if
       end subroutine move
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_move
@@ -925,60 +938,6 @@ contains
     md%totalTime = time - me%startTime
 
   end subroutine compute_forces
-
-!===================================================================================================
-
-  subroutine compute_forces_old( md )
-    type(tEmDee), intent(inout) :: md
-
-    integer  :: M
-    real(rb) :: Potential, Virial, time
-    logical  :: buildList
-    real(rb), allocatable :: Rs(:,:), Fs(:,:)
-    type(tData),  pointer :: me
-
-    call c_f_pointer( md%data, me )
-    md%pairTime = md%pairTime - omp_get_wtime()
-
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms) )
-    Rs = me%invL*me%R
-    Fs = zero
-    Potential = zero
-    Virial = zero
-
-    buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
-    if (buildList) then
-      M = floor(ndiv*me%Lbox/me%xRc)
-      call distribute_atoms( me, max(M,2*ndiv+1), Rs )
-      me%R0 = me%R
-      md%builds = md%builds + 1
-    endif
-
-    !$omp parallel num_threads(me%nthreads) reduction(+:Fs,Potential,Virial)
-    block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
-      if (buildList) then
-        call find_pairs_and_compute( me, thread, Rs, Fs, Potential, Virial )
-      else
-        call compute_pairs( me, thread, Rs, Fs, Potential, Virial )
-      end if
-      if (me%bonds%exist) call compute_bonds( me, thread, Rs, Fs, Potential, Virial )
-      if (me%angles%exist) call compute_angles( me, thread, Rs, Fs, Potential, Virial )
-      if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, Fs, Potential, Virial )
-    end block
-    !$omp end parallel
-
-    me%F = me%Lbox*Fs
-    md%Potential = Potential
-    md%Virial = third*Virial
-    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
-
-    time = omp_get_wtime()
-    md%pairTime = md%pairTime + time
-    md%totalTime = time - me%startTime
-
-  end subroutine compute_forces_old
 
 !===================================================================================================
 
