@@ -129,9 +129,9 @@ int main( int argc, char *argv[] )  {
   printf("%d %lf %lf\n", 0, md.Potential, md.Virial);
   for (int passo = 1; passo <= par.Npassos; passo++) {
     if (passo % par.Nprop == 0) printf("%d %lf %lf\n", passo, md.Potential, md.Virial);
-    EmDee_boost( &md, 1.0, 0.0, par.Dt_2, 1, 1 );
+    EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
     EmDee_move( &md, 1.0, 0.0, par.Dt );
-    EmDee_boost( &md, 1.0, 0.0, par.Dt_2, 1, 1 );
+    EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
   }
   printf("neighbor list builds = %d\n", md.builds);
   printf("pair time = %f s.\n", md.pairTime);
