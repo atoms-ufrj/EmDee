@@ -128,7 +128,7 @@ type, private :: tData
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
 
-  type(c_ptr), allocatable :: model(:,:,:) ! Model of each type of atom pair
+  type(ModelPtr), allocatable :: pair(:,:,:)
   type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
   type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
@@ -219,8 +219,7 @@ contains
     call me % excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( me%model(me%ntypes,me%ntypes,me%nlayers) )
-    me%model = c_null_ptr
+    allocate( me%pair(me%ntypes,me%ntypes,me%nlayers) )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -258,7 +257,7 @@ contains
 
     integer :: i, j
     type(tData),  pointer :: me
-    type(tModel), pointer :: model
+    class(cModel), pointer :: model
     real(rb),     pointer :: Q(:)
 
     call c_f_pointer( md%data, me )
@@ -266,7 +265,7 @@ contains
       me%coulomb = .true.
       do i = 1, me%ntypes
         do j = 1, me%ntypes
-          call c_f_pointer( me%model(i,j,me%layer), model )
+          model => me%pair(i,j,me%layer)%model
           if (associated(model)) model%id = mCOULOMB + mod(model%id,mCOULOMB)
         end do
       end do
@@ -286,19 +285,21 @@ contains
 
     integer :: k
     logical :: keep
-    type(tData),  pointer :: me
-    type(tModel), pointer :: ikModel
+    type(tData), pointer :: me
+    class(cModel), pointer :: ikModel
+    type(tModel), pointer :: pmodel
 
+    call c_f_pointer( model, pmodel )
     call c_f_pointer( md%data, me )
     if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been provided"
     if (itype == jtype) then
       call associate_model( itype, itype, model )
       do k = 1, me%ntypes
         if (k /= itype) then
-          call c_f_pointer( me%model(itype,k,me%layer), ikModel )
+          ikModel => me%pair(itype,k,me%layer)%model
           keep = associated(ikModel)
           if (keep) keep = ikModel%external
-          if (.not.keep) call replace( itype, k, cross_pair( model, me%model(k,k,me%layer) ) )
+          if (.not.keep) call replace( itype, k, cross_pair( pmodel, me%pair(k,k,me%layer)%model ) )
         end if
       end do
     else
@@ -312,24 +313,22 @@ contains
         type(c_ptr), intent(in) :: model
         type(tModel), pointer :: pmodel
         if (c_associated(model)) then
-          if (me%coulomb) then
-            call c_f_pointer( model, pmodel )
-            pmodel%id = mCOULOMB + mod(pmodel%id,mCOULOMB)
-          end if
-          me%model(i,j,me%layer) = model
+          call c_f_pointer( model, pmodel )
+          if (me%coulomb) pmodel%id = mCOULOMB + mod(pmodel%id,mCOULOMB)
+          me%pair(i,j,me%layer)%model => pmodel
         else
-          me%model(i,j,me%layer) = c_null_ptr
+          me%pair(i,j,me%layer)%model => null()
         end if
       end subroutine associate_model
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine replace( i, j, model )
         integer, intent(in) :: i, j
         type(c_ptr), intent(in) :: model
-        type(tModel), pointer :: ij
-        if (c_associated(me%model(i,j,me%layer))) then
-          call c_f_pointer( me%model(i,j,me%layer), ij )
-          if (.not.ij%external) deallocate( ij )
-        end if
+        associate( mij => me%pair(i,j,me%layer)%model )
+          if (associated(mij)) then
+            if (.not.mij%external) deallocate( mij )
+          end if
+        end associate
         call associate_model( i, j, model )
         call associate_model( j, i, model )
       end subroutine replace
@@ -1198,7 +1197,7 @@ contains
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
-    type(tModel), pointer :: model
+    class(cModel), pointer :: model
 
     Rc2 = me%RcSq*me%invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
@@ -1243,7 +1242,7 @@ contains
           r2 = sum(rij*rij)
           if (r2 < me%RcSq) then
             invR2 = me%invL2/r2
-            call c_f_pointer( me%model(me%atomType(i),me%atomType(j),me%layer), model )
+            model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model
             icharge = me%charge(i,me%layer)
             call compute_pair()
             Eij = model%p1*Eij
@@ -1286,7 +1285,7 @@ contains
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
     integer,  allocatable :: xlist(:)
-    type(tModel), pointer :: model
+    class(cModel), pointer :: model
 
     xRc2 = me%xRcSq*me%invL2
     Rc2 = me%RcSq*me%invL2
@@ -1326,11 +1325,11 @@ contains
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
           include(xlist) = .false.
-          associate (pairModel => me%model(:,itype,me%layer))
+          associate (partner => me%pair(:,itype,me%layer))
             do m = k + 1, ntotal
               if (include(m)) then
                 j = atom(m)
-                call c_f_pointer( pairModel(me%atomType(j)), model )
+                model => partner(me%atomType(j))%model
                 if (associated(model)) then
                   Rij = Ri - Rs(:,j)
                   Rij = Rij - anint(Rij)
@@ -1379,7 +1378,7 @@ contains
     integer  :: i, j, k, m, itype, firstAtom, lastAtom
     real(rb) :: Rc2, r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    type(tModel), pointer :: model
+    class(cModel), pointer :: model
 
     Rc2 = me%RcSq*me%invL2
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
@@ -1391,7 +1390,7 @@ contains
         Ri = Rs(:,i)
         Fi = zero
         icharge = me%charge(i,me%layer)
-        associate (pairModel => me%model(:,itype,me%layer))
+        associate (partner => me%pair(:,itype,me%layer))
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
             Rij = Ri - Rs(:,j)
@@ -1399,7 +1398,7 @@ contains
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
               invR2 = me%invL2/r2
-              call c_f_pointer( pairModel(me%atomType(j)), model )
+              model => partner(me%atomType(j))%model
               call compute_pair()
               Potential = Potential + Eij
               Virial = Virial + Wij
@@ -1429,7 +1428,7 @@ contains
     integer  :: i, j, k, m, layer, itype, firstCell, lastCell
     real(rb) :: r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3)
-    type(tModel), pointer :: model
+    class(cModel), pointer :: model
 
     firstCell = me%threadCell%first(thread)
     lastCell  = me%threadCell%last(thread)
@@ -1450,7 +1449,7 @@ contains
             if (r2 < me%RcSq) then
               invR2 = one/r2
               do layer = 1, me%nlayers
-                call c_f_pointer( me%model(me%atomType(j),itype,layer), model )
+                model => me%pair(me%atomType(j),itype,layer)%model
                 call compute_pair()
                 energy(layer) = energy(layer) + Eij
               end do

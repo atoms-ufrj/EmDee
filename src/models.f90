@@ -34,7 +34,7 @@ integer, parameter :: mNONE     = 0, &  ! No model
 
 real(rb), parameter, private :: Deg2Rad = 3.14159265358979324_rb/180_rb
 
-type tModel
+type, abstract :: cModel
   integer :: id = mNONE
   real(rb), pointer :: data(:)
   real(rb) :: p1 = zero
@@ -42,7 +42,14 @@ type tModel
   real(rb) :: p3 = zero
   real(rb) :: p4 = zero
   logical :: external = .true.
+end type cModel
+
+type, extends(cModel) :: tModel
 end type tModel
+
+type ModelPtr
+  class(cModel), pointer :: model => null()
+end type ModelPtr
 
 private :: set_data
 
@@ -112,15 +119,15 @@ contains
 !                                     M I X I N G     R U L E S
 !===================================================================================================
 
-  function cross_pair( imodel, jmodel ) result( ijmodel )
-    type(c_ptr),  intent(in) :: imodel, jmodel
+  function cross_pair( i, j ) result( ijmodel )
+    class(cModel), pointer, intent(in) :: i, j
     type(c_ptr)              :: ijmodel
 
-    type(tModel), pointer :: i, j, ij
+    type(tModel), pointer :: ij
 
-    if (c_associated(imodel).and.c_associated(jmodel)) then
-      call c_f_pointer( imodel, i )
-      call c_f_pointer( jmodel, j )
+    if (associated(i).and.associated(j)) then
+!      call c_f_pointer( imodel, i )
+!      call c_f_pointer( jmodel, j )
 
       if (match(mLJ,mLJ)) then
         ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
