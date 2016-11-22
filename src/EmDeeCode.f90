@@ -31,7 +31,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "16 Nov 2016"
+character(11), parameter :: VERSION = "21 Nov 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -128,7 +128,7 @@ type, private :: tData
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
 
-  type(ModelPtr), allocatable :: pair(:,:,:)
+  type(pairModelPtr), allocatable :: pair(:,:,:)
   type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
   type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
@@ -256,9 +256,9 @@ contains
     type(c_ptr),  value :: charges
 
     integer :: i, j
-    type(tData),  pointer :: me
+    real(rb),      pointer :: Q(:)
+    type(tData),   pointer :: me
     class(cModel), pointer :: model
-    real(rb),     pointer :: Q(:)
 
     call c_f_pointer( md%data, me )
     if (.not.me%coulomb) then
@@ -285,35 +285,39 @@ contains
 
     integer :: k
     logical :: keep
-    type(tData), pointer :: me
-    class(cModel), pointer :: ikModel
-    type(tModel), pointer :: pmodel
+    type(tData),      pointer :: me
+    class(pairModel), pointer :: ikModel
+    type(ModelPtr),   pointer :: container
 
-    call c_f_pointer( model, pmodel )
     call c_f_pointer( md%data, me )
     if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been provided"
-    if (itype == jtype) then
-      call associate_model( itype, itype, model )
-      do k = 1, me%ntypes
-        if (k /= itype) then
-          ikModel => me%pair(itype,k,me%layer)%model
-          keep = associated(ikModel)
-          if (keep) keep = ikModel%external
-          if (.not.keep) call replace( itype, k, cross_pair( pmodel, me%pair(k,k,me%layer)%model ) )
+
+    call c_f_pointer( model, container )
+    select type (pmodel => container%model)
+      class is (pairModel)
+        if (itype == jtype) then
+          call associate_model( itype, itype, pmodel )
+          do k = 1, me%ntypes
+            if (k /= itype) then
+              ikModel => me%pair(itype,k,me%layer)%model
+              keep = associated(ikModel)
+              if (keep) keep = ikModel%external
+              if (.not.keep) call replace( itype, k, cross_pair( pmodel, me%pair(k,k,me%layer)%model ) )
+            end if
+          end do
+        else
+          call replace( itype, jtype, pmodel )
         end if
-      end do
-    else
-      call replace( itype, jtype, model )
-    end if
+      class default
+        stop "ERROR: invalid pair model"
+    end select
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine associate_model( i, j, model )
+      subroutine associate_model( i, j, pmodel )
         integer, intent(in) :: i, j
-        type(c_ptr), intent(in) :: model
-        type(tModel), pointer :: pmodel
-        if (c_associated(model)) then
-          call c_f_pointer( model, pmodel )
+        class(pairModel), pointer, intent(in) :: pmodel
+        if (associated(pmodel)) then
           if (me%coulomb) pmodel%id = mCOULOMB + mod(pmodel%id,mCOULOMB)
           me%pair(i,j,me%layer)%model => pmodel
         else
@@ -321,16 +325,16 @@ contains
         end if
       end subroutine associate_model
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine replace( i, j, model )
+      subroutine replace( i, j, pmodel )
         integer, intent(in) :: i, j
-        type(c_ptr), intent(in) :: model
+        class(pairModel), pointer, intent(in) :: pmodel
         associate( mij => me%pair(i,j,me%layer)%model )
           if (associated(mij)) then
             if (.not.mij%external) deallocate( mij )
           end if
         end associate
-        call associate_model( i, j, model )
-        call associate_model( j, i, model )
+        call associate_model( i, j, pmodel )
+        call associate_model( j, i, pmodel )
       end subroutine replace
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_set_pair_type
@@ -1376,21 +1380,20 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: i, j, k, m, itype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, Eij, Wij, icharge
+    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    class(cModel), pointer :: model
 
     Rc2 = me%RcSq*me%invL2
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate (neighbor => me%neighbor(thread))
+    associate (neighbor => me%neighbor(thread), Q => me%charge(:,me%layer))
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
         Ri = Rs(:,i)
         Fi = zero
-        icharge = me%charge(i,me%layer)
-        associate (partner => me%pair(:,itype,me%layer))
+        Qi = Q(i)
+        associate (pair => me%pair(:,itype,me%layer))
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
             Rij = Ri - Rs(:,j)
@@ -1398,8 +1401,7 @@ contains
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
               invR2 = me%invL2/r2
-              model => partner(me%atomType(j))%model
-              call compute_pair()
+              call pair(me%atomType(j)) % model % compute( Eij, Wij, invR2, Qi, Q(j) )
               Potential = Potential + Eij
               Virial = Virial + Wij
               Fij = Wij*invR2*Rij
@@ -1412,10 +1414,6 @@ contains
       end do
     end associate
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "compute_pair.f90"
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_pairs
 
 !===================================================================================================

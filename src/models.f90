@@ -44,6 +44,22 @@ type, abstract :: cModel
   logical :: external = .true.
 end type cModel
 
+type, abstract, extends(cModel) :: pairModel
+  contains
+    procedure(pairModel_compute), deferred :: compute
+end type pairModel
+
+abstract interface
+
+  subroutine pairModel_compute( this, E, W, invR2, Qi, Qj )
+    import :: pairModel, rb
+    class(pairModel), intent(in)  :: this
+    real(rb),         intent(out) :: E, W
+    real(rb),         intent(in)  :: invR2, Qi, Qj
+  end subroutine pairModel_compute
+
+end interface
+
 type, extends(cModel) :: tModel
 end type tModel
 
@@ -51,7 +67,18 @@ type ModelPtr
   class(cModel), pointer :: model => null()
 end type ModelPtr
 
+type pairModelPtr
+  class(pairModel), pointer :: model => null()
+end type pairModelPtr
+
 private :: set_data
+
+type, extends(pairModel) :: pair_lj
+  real(rb) :: epsilon, sigma
+  real(rb) :: eps4, sig2
+  contains
+    procedure :: compute => pair_lj_compute
+end type pair_lj
 
 contains
 
@@ -72,13 +99,50 @@ contains
     real(rb), value :: epsilon, sigma
     type(c_ptr)     :: EmDee_pair_lj
 
-    type(tModel), pointer :: model
+    type(ModelPtr), pointer :: container
 
-    allocate( model )
-    model = tModel( mLJ, set_data( [epsilon, sigma] ), sigma*sigma, 4.0_rb*epsilon )
-    EmDee_pair_lj = c_loc(model)
+    allocate( container )
+    allocate( pair_lj::container%model )
+
+    select type (model => container%model)
+      type is (pair_lj)
+        model%id = mLJ
+        model%data => set_data( [epsilon, sigma] )
+        model%p1 = sigma*sigma
+        model%p2 = 4.0_rb*epsilon
+
+        model%epsilon = epsilon
+        model%sigma = sigma
+        model%eps4 = 4.0_rb*epsilon
+        model%sig2 = sigma*sigma
+    end select
+    EmDee_pair_lj = c_loc(container)
 
   end function EmDee_pair_lj
+
+
+  subroutine pair_lj_compute( this, E, W, invR2, Qi, Qj )
+    class(pair_lj), intent(in)  :: this
+    real(rb),       intent(out) :: E, W
+    real(rb),       intent(in)  :: invR2, Qi, Qj
+
+    real(rb) :: sr2, sr6, sr12
+
+    sr2 = this%sig2*invR2
+    sr6 = sr2*sr2*sr2
+    sr12 = sr6*sr6
+    E = this%eps4*(sr12 - sr6)
+    W = 6.0_rb*(this%eps4*sr12 + E)
+
+  end subroutine pair_lj_compute
+
+  subroutine tModel_compute( this, E, W, invR2, Qi, Qj )
+    class(tModel), intent(in)  :: this
+    real(rb),       intent(out) :: E, W
+    real(rb),       intent(in)  :: invR2, Qi, Qj
+    E = zero
+    W = zero
+  end subroutine tModel_compute
 
 !---------------------------------------------------------------------------------------------------
 
@@ -119,15 +183,14 @@ contains
 !                                     M I X I N G     R U L E S
 !===================================================================================================
 
-  function cross_pair( i, j ) result( ijmodel )
-    class(cModel), pointer, intent(in) :: i, j
-    type(c_ptr)              :: ijmodel
+  function cross_pair( i, j ) result( ij )
+    class(pairModel), pointer, intent(in) :: i, j
+    class(pairModel), pointer             :: ij
 
-    type(tModel), pointer :: ij
+    type(c_ptr)              :: ijmodel
+    type(pairModelPtr), pointer :: container
 
     if (associated(i).and.associated(j)) then
-!      call c_f_pointer( imodel, i )
-!      call c_f_pointer( jmodel, j )
 
       if (match(mLJ,mLJ)) then
         ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
@@ -159,7 +222,8 @@ contains
     end if
 
     if (c_associated(ijmodel)) then
-      call c_f_pointer( ijmodel, ij )
+      call c_f_pointer( ijmodel, container )
+      ij => container%model
       ij%external = .false.
     end if
 
