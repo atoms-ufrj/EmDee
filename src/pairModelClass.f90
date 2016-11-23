@@ -24,6 +24,7 @@ use modelClass
 
 !> An abstract class for pair interaction models:
 type, abstract, extends(cModel) :: cPairModel
+  character(10) :: kind = "undefined"
   contains
     procedure(cPairModel_setup), deferred :: setup
     procedure(cPairModel_compute), deferred :: compute
@@ -80,6 +81,7 @@ contains
   type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
     type(pair_none), pointer :: model
     allocate(model)
+    call model% setup( [zero] )
     EmDee_pair_none = model % deliver()
   end function EmDee_pair_none
 
@@ -88,6 +90,7 @@ contains
   subroutine pair_none_setup( model, params )
     class(pair_none), intent(inout) :: model
     real(rb),         intent(in)    :: params(:)
+    model%kind = "none"
   end subroutine pair_none_setup
 
 !---------------------------------------------------------------------------------------------------
@@ -106,6 +109,7 @@ contains
     class(pair_none),  intent(in) :: this
     class(cPairModel), intent(in) :: other
     class(cPairModel), pointer    :: mixed
+    ! Mixing of all pair models with pair_none results in pair_none:
     allocate(pair_none :: mixed)
   end function pair_none_mix
 
@@ -141,13 +145,17 @@ contains
     class(cPairModel), pointer :: mixed
 
     mixed => b % mix( a%model )
-    if (same_type_as(mixed,none)) then
+    if (.not.associated(mixed)) mixed => a % model % mix( b )
+    if (associated(mixed)) then
+      allocate( c%model, source = mixed )
       deallocate( mixed )
-      mixed => a % model % mix( b )
+    else
+      allocate( pair_none :: mixed )
+      call mixed % setup( [zero] )
+      write(*,'("WARNING: no mixing rule found for pair interaction models ",A," and ",A,".")') &
+        trim(a % model % kind), trim(b % kind)
     end if
-    allocate( c%model, source = mixed )
     c%overridable = .true.
-    deallocate( mixed )
 
   end function pairModelContainer_mix
 

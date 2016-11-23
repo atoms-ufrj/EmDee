@@ -52,6 +52,9 @@ contains
     class(pair_lj), intent(inout) :: model
     real(rb),       intent(in)    :: params(:)
 
+    ! Model kind:
+    model%kind = "lj"
+
     ! Model parameters:
     model%epsilon = params(1)
     model%sigma = params(2)
@@ -85,7 +88,7 @@ contains
         allocate(pair_lj :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
       class default
-        allocate(pair_none :: mixed)
+        mixed => null()
     end select
 
   end function pair_lj_mix

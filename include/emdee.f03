@@ -165,6 +165,11 @@ interface
     type(c_ptr)           :: EmDee_pair_lj
   end function EmDee_pair_lj
 
+  type(c_ptr) function EmDee_pair_lj_coul( epsilon, sigma ) bind(C,name="EmDee_pair_lj_coul")
+    import :: c_double, c_ptr
+    real(c_double), value :: epsilon, sigma
+  end function EmDee_pair_lj_coul
+
   function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
     import :: c_double, c_ptr
     real(c_double), value :: epsilon, sigma, cutoff
