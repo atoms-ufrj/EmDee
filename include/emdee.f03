@@ -182,6 +182,12 @@ interface
     type(c_ptr)           :: EmDee_pair_lj_sf
   end function EmDee_pair_lj_sf
 
+  function EmDee_pair_lj_sf_coul_sf( epsilon, sigma ) bind(C,name="EmDee_pair_lj_sf_coul_sf")
+    import :: c_double, c_ptr
+    real(c_double), value :: epsilon, sigma
+    type(c_ptr)           :: EmDee_pair_lj_sf_coul_sf
+  end function EmDee_pair_lj_sf_coul_sf
+
   function EmDee_pair_softcore( epsilon, sigma, lambda ) bind(C,name="EmDee_pair_softcore")
     import :: c_double, c_ptr
     real(c_double), value :: epsilon, sigma, lambda
