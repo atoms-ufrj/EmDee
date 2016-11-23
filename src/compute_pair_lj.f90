@@ -17,11 +17,14 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-!---------------------------------------------------------------------------------------------------
+! INPUT:  invR2, Qi, Qj, model
+! OUTPUT: Eij, Wij
 
-select type (model)
-  type is (pair_lj)
-    include "compute_pair_lj.f90"
-!  type is (pair_lj_sf)
-!    include "compute_pair_lj_sf.f90"
-end select
+block
+  real(rb) :: sr2, sr6, sr12
+  sr2 = model%sigSq*invR2
+  sr6 = sr2*sr2*sr2
+  sr12 = sr6*sr6
+  Eij = model%eps4*(sr12 - sr6)
+  Wij = 6.0_rb*(model%eps4*sr12 + Eij)
+end block

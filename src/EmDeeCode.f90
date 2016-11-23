@@ -128,7 +128,7 @@ type, private :: tData
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
 
-  type(pairModelPtr), allocatable :: pair(:,:,:)
+  type(cPairModelPtr), allocatable :: pair(:,:,:)
   type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
   type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
@@ -150,7 +150,7 @@ contains
     type(c_ptr), value :: types, masses
     type(tEmDee)       :: EmDee_system
 
-    integer :: i
+    integer :: i, j, k
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
@@ -220,6 +220,14 @@ contains
 
     ! Allocate memory for pair models:
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers) )
+    do i = 1, me%ntypes
+      do j = 1, me%ntypes
+        do k = 1, me%nlayers
+          allocate( pair_none :: me%pair(i,j,k)%model )
+          me%pair(i,j,k)%overridable = .true.
+        end do
+      end do
+    end do
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -283,60 +291,38 @@ contains
     integer(ib),  value :: itype, jtype
     type(c_ptr),  value :: model
 
-    integer :: k
-    logical :: keep
-    type(tData),      pointer :: me
-    class(pairModel), pointer :: ikModel
-    type(ModelPtr),   pointer :: container
+    integer :: ktype
+    type(tData),     pointer :: me
+    type(cModelPtr), pointer :: container
 
     call c_f_pointer( md%data, me )
-    if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been provided"
+    if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been defined"
+
+    if (.not.c_associated(model)) stop "ERROR: a valid pair model must be provided"
 
     call c_f_pointer( model, container )
     select type (pmodel => container%model)
-      class is (pairModel)
-        if (itype == jtype) then
-          call associate_model( itype, itype, pmodel )
-          do k = 1, me%ntypes
-            if (k /= itype) then
-              ikModel => me%pair(itype,k,me%layer)%model
-              keep = associated(ikModel)
-              if (keep) keep = ikModel%external
-              if (.not.keep) call replace( itype, k, cross_pair( pmodel, me%pair(k,k,me%layer)%model ) )
-            end if
-          end do
-        else
-          call replace( itype, jtype, pmodel )
-        end if
-      class default
-        stop "ERROR: invalid pair model"
-    end select
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine associate_model( i, j, pmodel )
-        integer, intent(in) :: i, j
-        class(pairModel), pointer, intent(in) :: pmodel
-        if (associated(pmodel)) then
-          if (me%coulomb) pmodel%id = mCOULOMB + mod(pmodel%id,mCOULOMB)
-          me%pair(i,j,me%layer)%model => pmodel
-        else
-          me%pair(i,j,me%layer)%model => null()
-        end if
-      end subroutine associate_model
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine replace( i, j, pmodel )
-        integer, intent(in) :: i, j
-        class(pairModel), pointer, intent(in) :: pmodel
-        associate( mij => me%pair(i,j,me%layer)%model )
-          if (associated(mij)) then
-            if (.not.mij%external) deallocate( mij )
+      class is (cPairModel)
+        associate (pair => me%pair(:,:,me%layer))
+          if (itype == jtype) then
+            pair(itype,itype) = container
+            do ktype = 1, me%ntypes
+              if ((ktype /= itype).and.pair(ktype,jtype)%overridable) then
+                pair(ktype,jtype) = pair(ktype,ktype) % mix( pmodel )
+                pair(jtype,ktype) = pair(ktype,jtype)
+              end if
+            end do
+          else
+            pair(itype,jtype) = container
+            pair(jtype,itype) = container
+            pair(itype,jtype)%overridable = .false.
+            pair(jtype,itype)%overridable = .false.
           end if
         end associate
-        call associate_model( i, j, pmodel )
-        call associate_model( j, i, pmodel )
-      end subroutine replace
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      class default
+        stop "ERROR: a valid pair model must be provided"
+    end select
+
   end subroutine EmDee_set_pair_type
 
 !===================================================================================================
@@ -1201,7 +1187,8 @@ contains
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
-    class(cModel), pointer :: model
+    class(tModel), pointer :: model
+!    class(cPairModel), pointer :: pair_model
 
     Rc2 = me%RcSq*me%invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
@@ -1239,18 +1226,19 @@ contains
         F(:,d%j) = F(:,d%j) + (Fi + Fk + Fl)
         Potential = Potential + Ed
         Virial = Virial + me%Lbox*sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
-        if (model%p1 /= zero) then
+        if (model%factor /= zero) then
           i = d%i
           j = d%l
           rij = rij + rlk - rkj
           r2 = sum(rij*rij)
           if (r2 < me%RcSq) then
             invR2 = me%invL2/r2
-            model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model
             icharge = me%charge(i,me%layer)
-            call compute_pair()
-            Eij = model%p1*Eij
-            Wij = model%p1*Wij
+            associate( model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model )
+              include "compute_pair.f90"
+            end associate
+            Eij = model%factor*Eij
+            Wij = model%factor*Wij
             Potential = Potential + Eij
             Virial = Virial + Wij
             Fij = Wij*invR2*rij
@@ -1271,8 +1259,6 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       include "compute_dihedral.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "compute_pair.f90"
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_dihedrals
 
 !===================================================================================================
@@ -1289,7 +1275,7 @@ contains
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
     integer,  allocatable :: xlist(:)
-    class(cModel), pointer :: model
+!    class(cPairModel), pointer :: pair_model
 
     xRc2 = me%xRcSq*me%invL2
     Rc2 = me%RcSq*me%invL2
@@ -1333,25 +1319,26 @@ contains
             do m = k + 1, ntotal
               if (include(m)) then
                 j = atom(m)
-                model => partner(me%atomType(j))%model
-                if (associated(model)) then
-                  Rij = Ri - Rs(:,j)
-                  Rij = Rij - anint(Rij)
-                  r2 = sum(Rij*Rij)
-                  if (r2 < xRc2) then
-                    npairs = npairs + 1
-                    neighbor%item(npairs) = j
-                    if (r2 < Rc2) then
-                      invR2 = me%invL2/r2
-                      call compute_pair()
-                      Potential = Potential + Eij
-                      Virial = Virial + Wij
-                      Fij = Wij*invR2*Rij
-                      Fi = Fi + Fij
-                      F(:,j) = F(:,j) - Fij
+                select type ( model => partner(me%atomType(j))%model )
+                  type is (pair_none)
+                  class default
+                    Rij = Ri - Rs(:,j)
+                    Rij = Rij - anint(Rij)
+                    r2 = sum(Rij*Rij)
+                    if (r2 < xRc2) then
+                      npairs = npairs + 1
+                      neighbor%item(npairs) = j
+                      if (r2 < Rc2) then
+                        invR2 = me%invL2/r2
+                        include "compute_pair.f90"
+                        Potential = Potential + Eij
+                        Virial = Virial + Wij
+                        Fij = Wij*invR2*Rij
+                        Fi = Fi + Fij
+                        F(:,j) = F(:,j) - Fij
+                      end if
                     end if
-                  end if
-               end if
+                end select
               end if
             end do
           end associate
@@ -1365,10 +1352,6 @@ contains
       neighbor%count = npairs
     end associate
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "compute_pair.f90"
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine find_pairs_and_compute
 
 !===================================================================================================
@@ -1382,6 +1365,7 @@ contains
     integer  :: i, j, k, m, itype, firstAtom, lastAtom
     real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+!    class(cPairModel), pointer :: pair_model
 
     Rc2 = me%RcSq*me%invL2
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
@@ -1401,7 +1385,9 @@ contains
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
               invR2 = me%invL2/r2
-              call pair(me%atomType(j)) % model % compute( Eij, Wij, invR2, Qi, Q(j) )
+              associate( model => pair(me%atomType(j))%model )
+                include "compute_pair.f90"
+              end associate
               Potential = Potential + Eij
               Virial = Virial + Wij
               Fij = Wij*invR2*Rij
@@ -1426,7 +1412,7 @@ contains
     integer  :: i, j, k, m, layer, itype, firstCell, lastCell
     real(rb) :: r2, invR2, Eij, Wij, icharge
     real(rb) :: Rij(3), Ri(3)
-    class(cModel), pointer :: model
+!    class(cPairModel), pointer :: pair_model
 
     firstCell = me%threadCell%first(thread)
     lastCell  = me%threadCell%last(thread)
@@ -1447,8 +1433,10 @@ contains
             if (r2 < me%RcSq) then
               invR2 = one/r2
               do layer = 1, me%nlayers
-                model => me%pair(me%atomType(j),itype,layer)%model
-                call compute_pair()
+!                pair_model => me%pair(me%atomType(j),itype,layer)%model
+                associate(model => me%pair(me%atomType(j),itype,layer)%model)
+                  include "compute_pair.f90"
+                end associate
                 energy(layer) = energy(layer) + Eij
               end do
             end if
@@ -1457,10 +1445,6 @@ contains
       end do
     end associate
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "compute_pair.f90"
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_group_energy
 
 !===================================================================================================

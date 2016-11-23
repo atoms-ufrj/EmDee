@@ -19,7 +19,8 @@
 
 module models
 
-use global
+use pair_lj_module
+!use pair_lj_sf_module
 
 implicit none
 
@@ -34,51 +35,15 @@ integer, parameter :: mNONE     = 0, &  ! No model
 
 real(rb), parameter, private :: Deg2Rad = 3.14159265358979324_rb/180_rb
 
-type, abstract :: cModel
-  integer :: id = mNONE
-  real(rb), pointer :: data(:)
+type, extends(cModel) :: tModel
   real(rb) :: p1 = zero
   real(rb) :: p2 = zero
   real(rb) :: p3 = zero
   real(rb) :: p4 = zero
-  logical :: external = .true.
-end type cModel
-
-type, abstract, extends(cModel) :: pairModel
+  real(rb) :: factor = zero
   contains
-    procedure(pairModel_compute), deferred :: compute
-end type pairModel
-
-abstract interface
-
-  subroutine pairModel_compute( this, E, W, invR2, Qi, Qj )
-    import :: pairModel, rb
-    class(pairModel), intent(in)  :: this
-    real(rb),         intent(out) :: E, W
-    real(rb),         intent(in)  :: invR2, Qi, Qj
-  end subroutine pairModel_compute
-
-end interface
-
-type, extends(cModel) :: tModel
+    procedure :: compute => tModel_compute
 end type tModel
-
-type ModelPtr
-  class(cModel), pointer :: model => null()
-end type ModelPtr
-
-type pairModelPtr
-  class(pairModel), pointer :: model => null()
-end type pairModelPtr
-
-private :: set_data
-
-type, extends(pairModel) :: pair_lj
-  real(rb) :: epsilon, sigma
-  real(rb) :: eps4, sig2
-  contains
-    procedure :: compute => pair_lj_compute
-end type pair_lj
 
 contains
 
@@ -95,75 +60,59 @@ contains
 !                                      P A I R     M O D E L S
 !===================================================================================================
 
-  function EmDee_pair_lj( epsilon, sigma ) bind(C,name="EmDee_pair_lj")
-    real(rb), value :: epsilon, sigma
-    type(c_ptr)     :: EmDee_pair_lj
+!  function EmDee_pair_lj( epsilon, sigma ) bind(C,name="EmDee_pair_lj")
+!    real(rb), value :: epsilon, sigma
+!    type(c_ptr)     :: EmDee_pair_lj
 
-    type(ModelPtr), pointer :: container
+!    type(cModelPtr), pointer :: container
 
-    allocate( container )
-    allocate( pair_lj::container%model )
+!    allocate( container )
+!    allocate( pair_lj::container%model )
 
-    select type (model => container%model)
-      type is (pair_lj)
-        model%id = mLJ
-        model%data => set_data( [epsilon, sigma] )
-        model%p1 = sigma*sigma
-        model%p2 = 4.0_rb*epsilon
+!    select type (model => container%model)
+!      type is (pair_lj)
+!        model%id = mLJ
+!        model%data => set_data( [epsilon, sigma] )
+!        model%p1 = sigma*sigma
+!        model%p2 = 4.0_rb*epsilon
 
-        model%epsilon = epsilon
-        model%sigma = sigma
-        model%eps4 = 4.0_rb*epsilon
-        model%sig2 = sigma*sigma
-    end select
-    EmDee_pair_lj = c_loc(container)
+!        model%epsilon = epsilon
+!        model%sigma = sigma
+!        model%eps4 = 4.0_rb*epsilon
+!        model%sigsq = sigma*sigma
+!    end select
+!    EmDee_pair_lj = c_loc(container)
 
-  end function EmDee_pair_lj
+!  end function EmDee_pair_lj
 
-
-  subroutine pair_lj_compute( this, E, W, invR2, Qi, Qj )
-    class(pair_lj), intent(in)  :: this
-    real(rb),       intent(out) :: E, W
+  subroutine tModel_compute( model, Eij, Wij, invR2, Qi, Qj )
+    class(tModel), intent(in)  :: model
+    real(rb),       intent(out) :: Eij, Wij
     real(rb),       intent(in)  :: invR2, Qi, Qj
-
-    real(rb) :: sr2, sr6, sr12
-
-    sr2 = this%sig2*invR2
-    sr6 = sr2*sr2*sr2
-    sr12 = sr6*sr6
-    E = this%eps4*(sr12 - sr6)
-    W = 6.0_rb*(this%eps4*sr12 + E)
-
-  end subroutine pair_lj_compute
-
-  subroutine tModel_compute( this, E, W, invR2, Qi, Qj )
-    class(tModel), intent(in)  :: this
-    real(rb),       intent(out) :: E, W
-    real(rb),       intent(in)  :: invR2, Qi, Qj
-    E = zero
-    W = zero
+    Eij = zero
+    Wij = zero
   end subroutine tModel_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
-    real(rb), value :: epsilon, sigma, cutoff
-    type(c_ptr)     :: EmDee_pair_lj_sf
+!  function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
+!    real(rb), value :: epsilon, sigma, cutoff
+!    type(c_ptr)     :: EmDee_pair_lj_sf
 
-    type(tModel), pointer :: model
-    real(rb) :: sr6, sr12, eps4, Ec, Fc
+!    type(tModel), pointer :: model
+!    real(rb) :: sr6, sr12, eps4, Ec, Fc
 
-    sr6 = (sigma/cutoff)**6
-    sr12 = sr6*sr6
-    eps4 = 4.0_rb*epsilon
-    Ec = eps4*(sr12 - sr6)
-    Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-    Ec = -(Ec + Fc*cutoff)
-    allocate( model )
-    model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
-    EmDee_pair_lj_sf = c_loc(model)
+!    sr6 = (sigma/cutoff)**6
+!    sr12 = sr6*sr6
+!    eps4 = 4.0_rb*epsilon
+!    Ec = eps4*(sr12 - sr6)
+!    Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
+!    Ec = -(Ec + Fc*cutoff)
+!    allocate( model )
+!    model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
+!    EmDee_pair_lj_sf = c_loc(model)
 
-  end function EmDee_pair_lj_sf
+!  end function EmDee_pair_lj_sf
 
 !---------------------------------------------------------------------------------------------------
 
@@ -184,11 +133,11 @@ contains
 !===================================================================================================
 
   function cross_pair( i, j ) result( ij )
-    class(pairModel), pointer, intent(in) :: i, j
-    class(pairModel), pointer             :: ij
+    class(cPairModel), pointer, intent(in) :: i, j
+    class(cPairModel), pointer             :: ij
 
     type(c_ptr)              :: ijmodel
-    type(pairModelPtr), pointer :: container
+    type(cPairModelPtr), pointer :: container
 
     if (associated(i).and.associated(j)) then
 
@@ -196,10 +145,10 @@ contains
         ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
                                  sigma = arithmetic(2)   )
 
-      else if (match(mLJSF,mLJSF)) then
-        ijmodel = EmDee_pair_lj_sf( epsilon = geometric(1), &
-                                    sigma = arithmetic(2),  &
-                                    cutoff = arithmetic(3)  )
+!      else if (match(mLJSF,mLJSF)) then
+!        ijmodel = EmDee_pair_lj_sf( epsilon = geometric(1), &
+!                                    sigma = arithmetic(2),  &
+!                                    cutoff = arithmetic(3)  )
 
       else if (match(mSOFTCORE,mSOFTCORE)) then
         ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
@@ -223,8 +172,8 @@ contains
 
     if (c_associated(ijmodel)) then
       call c_f_pointer( ijmodel, container )
-      ij => container%model
-      ij%external = .false.
+!      ij => container%model
+!      ij%external = .false.
     end if
 
     contains
@@ -317,3 +266,4 @@ contains
 !===================================================================================================
 
 end module models
+

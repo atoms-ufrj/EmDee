@@ -45,11 +45,18 @@ LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
-OBJECTS = $(call obj,EmDeeCode ArBee math structs models lists global)
+PAIRMODELS = $(basename $(notdir $(wildcard $(SRCDIR)/pair_*.f90)))
+
+OBJECTS = $(call obj,EmDeeCode ArBee math structs \
+                     models $(PAIRMODELS) pairModelClass modelClass \
+                     lists global)
 
 .PHONY: all test clean install uninstall lib
 
 .DEFAULT_GOAL := all
+
+aaa:
+	echo $(PAIRMODELS)
 
 all: lib
 
@@ -108,7 +115,16 @@ $(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o
+$(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(call obj,$(PAIRMODELS)) $(OBJDIR)/global.o
+	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(OBJDIR)/modelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/lists.o: $(SRCDIR)/lists.f90

@@ -31,10 +31,11 @@ integer(ib) :: N, Nsteps, Nprop
 real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2
 real(rb), target :: L
 real(rb), pointer :: R(:,:), V(:,:)
+integer, pointer :: types(:)
 
 integer(ib) :: step
 type(tEmDee), target :: md
-type(c_ptr), target :: lj, bond
+type(c_ptr), target :: lj, none, bond
 
 integer :: i, j, argcount, threads
 character(256) :: line
@@ -55,10 +56,18 @@ end if
 call read_data( file = line )
 call create_configuration
 
-md = EmDee_system( threads, 1, Rc, Rs, N, c_null_ptr, c_null_ptr )
+allocate( types(N) )
+types(1:N/2) = 1
+types(N/2+1:N) = 2
+
+md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 
 lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
+none = EmDee_pair_none()
+
 call EmDee_set_pair_type( md, 1, 1, lj )
+call EmDee_set_pair_type( md, 2, 2, lj )
+call EmDee_set_pair_type( md, 1, 2, lj )
 
 do i = 1, N-1
   do j = i+1, N

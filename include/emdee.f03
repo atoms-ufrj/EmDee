@@ -154,6 +154,11 @@ interface
     type(c_ptr) :: EmDee_model_none
   end function EmDee_model_none
 
+  function EmDee_pair_none( ) bind(C,name="EmDee_pair_none")
+    import :: c_ptr
+    type(c_ptr) :: EmDee_pair_none
+  end function EmDee_pair_none
+
   function EmDee_pair_lj( epsilon, sigma ) bind(C,name="EmDee_pair_lj")
     import :: c_double, c_ptr
     real(c_double), value :: epsilon, sigma
