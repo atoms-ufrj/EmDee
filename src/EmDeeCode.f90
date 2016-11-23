@@ -155,6 +155,7 @@ contains
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
+    type(pairModelContainer) :: none
 
     write(*,'("EmDee (version: ",A11,")")') VERSION
 
@@ -220,15 +221,16 @@ contains
     call me % excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( me%pair(me%ntypes,me%ntypes,me%nlayers) )
-    do i = 1, me%ntypes
-      do j = 1, me%ntypes
-        do k = 1, me%nlayers
-          allocate( pair_none :: me%pair(i,j,k)%model )
-          me%pair(i,j,k)%overridable = .true.
-        end do
-      end do
-    end do
+    allocate( pair_none :: none%model )
+    allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
+!    do i = 1, me%ntypes
+!      do j = 1, me%ntypes
+!        do k = 1, me%nlayers
+!          allocate( pair_none :: me%pair(i,j,k)%model )
+!          me%pair(i,j,k)%overridable = .true.
+!        end do
+!      end do
+!    end do
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
