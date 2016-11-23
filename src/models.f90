@@ -137,7 +137,7 @@ contains
     class(cPairModel), pointer             :: ij
 
     type(c_ptr)              :: ijmodel
-    type(cPairModelPtr), pointer :: container
+    type(pairModelContainer), pointer :: container
 
     if (associated(i).and.associated(j)) then
 

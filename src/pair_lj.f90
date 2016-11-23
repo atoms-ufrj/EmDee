@@ -78,19 +78,15 @@ contains
   function pair_lj_mix( this, other ) result( mixed )
     class(pair_lj),    intent(in) :: this
     class(cPairModel), intent(in) :: other
-    class(cPairModel), pointer    :: mixed
+    class(cPairModel), pointer :: mixed
 
-    real(rb) :: epsilon, sigma
-
-    allocate(pair_lj :: mixed)
     select type (other)
       class is (pair_lj)
-        epsilon = sqrt(this%epsilon*other%epsilon)
-        sigma = half*(this%sigma + other%sigma)
+        allocate(pair_lj :: mixed)
+        call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
       class default
-        stop "ERROR: cannot find mixing rule when adding a pair_lj type"
+        allocate(pair_none :: mixed)
     end select
-    call mixed % setup( [epsilon, sigma] )
 
   end function pair_lj_mix
 

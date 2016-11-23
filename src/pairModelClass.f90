@@ -20,9 +20,9 @@
 module pairModelClass
 
 use global
-use, intrinsic :: iso_c_binding
 use modelClass
 
+!> An abstract class for pair interaction models:
 type, abstract, extends(cModel) :: cPairModel
   contains
     procedure(cPairModel_setup), deferred :: setup
@@ -30,6 +30,7 @@ type, abstract, extends(cModel) :: cPairModel
     procedure(cPairModel_mix), deferred :: mix
 end type cPairModel
 
+!> A class for no-interaction pair model:
 type, extends(cPairModel) :: pair_none
   contains
     procedure :: setup => pair_none_setup
@@ -37,16 +38,15 @@ type, extends(cPairModel) :: pair_none
     procedure :: mix => pair_none_mix
 end type pair_none
 
-type cPairModelPtr
+!> A container structure for pair models:
+type pairModelContainer
   class(cPairModel), allocatable :: model
   logical :: overridable
   contains
-    procedure :: cPairModelPtr_assign
-    generic :: assignment(=) => cPairModelPtr_assign
-
-    procedure :: mix => cPairModelPtr_mix
-
-end type cPairModelPtr
+    procedure :: pairModelContainer_assign
+    generic :: assignment(=) => pairModelContainer_assign
+    procedure :: mix => pairModelContainer_mix
+end type pairModelContainer
 
 abstract interface
 
@@ -73,18 +73,9 @@ end interface
 
 contains
 
-!---------------------------------------------------------------------------------------------------
-
-!  subroutine cPairModelPtr_assign( new, old )
-!    class(cPairModelPtr), intent(inout) :: new
-!    type(cPairModelPtr),  intent(in)    :: old
-
-!    if (associated(new%model)) deallocate( new%model )
-!    new%model => old%model
-
-!  end subroutine cPairModelPtr_assign
-
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
+!                                   P A I R     N O N E
+!===================================================================================================
 
   type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
     type(pair_none), pointer :: model
@@ -118,11 +109,13 @@ contains
     allocate(pair_none :: mixed)
   end function pair_none_mix
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
+!                         P A I R     M O D E L    C O N T A I N E R
+!===================================================================================================
 
-  subroutine cPairModelPtr_assign( new, old )
-    class(cPairModelPtr), intent(inout) :: new
-    type(cModelPtr),      intent(in)    :: old
+  subroutine pairModelContainer_assign( new, old )
+    class(pairModelContainer), intent(inout) :: new
+    type(modelContainer), intent(in)    :: old
 
     if (allocated(new%model)) deallocate( new%model )
 
@@ -135,17 +128,28 @@ contains
       end select
     end if
 
-  end subroutine cPairModelPtr_assign
+  end subroutine pairModelContainer_assign
 
 !---------------------------------------------------------------------------------------------------
 
-  function cPairModelPtr_mix( a, b ) result( c )
-    class(cPairModelPtr), intent(in) :: a
-    class(cPairModel),    intent(in) :: b
-    type(cPairModelPtr)              :: c
-    allocate( pair_none::c%model )
+  function pairModelContainer_mix( a, b ) result( c )
+    class(pairModelContainer), intent(in) :: a
+    class(cPairModel),         intent(in) :: b
+    type(pairModelContainer)              :: c
+
+    type(pair_none) :: none
+    class(cPairModel), pointer :: mixed
+
+    mixed => b % mix( a%model )
+    if (same_type_as(mixed,none)) then
+      deallocate( mixed )
+      mixed => a % model % mix( b )
+    end if
+    allocate( c%model, source = mixed )
     c%overridable = .true.
-  end function cPairModelPtr_mix
+    deallocate( mixed )
+
+  end function pairModelContainer_mix
 
 !---------------------------------------------------------------------------------------------------
 

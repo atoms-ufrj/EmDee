@@ -31,7 +31,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "22 Nov 2016"
+character(11), parameter :: VERSION = "23 Nov 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -128,10 +128,11 @@ type, private :: tData
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
 
-  type(cPairModelPtr), allocatable :: pair(:,:,:)
   type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
   type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
+
+  type(pairModelContainer), allocatable :: pair(:,:,:)
 
 end type tData
 
@@ -293,7 +294,7 @@ contains
 
     integer :: ktype
     type(tData),     pointer :: me
-    type(cModelPtr), pointer :: container
+    type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
     if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been defined"
@@ -1183,12 +1184,11 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: m, ndihedrals, i, j
-    real(rb) :: Rc2, Ed, Fd, r2, invR2, Eij, Wij, icharge
+    real(rb) :: Rc2, Ed, Fd, r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
     class(tModel), pointer :: model
-!    class(cPairModel), pointer :: pair_model
 
     Rc2 = me%RcSq*me%invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
@@ -1233,7 +1233,8 @@ contains
           r2 = sum(rij*rij)
           if (r2 < me%RcSq) then
             invR2 = me%invL2/r2
-            icharge = me%charge(i,me%layer)
+            Qi = me%charge(i,me%layer)
+            Qj = me%charge(j,me%layer)
             associate( model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model )
               include "compute_pair.f90"
             end associate
@@ -1270,12 +1271,11 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, nlocal, ntotal, first, last
-    real(rb) :: xRc2, Rc2, r2, invR2, Eij, Wij, icharge
+    real(rb) :: xRc2, Rc2, r2, invR2, Eij, Wij, Qi, Qj
     logical  :: include(0:me%maxpairs)
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
     integer,  allocatable :: xlist(:)
-!    class(cPairModel), pointer :: pair_model
 
     xRc2 = me%xRcSq*me%invL2
     Rc2 = me%RcSq*me%invL2
@@ -1310,7 +1310,7 @@ contains
           i = atom(k)
           neighbor%first(i) = npairs + 1
           itype = me%atomType(i)
-          icharge = me%charge(i,me%layer)
+          Qi = me%charge(i,me%layer)
           Ri = Rs(:,i)
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
@@ -1322,6 +1322,7 @@ contains
                 select type ( model => partner(me%atomType(j))%model )
                   type is (pair_none)
                   class default
+                    Qj = me%charge(j,me%layer)
                     Rij = Ri - Rs(:,j)
                     Rij = Rij - anint(Rij)
                     r2 = sum(Rij*Rij)
@@ -1363,9 +1364,8 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: i, j, k, m, itype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi
+    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-!    class(cPairModel), pointer :: pair_model
 
     Rc2 = me%RcSq*me%invL2
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
@@ -1374,12 +1374,13 @@ contains
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
+        Qi = Q(i)
         Ri = Rs(:,i)
         Fi = zero
-        Qi = Q(i)
         associate (pair => me%pair(:,itype,me%layer))
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
+            Qj = Q(j)
             Rij = Ri - Rs(:,j)
             Rij = Rij - anint(Rij)
             r2 = sum(Rij*Rij)
@@ -1410,9 +1411,8 @@ contains
     real(rb),    intent(out) :: energy(me%nlayers)
 
     integer  :: i, j, k, m, layer, itype, firstCell, lastCell
-    real(rb) :: r2, invR2, Eij, Wij, icharge
+    real(rb) :: r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3)
-!    class(cPairModel), pointer :: pair_model
 
     firstCell = me%threadCell%first(thread)
     lastCell  = me%threadCell%last(thread)
@@ -1423,17 +1423,17 @@ contains
         i = atom(m)
         if ((me%atomCell(i) >= firstCell).and.(me%atomCell(i) <= lastCell)) then
           itype = me%atomType(i)
+          Qi = me%charge(i,me%layer)
           Ri = me%R(:,i)
-          icharge = me%charge(i,me%layer)
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
+            Qj = me%charge(j,me%layer)
             Rij = Ri - me%R(:,j)
             Rij = Rij - me%Lbox*anint(Rij*me%invL)
             r2 = sum(Rij*Rij)
             if (r2 < me%RcSq) then
               invR2 = one/r2
               do layer = 1, me%nlayers
-!                pair_model => me%pair(me%atomType(j),itype,layer)%model
                 associate(model => me%pair(me%atomType(j),itype,layer)%model)
                   include "compute_pair.f90"
                 end associate
