@@ -24,6 +24,6 @@ select type (model)
     include "compute_pair_lj.f90"
   type is (pair_lj_coul)
     include "compute_pair_lj_coul.f90"
-!  type is (pair_lj_sf)
-!    include "compute_pair_lj_sf.f90"
+  type is (pair_lj_sf)
+    include "compute_pair_lj_sf.f90"
 end select

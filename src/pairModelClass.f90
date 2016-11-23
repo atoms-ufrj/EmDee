@@ -22,13 +22,22 @@ module pairModelClass
 use global
 use modelClass
 
+implicit none
+
 !> An abstract class for pair interaction models:
 type, abstract, extends(cModel) :: cPairModel
-  character(10) :: kind = "undefined"
+  character(10) :: kind
+  logical :: shifted_force_vdw = .false.
+  logical :: shifted_force_coul = .false.
+  real(rb) :: eshift_vdw = zero
+  real(rb) :: fshift_vdw = zero
+  real(rb) :: eshift_coul = zero
+  real(rb) :: fshift_coul = zero
   contains
     procedure(cPairModel_setup), deferred :: setup
     procedure(cPairModel_compute), deferred :: compute
     procedure(cPairModel_mix), deferred :: mix
+    procedure :: shifting_setup => cPairModel_shifting_setup
 end type cPairModel
 
 !> A class for no-interaction pair model:
@@ -75,6 +84,41 @@ end interface
 contains
 
 !===================================================================================================
+!                             P A I R     M O D E L    C L A S S
+!===================================================================================================
+
+  subroutine cPairModel_shifting_setup( model, cutoff )
+    class(cPairModel), intent(inout) :: model
+    real(rb),          intent(in)    :: cutoff
+
+    real(rb) :: invR2, Evdw, Wvdw, Etot, Wtot, Ecoul, Wcoul
+
+    ! Zero van der Waals and Coulombic energy and force shifts:
+    model%fshift_vdw = zero
+    model%eshift_vdw = zero
+    model%fshift_coul = zero
+    model%eshift_coul = zero
+
+    ! Compute van der Waals and Coulombic energies and virials at cutoff:
+    invR2 = one/cutoff**2
+    call model%compute( Evdw, Wvdw, invR2, zero, zero )
+    call model%compute( Etot, Wtot, invR2, one, one )
+    Ecoul = Etot - Evdw
+    Wcoul = Wtot - Wvdw
+
+    ! Update van der Waals energy and force shifts:
+    model%fshift_vdw = Wvdw/cutoff
+    model%eshift_vdw = -Evdw
+    if (model%shifted_force_vdw) model%eshift_vdw = model%eshift_vdw - Wvdw
+
+    ! Update Coulombic energy and force shifts:
+    model%fshift_coul = Wcoul/cutoff
+    model%eshift_coul = -Ecoul
+    if (model%shifted_force_coul) model%eshift_coul = model%eshift_coul - Wcoul
+
+  end subroutine cPairModel_shifting_setup
+
+!===================================================================================================
 !                                   P A I R     N O N E
 !===================================================================================================
 
@@ -90,7 +134,6 @@ contains
   subroutine pair_none_setup( model, params )
     class(pair_none), intent(inout) :: model
     real(rb),         intent(in)    :: params(:)
-    model%kind = "none"
   end subroutine pair_none_setup
 
 !---------------------------------------------------------------------------------------------------
@@ -141,7 +184,6 @@ contains
     class(cPairModel),         intent(in) :: b
     type(pairModelContainer)              :: c
 
-    type(pair_none) :: none
     class(cPairModel), pointer :: mixed
 
     mixed => b % mix( a%model )
@@ -150,8 +192,7 @@ contains
       allocate( c%model, source = mixed )
       deallocate( mixed )
     else
-      allocate( pair_none :: mixed )
-      call mixed % setup( [zero] )
+      allocate( c%model, source = pair_none(kind="none") )
       write(*,'("WARNING: no mixing rule found for pair interaction models ",A," and ",A,".")') &
         trim(a % model % kind), trim(b % kind)
     end if

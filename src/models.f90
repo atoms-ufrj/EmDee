@@ -21,8 +21,7 @@ module models
 
 use pair_lj_module
 use pair_lj_coul_module
-
-!use pair_lj_sf_module
+use pair_lj_sf_module
 
 implicit none
 
@@ -97,24 +96,28 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-!  function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
-!    real(rb), value :: epsilon, sigma, cutoff
-!    type(c_ptr)     :: EmDee_pair_lj_sf
+  function EmDee_pair_lj_sf_old( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf_old")
+    real(rb), value :: epsilon, sigma, cutoff
+    type(c_ptr)     :: EmDee_pair_lj_sf_old
 
-!    type(tModel), pointer :: model
-!    real(rb) :: sr6, sr12, eps4, Ec, Fc
+    type(tModel), pointer :: model
+    real(rb) :: sr6, sr12, eps4, Ec, Fc
 
-!    sr6 = (sigma/cutoff)**6
-!    sr12 = sr6*sr6
-!    eps4 = 4.0_rb*epsilon
-!    Ec = eps4*(sr12 - sr6)
-!    Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-!    Ec = -(Ec + Fc*cutoff)
-!    allocate( model )
-!    model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
-!    EmDee_pair_lj_sf = c_loc(model)
+    sr6 = (sigma/cutoff)**6
+    sr12 = sr6*sr6
+    eps4 = 4.0_rb*epsilon
+    Ec = eps4*(sr12 - sr6)
+print*, "Evdw = ", Ec
+    Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
+print*, "Wvdw = ", Fc*cutoff
+    Ec = -(Ec + Fc*cutoff)
+    allocate( model )
+    model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
+    EmDee_pair_lj_sf_old = c_loc(model)
 
-!  end function EmDee_pair_lj_sf
+print*, Ec, Fc
+
+  end function EmDee_pair_lj_sf_old
 
 !---------------------------------------------------------------------------------------------------
 
@@ -134,79 +137,79 @@ contains
 !                                     M I X I N G     R U L E S
 !===================================================================================================
 
-  function cross_pair( i, j ) result( ij )
-    class(cPairModel), pointer, intent(in) :: i, j
-    class(cPairModel), pointer             :: ij
+!  function cross_pair( i, j ) result( ij )
+!    class(cPairModel), pointer, intent(in) :: i, j
+!    class(cPairModel), pointer             :: ij
 
-    type(c_ptr)              :: ijmodel
-    type(pairModelContainer), pointer :: container
+!    type(c_ptr)              :: ijmodel
+!    type(pairModelContainer), pointer :: container
 
-    if (associated(i).and.associated(j)) then
+!    if (associated(i).and.associated(j)) then
 
-      if (match(mLJ,mLJ)) then
-        ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
-                                 sigma = arithmetic(2)   )
+!      if (match(mLJ,mLJ)) then
+!        ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
+!                                 sigma = arithmetic(2)   )
 
 !      else if (match(mLJSF,mLJSF)) then
 !        ijmodel = EmDee_pair_lj_sf( epsilon = geometric(1), &
 !                                    sigma = arithmetic(2),  &
 !                                    cutoff = arithmetic(3)  )
 
-      else if (match(mSOFTCORE,mSOFTCORE)) then
-        ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
-                                 sigma = arithmetic(2)   )
+!      else if (match(mSOFTCORE,mSOFTCORE)) then
+!        ijmodel = EmDee_pair_lj( epsilon = geometric(1), &
+!                                 sigma = arithmetic(2)   )
 
-      else if (match(mSOFTCORE,mLJ)) then
-        ijmodel = EmDee_pair_softcore( epsilon = geometric(1),    &
-                                       sigma = arithmetic(2),     &
-                                       lambda = from(mSOFTCORE,3) )
+!      else if (match(mSOFTCORE,mLJ)) then
+!        ijmodel = EmDee_pair_softcore( epsilon = geometric(1),    &
+!                                       sigma = arithmetic(2),     &
+!                                       lambda = from(mSOFTCORE,3) )
 
-      else if ((i%id == mNONE).or.(j%id == mNONE)) then
-        ijmodel = EmDee_model_none()
+!      else if ((i%id == mNONE).or.(j%id == mNONE)) then
+!        ijmodel = EmDee_model_none()
 
-      else
-        ijmodel = c_null_ptr
+!      else
+!        ijmodel = c_null_ptr
 
-      end if
-    else
-      ijmodel = c_null_ptr
-    end if
+!      end if
+!    else
+!      ijmodel = c_null_ptr
+!    end if
 
-    if (c_associated(ijmodel)) then
-      call c_f_pointer( ijmodel, container )
-!      ij => container%model
-!      ij%external = .false.
-    end if
+!    if (c_associated(ijmodel)) then
+!      call c_f_pointer( ijmodel, container )
+!!      ij => container%model
+!!      ij%external = .false.
+!    end if
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      logical function match( a, b )
-        integer, intent(in) :: a, b
-        match = ((i%id == a).and.(j%id == b)).or.((i%id == b).and.(j%id == a))
-      end function match
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      real(rb) function arithmetic( k )
-        integer, intent(in) :: k
-        arithmetic = 0.5_rb*(i%data(k) + j%data(k))
-      end function arithmetic
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      real(rb) function geometric( k )
-        integer, intent(in) :: k
-        geometric = sqrt(i%data(k)*j%data(k))
-      end function geometric
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      real(rb) function from( id, k )
-        integer, intent(in) :: id, k
-        if (id == i%id) then
-          from = i%data(k)
-        else if (id == j%id) then
-          from = j%data(k)
-        else
-          stop "ERROR defining mixing rule"
-        end if
-      end function from
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end function cross_pair
+!    contains
+!      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!      logical function match( a, b )
+!        integer, intent(in) :: a, b
+!        match = ((i%id == a).and.(j%id == b)).or.((i%id == b).and.(j%id == a))
+!      end function match
+!      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!      real(rb) function arithmetic( k )
+!        integer, intent(in) :: k
+!        arithmetic = 0.5_rb*(i%data(k) + j%data(k))
+!      end function arithmetic
+!      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!      real(rb) function geometric( k )
+!        integer, intent(in) :: k
+!        geometric = sqrt(i%data(k)*j%data(k))
+!      end function geometric
+!      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!      real(rb) function from( id, k )
+!        integer, intent(in) :: id, k
+!        if (id == i%id) then
+!          from = i%data(k)
+!        else if (id == j%id) then
+!          from = j%data(k)
+!        else
+!          stop "ERROR defining mixing rule"
+!        end if
+!      end function from
+!      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!  end function cross_pair
 
 !===================================================================================================
 !                                      B O N D     M O D E L S

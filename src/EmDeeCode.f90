@@ -151,7 +151,7 @@ contains
     type(c_ptr), value :: types, masses
     type(tEmDee)       :: EmDee_system
 
-    integer :: i, j, k
+    integer :: i
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
@@ -221,16 +221,9 @@ contains
     call me % excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( pair_none :: none%model )
+    allocate( none%model, source = pair_none(kind="none") )
+    none % overridable = .true.
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
-!    do i = 1, me%ntypes
-!      do j = 1, me%ntypes
-!        do k = 1, me%nlayers
-!          allocate( pair_none :: me%pair(i,j,k)%model )
-!          me%pair(i,j,k)%overridable = .true.
-!        end do
-!      end do
-!    end do
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -309,15 +302,18 @@ contains
         associate (pair => me%pair(:,:,me%layer))
           if (itype == jtype) then
             pair(itype,itype) = container
+            call pair(itype,itype) % model % shifting_setup( me%Rc )
             do ktype = 1, me%ntypes
-              if ((ktype /= itype).and.pair(ktype,jtype)%overridable) then
-                pair(ktype,jtype) = pair(ktype,ktype) % mix( pmodel )
-                pair(jtype,ktype) = pair(ktype,jtype)
+              if ((ktype /= itype).and.pair(itype,ktype)%overridable) then
+                pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
+                call pair(itype,ktype) % model % shifting_setup( me%Rc )
+                pair(ktype,itype) = pair(itype,ktype)
               end if
             end do
           else
             pair(itype,jtype) = container
-            pair(jtype,itype) = container
+            call pair(itype,jtype) % model % shifting_setup( me%Rc )
+            pair(jtype,itype) = pair(itype,jtype)
             pair(itype,jtype)%overridable = .false.
             pair(jtype,itype)%overridable = .false.
           end if

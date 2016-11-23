@@ -170,9 +170,15 @@ interface
     real(c_double), value :: epsilon, sigma
   end function EmDee_pair_lj_coul
 
-  function EmDee_pair_lj_sf( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf")
+  function EmDee_pair_lj_sf_old( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf_old")
     import :: c_double, c_ptr
     real(c_double), value :: epsilon, sigma, cutoff
+    type(c_ptr)           :: EmDee_pair_lj_sf_old
+  end function EmDee_pair_lj_sf_old
+
+  function EmDee_pair_lj_sf( epsilon, sigma ) bind(C,name="EmDee_pair_lj_sf")
+    import :: c_double, c_ptr
+    real(c_double), value :: epsilon, sigma
     type(c_ptr)           :: EmDee_pair_lj_sf
   end function EmDee_pair_lj_sf
 

@@ -23,8 +23,8 @@ use global
 use, intrinsic :: iso_c_binding
 
 type, abstract :: cModel
-  integer :: id ! REMOVE
-  real(rb), pointer :: data(:) ! REMOVE
+  integer :: id = 0 ! REMOVE
+  real(rb), pointer :: data(:) => null() ! REMOVE
   contains
     procedure :: deliver => cModel_deliver
 end type cModel
