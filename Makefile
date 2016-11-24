@@ -64,16 +64,13 @@ OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
 
 .DEFAULT_GOAL := all
 
-aaa:
-	echo $(call obj,$(BONDMODELS))
-
 all: lib
 
 clean:
 	rm -rf $(OBJDIR)
 	rm -rf $(LIBDIR)
 	rm -rf $(BINDIR)
-	rm -rf $(call src,compute_pair compute_bond)
+	rm -rf $(call src,compute_pair compute_bond models)
 
 install:
 	cp $(LIBDIR)/libemdee.* /usr/local/lib/
@@ -131,9 +128,11 @@ $(SRCDIR)/compute_pair.f90: $(call src,$(addprefix compute_,$(PAIRMODELS)))
 $(SRCDIR)/compute_bond.f90: $(call src,$(addprefix compute_,$(BONDMODELS)))
 	bash $(SRCDIR)/make_compute.sh $(BONDMODELS) > $@
 
-$(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(call obj,$(PAIRMODELS)) $(call obj,$(BONDMODELS)) \
-                    $(OBJDIR)/global.o
+$(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+
+$(SRCDIR)/models.f90: $(call obj,$(PAIRMODELS)) $(call obj,$(BONDMODELS))
+	bash $(SRCDIR)/make_models_module.sh $(PAIRMODELS) $(BONDMODELS) > $@
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<

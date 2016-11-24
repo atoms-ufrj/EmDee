@@ -17,8 +17,10 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: 1) Optimize parallel performance of download in a unique omp parallel
-! TODO: 2) Create indexing for having sequential body particles and free particles in arrays
+! TODO: 1) Improve angle and dihedral handling by defining cAngleModel and cDihedralModel classes
+! TODO: 2) Automatize addition of model definition routines in include files and Julia wrapper
+! TODO: 3) Optimize parallel performance of download in a unique omp parallel
+! TODO: 4) Create indexing for having sequential body particles and free particles in arrays
 
 module EmDeeCode
 
@@ -103,7 +105,6 @@ type, private :: tData
   real(rb) :: eshift                      ! Potential shifting factor for Coulombic interactions
   real(rb) :: fshift                      ! Force shifting factor for Coulombic interactions
 
-  logical :: coulomb = .false.            ! Flag for checking if coulombic interactions occur
   logical :: initialized = .false.        ! Flag for checking coordinates initialization
 
   type(kiss) :: random                    ! Random number generator
@@ -259,21 +260,10 @@ contains
     type(tEmDee), value :: md
     type(c_ptr),  value :: charges
 
-    integer :: i, j
     real(rb),      pointer :: Q(:)
     type(tData),   pointer :: me
-    class(cModel), pointer :: model
 
     call c_f_pointer( md%data, me )
-    if (.not.me%coulomb) then
-      me%coulomb = .true.
-      do i = 1, me%ntypes
-        do j = 1, me%ntypes
-          model => me%pair(i,j,me%layer)%model
-          if (associated(model)) model%id = mCOULOMB + mod(model%id,mCOULOMB)
-        end do
-      end do
-    end if
     call c_f_pointer( charges, Q, [me%natoms] )
     me%charge(:,me%layer) = Q
     if (me%initialized) call compute_forces( md )

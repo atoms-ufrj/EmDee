@@ -9,3 +9,5 @@ test/
 
 *~
 src/compute_pair.f90
+src/compute_bond.f90
+src/models.f90
