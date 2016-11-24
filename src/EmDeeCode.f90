@@ -221,7 +221,7 @@ contains
     call me % excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( none%model, source = pair_none(kind="none") )
+    allocate( none%model, source = pair_none(name="none") )
     none % overridable = .true.
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
 

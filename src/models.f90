@@ -97,42 +97,42 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function EmDee_pair_lj_sf_old( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf_old")
-    real(rb), value :: epsilon, sigma, cutoff
-    type(c_ptr)     :: EmDee_pair_lj_sf_old
+!  function EmDee_pair_lj_sf_old( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf_old")
+!    real(rb), value :: epsilon, sigma, cutoff
+!    type(c_ptr)     :: EmDee_pair_lj_sf_old
 
-    type(tModel), pointer :: model
-    real(rb) :: sr6, sr12, eps4, Ec, Fc
+!    type(tModel), pointer :: model
+!    real(rb) :: sr6, sr12, eps4, Ec, Fc
 
-    sr6 = (sigma/cutoff)**6
-    sr12 = sr6*sr6
-    eps4 = 4.0_rb*epsilon
-    Ec = eps4*(sr12 - sr6)
-print*, "Evdw = ", Ec
-    Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
-print*, "Wvdw = ", Fc*cutoff
-    Ec = -(Ec + Fc*cutoff)
-    allocate( model )
-    model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
-    EmDee_pair_lj_sf_old = c_loc(model)
+!    sr6 = (sigma/cutoff)**6
+!    sr12 = sr6*sr6
+!    eps4 = 4.0_rb*epsilon
+!    Ec = eps4*(sr12 - sr6)
+!print*, "Evdw = ", Ec
+!    Fc = 6.0_rb*(eps4*sr12 + Ec)/cutoff
+!print*, "Wvdw = ", Fc*cutoff
+!    Ec = -(Ec + Fc*cutoff)
+!    allocate( model )
+!    model = tModel( mLJSF, set_data( [epsilon, sigma, cutoff] ), sigma**2, eps4, Fc, Ec )
+!    EmDee_pair_lj_sf_old = c_loc(model)
 
-print*, Ec, Fc
+!print*, Ec, Fc
 
-  end function EmDee_pair_lj_sf_old
+!  end function EmDee_pair_lj_sf_old
 
 !---------------------------------------------------------------------------------------------------
 
-  function EmDee_pair_softcore( epsilon, sigma, lambda ) bind(C,name="EmDee_pair_softcore")
-    real(rb), value :: epsilon, sigma, lambda
-    type(c_ptr)     :: EmDee_pair_softcore
+!  function EmDee_pair_softcore( epsilon, sigma, lambda ) bind(C,name="EmDee_pair_softcore")
+!    real(rb), value :: epsilon, sigma, lambda
+!    type(c_ptr)     :: EmDee_pair_softcore
 
-    type(tModel), pointer :: model
+!    type(tModel), pointer :: model
 
-    allocate( model )
-    model = tModel( mSOFTCORE, set_data( [epsilon, sigma, lambda] ), sigma**2 )
-    EmDee_pair_softcore = c_loc(model)
+!    allocate( model )
+!    model = tModel( mSOFTCORE, set_data( [epsilon, sigma, lambda] ), sigma**2 )
+!    EmDee_pair_softcore = c_loc(model)
 
-  end function EmDee_pair_softcore
+!  end function EmDee_pair_softcore
 
 !===================================================================================================
 !                                     M I X I N G     R U L E S
@@ -226,37 +226,37 @@ print*, Ec, Fc
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_bond_morse( D, alpha, r0 ) bind(C,name="EmDee_bond_morse")
-    real(rb), value :: D, alpha, r0
-    type(tModel), pointer :: model
-    allocate( model )
-    model = tModel( mMORSE, set_data( [D, alpha, r0] ), r0, -alpha, D, -2.0_rb*D*alpha )
-    EmDee_bond_morse = c_loc(model)
-  end function EmDee_bond_morse
+!  type(c_ptr) function EmDee_bond_morse( D, alpha, r0 ) bind(C,name="EmDee_bond_morse")
+!    real(rb), value :: D, alpha, r0
+!    type(tModel), pointer :: model
+!    allocate( model )
+!    model = tModel( mMORSE, set_data( [D, alpha, r0] ), r0, -alpha, D, -2.0_rb*D*alpha )
+!    EmDee_bond_morse = c_loc(model)
+!  end function EmDee_bond_morse
 
 !===================================================================================================
 !                                    A N G L E     M O D E L S
 !===================================================================================================
 
-  type(c_ptr) function EmDee_angle_harmonic( k, theta0 ) bind(C,name="EmDee_angle_harmonic")
-    real(rb), value :: k, theta0
-    type(tModel), pointer :: model
-    allocate( model )
-    model = tModel( mHARMOMIC, set_data( [k, theta0] ), Deg2Rad*theta0, -k, 0.5_rb*k )
-    EmDee_angle_harmonic = c_loc(model)
-  end function EmDee_angle_harmonic
+!  type(c_ptr) function EmDee_angle_harmonic( k, theta0 ) bind(C,name="EmDee_angle_harmonic")
+!    real(rb), value :: k, theta0
+!    type(tModel), pointer :: model
+!    allocate( model )
+!    model = tModel( mHARMOMIC, set_data( [k, theta0] ), Deg2Rad*theta0, -k, 0.5_rb*k )
+!    EmDee_angle_harmonic = c_loc(model)
+!  end function EmDee_angle_harmonic
 
 !===================================================================================================
 !                                 D I H E D R A L     M O D E L S
 !===================================================================================================
 
-  type(c_ptr) function EmDee_dihedral_harmonic( k, phi0 ) bind(C,name="EmDee_dihedral_harmonic")
-    real(rb), value :: k, phi0
-    type(tModel), pointer :: model
-    allocate( model )
-    model = tModel( mHARMOMIC, set_data( [k, phi0] ), 0.0_rb, Deg2Rad*phi0, -k, 0.5_rb*k )
-    EmDee_dihedral_harmonic = c_loc(model)
-  end function EmDee_dihedral_harmonic
+!  type(c_ptr) function EmDee_dihedral_harmonic( k, phi0 ) bind(C,name="EmDee_dihedral_harmonic")
+!    real(rb), value :: k, phi0
+!    type(tModel), pointer :: model
+!    allocate( model )
+!    model = tModel( mHARMOMIC, set_data( [k, phi0] ), 0.0_rb, Deg2Rad*phi0, -k, 0.5_rb*k )
+!    EmDee_dihedral_harmonic = c_loc(model)
+!  end function EmDee_dihedral_harmonic
 
 !===================================================================================================
 !                             A U X I L I A R Y     P R O C E D U R E

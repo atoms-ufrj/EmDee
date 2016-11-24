@@ -26,7 +26,7 @@ implicit none
 
 !> An abstract class for pair interaction models:
 type, abstract, extends(cModel) :: cPairModel
-  character(20) :: kind !! TRANSFER TO BASE CLASS
+  character(20) :: name !! TRANSFER TO BASE CLASS
   logical :: shifted_force_vdw = .false.
   logical :: shifted_force_coul = .false.
   real(rb) :: eshift_vdw = zero
@@ -192,9 +192,9 @@ contains
       allocate( c%model, source = mixed )
       deallocate( mixed )
     else
-      allocate( c%model, source = pair_none(kind="none") )
+      allocate( c%model, source = pair_none(name="none") )
       write(*,'("WARNING: no mixing rule found for pair interaction models ",A," and ",A,".")') &
-        trim(a % model % kind), trim(b % kind)
+        trim(a % model % name), trim(b % name)
     end if
     c%overridable = .true.
 

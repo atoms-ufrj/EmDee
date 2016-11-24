@@ -37,7 +37,7 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   type(c_ptr) function EmDee_pair_lj_cut_coul_cut( epsilon, sigma ) bind(C,name="EmDee_pair_lj_cut_coul_cut")
-    real(rb), value :: epsilon, sigma
+    real(c_double), value :: epsilon, sigma
 
     type(pair_lj_cut_coul_cut), pointer :: model
 
@@ -54,7 +54,7 @@ contains
     real(rb),       intent(in)    :: params(:)
 
     ! Model kind:
-    model%kind = "lj_cut_coul_cut"
+    model%name = "lj_cut_coul_cut"
 
     ! Model parameters:
     model%epsilon = params(1)

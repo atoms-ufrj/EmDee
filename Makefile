@@ -3,8 +3,13 @@
 #   Build the "debug" version with: `make DEBUG=1`
 DEBUG?=0
 
-# Define pair interaction models:
-PAIRMODELS = pair_lj_cut pair_lj_cut_coul_cut pair_lj_sf pair_lj_sf_coul_sf
+# Define models:
+PAIR = lj_cut lj_cut_coul_cut lj_sf lj_sf_coul_sf
+BOND = harmonic
+
+# Add prefixes:
+PAIRMODELS = $(addprefix pair_,$(PAIR))
+BONDMODELS = $(addprefix bond_,$(BOND))
 
 # Compilers and their basic options:
 FORT = gfortran
@@ -119,13 +124,20 @@ $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 $(SRCDIR)/compute_pair.f90: $(call src,$(addprefix compute_,$(PAIRMODELS)))
 	bash $(SRCDIR)/make_compute_pair.sh $(PAIRMODELS) > $@
 
-$(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(call obj,$(PAIRMODELS)) $(OBJDIR)/global.o
+$(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(call obj,$(PAIRMODELS)) $(call obj,$(BONDMODELS)) \
+                    $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(OBJDIR)/modelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(SRCDIR)/compute_bond_%.f90 $(OBJDIR)/bondModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/bondModelClass.o: $(SRCDIR)/bondModelClass.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/global.o
