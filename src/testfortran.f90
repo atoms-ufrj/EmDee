@@ -30,11 +30,12 @@ integer, parameter :: ib = 4, rb = 8
 integer(ib) :: N, Nsteps, Nprop
 real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2
 real(rb), target :: L
-real(rb), pointer :: R(:,:), V(:,:)
+real(rb), pointer :: R(:,:), V(:,:), Q(:)
+integer, pointer :: types(:)
 
 integer(ib) :: step
 type(tEmDee), target :: md
-type(c_ptr), target :: lj, bond
+type(c_ptr), target :: lj, lj_sf, bond
 
 integer :: i, j, argcount, threads
 character(256) :: line
@@ -55,10 +56,27 @@ end if
 call read_data( file = line )
 call create_configuration
 
-md = EmDee_system( threads, 1, Rc, Rs, N, c_null_ptr, c_null_ptr )
+if (mod(N,2) /= 0) stop "PLEASE ENTER AN EVEN NUMBER OF ATOMS"
+allocate( types(N), Q(N) )
+types(1:N/2) = 1
+types(N/2+1:N) = 2
+where (types == 1)
+  Q = 1.0_rb
+elsewhere
+  Q = -1.0_rb
+end where
 
-lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
-call EmDee_set_pair_type( md, 1, 1, lj )
+md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
+
+lj = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
+!lj_sf = EmDee_pair_lj_sf_old( 1.0_rb, 1.0_rb, Rc )
+lj_sf = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
+
+call EmDee_set_pair_type( md, 1, 1, lj_sf )
+call EmDee_set_pair_type( md, 2, 2, lj_sf )
+!call EmDee_set_pair_type( md, 1, 2, lj )
+
+call EmDee_set_charges( md, c_loc(Q) )
 
 do i = 1, N-1
   do j = i+1, N

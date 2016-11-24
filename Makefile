@@ -1,14 +1,24 @@
+# Define DEBUG or FAST mode:
+#   Build the "fast" version with: `make` or `make DEBUG=0`
+#   Build the "debug" version with: `make DEBUG=1`
 DEBUG?=0
-# Build the "fast" version with: `make` or `make DEBUG=0`
-# Build the "debug" version with: `make DEBUG=1`
 
+# Define models:
+PAIR = lj_cut lj_cut_coul_cut lj_sf lj_sf_coul_sf
+BOND = harmonic
+
+# Add prefixes:
+PAIRMODELS = $(addprefix pair_,$(PAIR))
+BONDMODELS = $(addprefix bond_,$(BOND))
+
+# Compilers and their basic options:
 FORT = gfortran
 CC   = gcc
 
 BASIC_F_OPTS = -march=native -m64 -fPIC -fopenmp -cpp -fmax-errors=1
 BASIC_C_OPTS = -march=native -m64 -fPIC -fopenmp -cpp -fmax-errors=1
 
-# Warnings:
+# Warning-related options:
 BASIC_F_OPTS += -Wall -Wno-maybe-uninitialized
 BASIC_C_OPTS += -Wall -Wno-maybe-uninitialized
 
@@ -45,7 +55,10 @@ LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
-OBJECTS = $(call obj,EmDeeCode ArBee math structs models lists global)
+OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
+                     $(PAIRMODELS) pairModelClass \
+                     $(BONDMODELS) bondModelClass \
+                     modelClass lists global)
 
 .PHONY: all test clean install uninstall lib
 
@@ -57,6 +70,7 @@ clean:
 	rm -rf $(OBJDIR)
 	rm -rf $(LIBDIR)
 	rm -rf $(BINDIR)
+	rm -rf $(call src,compute_pair compute_bond models)
 
 install:
 	cp $(LIBDIR)/libemdee.* /usr/local/lib/
@@ -108,7 +122,31 @@ $(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
+$(SRCDIR)/compute_pair.f90: $(call src,$(addprefix compute_,$(PAIRMODELS)))
+	bash $(SRCDIR)/make_compute.sh $(PAIRMODELS) > $@
+
+$(SRCDIR)/compute_bond.f90: $(call src,$(addprefix compute_,$(BONDMODELS)))
+	bash $(SRCDIR)/make_compute.sh $(BONDMODELS) > $@
+
 $(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o
+	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+
+$(SRCDIR)/models.f90: $(call obj,$(PAIRMODELS)) $(call obj,$(BONDMODELS))
+	bash $(SRCDIR)/make_models_module.sh $(PAIRMODELS) $(BONDMODELS) > $@
+
+$(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(OBJDIR)/modelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(SRCDIR)/compute_bond_%.f90 $(OBJDIR)/bondModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/bondModelClass.o: $(SRCDIR)/bondModelClass.f90 $(OBJDIR)/modelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/lists.o: $(SRCDIR)/lists.f90

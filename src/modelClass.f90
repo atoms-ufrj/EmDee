@@ -17,36 +17,37 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-!---------------------------------------------------------------------------------------------------
+module modelClass
 
-subroutine compute_bond
-  select case (model%id)
-    case (mHARMOMIC)
-      call harmonic( E, mdEdr, d - model%p1, model%p2, model%p3 )
-    case (mMORSE)
-      call morse( E, mdEdr, exp(model%p2*(d - model%p1)), model%p2, model%p3 )
-  end select
-end subroutine compute_bond
+use global
+use, intrinsic :: iso_c_binding
 
-!---------------------------------------------------------------------------------------------------
+type, abstract :: cModel
+  integer :: id = 0 ! REMOVE
+  real(rb), pointer :: data(:) => null() ! REMOVE
+  contains
+    procedure :: deliver => cModel_deliver
+end type cModel
 
-pure subroutine harmonic( E, F, x_minus_x0, minus_k, k_2 )
-  real(rb), intent(out) :: E, F
-  real(rb), intent(in)  :: x_minus_x0, minus_k, k_2
-  E = k_2*x_minus_x0*x_minus_x0
-  F = minus_k*x_minus_x0
-end subroutine harmonic
+type modelContainer
+  class(cModel), allocatable :: model
+end type modelContainer
+
+contains
 
 !---------------------------------------------------------------------------------------------------
 
-pure subroutine morse( E, F, expAdeltaR, D, m2Dalpha )
-  real(rb), intent(out) :: E, F
-  real(rb), intent(in)  :: expAdeltaR, D, m2Dalpha
-  real(rb) :: x
-  x = 1.0_rb - expAdeltaR
-  E = D*x*x
-  F = m2Dalpha*x*expAdeltaR
-end subroutine morse
+  type(c_ptr) function cModel_deliver( this )
+    class(cModel), intent(in) :: this
+
+    type(modelContainer), pointer :: container
+
+    allocate( container )
+    allocate( container%model, source = this )
+    cModel_deliver = c_loc(container)
+
+  end function cModel_deliver
 
 !---------------------------------------------------------------------------------------------------
 
+end module modelClass
