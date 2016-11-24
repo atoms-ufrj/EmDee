@@ -68,9 +68,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_harmonic_compute( model, E, F, invR2 )
+  subroutine bond_harmonic_compute( model, E, W, invR2 )
     class(bond_harmonic), intent(in)  :: model
-    real(rb),             intent(out) :: E, F
+    real(rb),             intent(out) :: E, W
     real(rb),             intent(in)  :: invR2
 
     include "compute_bond_harmonic.f90"

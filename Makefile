@@ -56,12 +56,16 @@ obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
 OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
-                     $(PAIRMODELS) pairModelClass modelClass \
-                     lists global)
+                     $(PAIRMODELS) pairModelClass \
+                     $(BONDMODELS) bondModelClass \
+                     modelClass lists global)
 
 .PHONY: all test clean install uninstall lib
 
 .DEFAULT_GOAL := all
+
+aaa:
+	echo $(call obj,$(BONDMODELS))
 
 all: lib
 

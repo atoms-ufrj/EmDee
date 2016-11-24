@@ -24,6 +24,8 @@ use pair_lj_cut_coul_cut_module
 use pair_lj_sf_module
 use pair_lj_sf_coul_sf_module
 
+use bond_harmonic_module
+
 implicit none
 
 integer, parameter :: mCOULOMB = 10000
@@ -216,13 +218,13 @@ contains
 !                                      B O N D     M O D E L S
 !===================================================================================================
 
-  type(c_ptr) function EmDee_bond_harmonic( k, r0 ) bind(C,name="EmDee_bond_harmonic")
-    real(rb), value :: k, r0
-    type(tModel), pointer :: model
-    allocate( model )
-    model = tModel( mHARMOMIC, set_data( [k, r0] ), r0, -k, 0.5_rb*k )
-    EmDee_bond_harmonic = c_loc(model)
-  end function EmDee_bond_harmonic
+!  type(c_ptr) function EmDee_bond_harmonic( k, r0 ) bind(C,name="EmDee_bond_harmonic")
+!    real(rb), value :: k, r0
+!    type(tModel), pointer :: model
+!    allocate( model )
+!    model = tModel( mHARMOMIC, set_data( [k, r0] ), r0, -k, 0.5_rb*k )
+!    EmDee_bond_harmonic = c_loc(model)
+!  end function EmDee_bond_harmonic
 
 !---------------------------------------------------------------------------------------------------
 

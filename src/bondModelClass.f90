@@ -39,14 +39,6 @@ type, extends(cBondModel) :: bond_none
     procedure :: compute => bond_none_compute
 end type bond_none
 
-!> A container structure for bond models:
-type bondModelContainer
-  class(cBondModel), allocatable :: model
-  contains
-    procedure :: bondModelContainer_assign
-    generic :: assignment(=) => bondModelContainer_assign
-end type bondModelContainer
-
 abstract interface
 
   subroutine cBondModel_setup( model, params )
@@ -55,10 +47,10 @@ abstract interface
     real(rb),          intent(in)    :: params(:)
   end subroutine cBondModel_setup
 
-  subroutine cBondModel_compute( model, E, F, invR2 )
+  subroutine cBondModel_compute( model, E, W, invR2 )
     import
     class(cBondModel), intent(in)  :: model
-    real(rb),          intent(out) :: E, F
+    real(rb),          intent(out) :: E, W
     real(rb),          intent(in)  :: invR2
   end subroutine cBondModel_compute
 
@@ -86,34 +78,13 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_none_compute( model, E, F, invR2 )
+  subroutine bond_none_compute( model, E, W, invR2 )
     class(bond_none), intent(in)  :: model
-    real(rb),         intent(out) :: E, F
+    real(rb),         intent(out) :: E, W
     real(rb),         intent(in)  :: invR2
     E = zero
-    F = zero
+    W = zero
   end subroutine bond_none_compute
-
-!===================================================================================================
-!                         B O N D     M O D E L    C O N T A I N E R
-!===================================================================================================
-
-  subroutine bondModelContainer_assign( new, old )
-    class(bondModelContainer), intent(inout) :: new
-    type(modelContainer),      intent(in)    :: old
-
-    if (allocated(new%model)) deallocate( new%model )
-
-    if (allocated(old%model)) then
-      select type (model => old%model)
-        class is (cBondModel)
-          allocate( new%model, source = model )
-        class default
-          stop "ERROR: cannot assign a bond model type from another model type"
-      end select
-    end if
-
-  end subroutine bondModelContainer_assign
 
 !---------------------------------------------------------------------------------------------------
 

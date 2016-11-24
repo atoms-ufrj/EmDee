@@ -27,7 +27,7 @@ integer(ib), parameter, private :: extra = 500
 
 type tStruct
   integer(ib) :: i, j, k, l
-  type(tModel), pointer :: model => null()
+  class(cModel), allocatable :: model
 end type tStruct
 
 type structList
@@ -44,9 +44,9 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   subroutine structList_add( struct, i, j, k, l, model )
-    class(structList), intent(inout) :: struct
-    integer(ib),        intent(in)    :: i, j, k, l
-    type(c_ptr),        intent(in)    :: model
+    class(structList),      intent(inout) :: struct
+    integer(ib),            intent(in)    :: i, j, k, l
+    class(cModel), pointer, intent(in)    :: model
 
     type(tStruct), allocatable :: new(:)
 
@@ -63,16 +63,16 @@ contains
     end if
     struct%number = struct%number + 1
     struct%item(struct%number) = tStruct( i, j, k, l )
-    call c_f_pointer( model, struct%item(struct%number)%model )
+    allocate( struct%item(struct%number)%model, source = model )
 
   end subroutine structList_add
 
 !---------------------------------------------------------------------------------------------------
 
   subroutine add_bonded_struc( struct, i, j, k, l, model )
-    type(c_ptr), intent(inout) :: struct
-    integer(ib), intent(in)    :: i, j, k, l
-    type(c_ptr), intent(in)    :: model
+    type(c_ptr),            intent(inout) :: struct
+    integer(ib),            intent(in)    :: i, j, k, l
+    class(cModel), pointer, intent(in)    :: model
 
     type(structList), pointer :: ptr
     type(tStruct), allocatable :: new(:)
@@ -93,7 +93,7 @@ contains
     end if
     ptr%number = ptr%number + 1
     ptr%item(ptr%number) = tStruct( i, j, k, l )
-    call c_f_pointer( model, ptr%item(ptr%number)%model )
+    allocate( ptr%item(ptr%number)%model, source = model )
   end subroutine add_bonded_struc
 
 !---------------------------------------------------------------------------------------------------

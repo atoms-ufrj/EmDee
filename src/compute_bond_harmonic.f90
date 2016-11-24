@@ -21,8 +21,9 @@
 ! OUTPUT: E, F
 
 block
-  real(rb) :: delta
-  delta = one/sqrt(invR2) - model%r0
+  real(rb) :: delta, r
+  r = one/sqrt(invR2)
+  delta = r - model%r0
   E = model%half_k*delta**2
-  F = model%minus_k*delta
+  W = model%minus_k*delta*r
 end block

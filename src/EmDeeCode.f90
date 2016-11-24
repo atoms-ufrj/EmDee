@@ -288,7 +288,7 @@ contains
     type(c_ptr),  value :: model
 
     integer :: ktype
-    type(tData),     pointer :: me
+    type(tData),          pointer :: me
     type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
@@ -381,11 +381,21 @@ contains
     integer(ib),  value :: i, j
     type(c_ptr),  value :: model
 
-    type(tData), pointer :: me
+    type(tData),          pointer :: me
+    type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
-    call me % bonds % add( i, j, 0, 0, model )
-    call EmDee_ignore_pair( md, i, j )
+
+    if (.not.c_associated(model)) stop "ERROR: a valid bond model must be provided"
+    call c_f_pointer( model, container )
+
+    select type (bmodel => container%model)
+      class is (cBondModel)
+        call me % bonds % add( i, j, 0, 0, bmodel )
+        call EmDee_ignore_pair( md, i, j )
+      class default
+        stop "ERROR: a valid bond model must be provided"
+    end select
 
   end subroutine EmDee_add_bond
 
@@ -397,9 +407,17 @@ contains
     type(c_ptr),  value :: model
 
     type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    stop "EmDee_add_angle NOT IMPLEMENTED"
 
     call c_f_pointer( md%data, me )
-    call me % angles % add( i, j, k, 0, model )
+
+    if (.not.c_associated(model)) stop "ERROR: a valid angle model must be provided"
+    call c_f_pointer( model, container )
+
+    call c_f_pointer( md%data, me )
+!    call me % angles % add( i, j, k, 0, model )
     call EmDee_ignore_pair( md, i, j )
     call EmDee_ignore_pair( md, i, k )
     call EmDee_ignore_pair( md, j, k )
@@ -414,9 +432,17 @@ contains
     type(c_ptr),  value :: model
 
     type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    stop "EmDee_add_dihedral NOT IMPLEMENTED"
 
     call c_f_pointer( md%data, me )
-    call me % dihedrals % add( i, j, k, l, model )
+
+    if (.not.c_associated(model)) stop "ERROR: a valid dihedral model must be provided"
+    call c_f_pointer( model, container )
+
+    call c_f_pointer( md%data, me )
+!    call me % dihedrals % add( i, j, k, l, model )
     call EmDee_ignore_pair( md, i, j )
     call EmDee_ignore_pair( md, i, k )
     call EmDee_ignore_pair( md, i, l )
@@ -1096,33 +1122,27 @@ contains
     real(rb),    intent(in)    :: R(3,me%natoms)
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
-    integer  :: i, j, m, nbonds
-    real(rb) :: d, E, mdEdr
+    integer  :: m, nbonds
+    real(rb) :: invR2, E, W
     real(rb) :: Rij(3), Fij(3)
-    type(tModel), pointer :: model
 
     nbonds = (me%bonds%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*nbonds + 1, min( me%bonds%number, threadId*nbonds )
       associate(bond => me%bonds%item(m))
-        i = bond%i
-        j = bond%j
-        model => bond%model
+        Rij = R(:,bond%i) - R(:,bond%j)
+        Rij = Rij - anint(Rij)
+        invR2 = me%invL2/sum(Rij*Rij)
+        associate (model => bond%model)
+          include "compute_bond.f90"
+        end associate
+        Potential = Potential + E
+        Virial = Virial + W
+        Fij = W*Rij*invR2
+        F(:,bond%i) = F(:,bond%i) + Fij
+        F(:,bond%j) = F(:,bond%j) - Fij
       end associate
-      Rij = R(:,i) - R(:,j)
-      Rij = Rij - anint(Rij)
-      d = me%Lbox*sqrt(sum(Rij*Rij))
-      call compute_bond
-      Potential = Potential + E
-      Virial = Virial + mdEdr*d
-      Fij = mdEdr*Rij/d
-      F(:,i) = F(:,i) + Fij
-      F(:,j) = F(:,j) - Fij
     end do
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "compute_bond.f90"
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_bonds
 
 !===================================================================================================
@@ -1144,7 +1164,7 @@ contains
         i = angle%i
         j = angle%j
         k = angle%k
-        model => angle%model
+!        model => angle%model
       end associate
       Rj = R(:,j)
       a = R(:,i) - Rj
@@ -1156,7 +1176,7 @@ contains
       ab = sum(a*b)
       axb = sqrt(aa*bb - ab*ab)
       theta = atan2(axb,ab)
-      call compute_angle()
+!      call compute_angle()
       Fa = Fa/(me%Lbox*axb)
       Fi = Fa*(b - (ab/aa)*a)
       Fk = Fa*(a - (ab/bb)*b)
@@ -1209,8 +1229,8 @@ contains
         a = sum(x*rlk)
         b = sum(y*rlk)
         phi = atan2(b,a)
-        model => d%model
-        call compute_dihedral()
+!        model => d%model
+!        call compute_dihedral()
         Fd = Fd/(me%Lbox*(a*a + b*b))
         u = (a*cross(rlk,z) - b*rlk)/normX
         v = (a*cross(rlk,x) + sum(z*u)*rij)/normRkj

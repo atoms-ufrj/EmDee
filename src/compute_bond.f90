@@ -19,34 +19,8 @@
 
 !---------------------------------------------------------------------------------------------------
 
-subroutine compute_bond
-  select case (model%id)
-    case (mHARMOMIC)
-      call harmonic( E, mdEdr, d - model%p1, model%p2, model%p3 )
-    case (mMORSE)
-      call morse( E, mdEdr, exp(model%p2*(d - model%p1)), model%p2, model%p3 )
-  end select
-end subroutine compute_bond
-
-!---------------------------------------------------------------------------------------------------
-
-pure subroutine harmonic( E, F, x_minus_x0, minus_k, k_2 )
-  real(rb), intent(out) :: E, F
-  real(rb), intent(in)  :: x_minus_x0, minus_k, k_2
-  E = k_2*x_minus_x0*x_minus_x0
-  F = minus_k*x_minus_x0
-end subroutine harmonic
-
-!---------------------------------------------------------------------------------------------------
-
-pure subroutine morse( E, F, expAdeltaR, D, m2Dalpha )
-  real(rb), intent(out) :: E, F
-  real(rb), intent(in)  :: expAdeltaR, D, m2Dalpha
-  real(rb) :: x
-  x = 1.0_rb - expAdeltaR
-  E = D*x*x
-  F = m2Dalpha*x*expAdeltaR
-end subroutine morse
-
-!---------------------------------------------------------------------------------------------------
+select type (model)
+  type is (bond_harmonic)
+    include "compute_bond_harmonic.f90"
+end select
 
