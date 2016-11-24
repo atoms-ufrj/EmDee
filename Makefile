@@ -73,7 +73,7 @@ clean:
 	rm -rf $(OBJDIR)
 	rm -rf $(LIBDIR)
 	rm -rf $(BINDIR)
-	rm -rf $(SRCDIR)/compute_pair.f90
+	rm -rf $(call src,compute_pair compute_bond)
 
 install:
 	cp $(LIBDIR)/libemdee.* /usr/local/lib/
@@ -126,7 +126,10 @@ $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(SRCDIR)/compute_pair.f90: $(call src,$(addprefix compute_,$(PAIRMODELS)))
-	bash $(SRCDIR)/make_compute_pair.sh $(PAIRMODELS) > $@
+	bash $(SRCDIR)/make_compute.sh $(PAIRMODELS) > $@
+
+$(SRCDIR)/compute_bond.f90: $(call src,$(addprefix compute_,$(BONDMODELS)))
+	bash $(SRCDIR)/make_compute.sh $(BONDMODELS) > $@
 
 $(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(call obj,$(PAIRMODELS)) $(call obj,$(BONDMODELS)) \
                     $(OBJDIR)/global.o

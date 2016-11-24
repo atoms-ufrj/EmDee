@@ -1156,7 +1156,7 @@ contains
     integer  :: i, j, k, m, nangles
     real(rb) :: aa, bb, ab, axb, theta, Ea, Fa
     real(rb) :: Rj(3), Fi(3), Fk(3), a(3), b(3)
-    type(tModel), pointer :: model
+!    type(tModel), pointer :: model
 
     nangles = (me%angles%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*nangles + 1, min( me%angles%number, threadId*nangles )
@@ -1187,10 +1187,6 @@ contains
       Virial = Virial + me%Lbox*sum(Fi*a + Fk*b)
     end do
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "compute_angle.f90"
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_angles
 
 !===================================================================================================
@@ -1206,7 +1202,7 @@ contains
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
-    class(tModel), pointer :: model
+!    class(tModel), pointer :: model
 
     Rc2 = me%RcSq*me%invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
@@ -1244,7 +1240,7 @@ contains
         F(:,d%j) = F(:,d%j) + (Fi + Fk + Fl)
         Potential = Potential + Ed
         Virial = Virial + me%Lbox*sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
-        if (model%factor /= zero) then
+!        if (model%factor /= zero) then
           i = d%i
           j = d%l
           rij = rij + rlk - rkj
@@ -1256,15 +1252,15 @@ contains
             associate( model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model )
               include "compute_pair.f90"
             end associate
-            Eij = model%factor*Eij
-            Wij = model%factor*Wij
+!            Eij = model%factor*Eij
+!            Wij = model%factor*Wij
             Potential = Potential + Eij
             Virial = Virial + Wij
             Fij = Wij*invR2*rij
             F(:,i) = F(:,i) + Fij
             F(:,j) = F(:,j) - Fij
           end if
-        end if
+!        end if
       end associate
     end do
 
@@ -1275,8 +1271,6 @@ contains
         real(rb) :: c(3)
         c = [ a(2)*b(3) - a(3)*b(2), a(3)*b(1) - a(1)*b(3), a(1)*b(2) - a(2)*b(1) ]
       end function cross
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      include "compute_dihedral.f90"
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_dihedrals
 
