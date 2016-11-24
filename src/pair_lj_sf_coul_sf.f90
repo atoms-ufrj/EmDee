@@ -19,7 +19,6 @@
 
 module pair_lj_sf_coul_sf_module
 
-use global
 use pairModelClass
 use pair_lj_sf_module
 

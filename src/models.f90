@@ -19,8 +19,8 @@
 
 module models
 
-use pair_lj_module
-use pair_lj_coul_module
+use pair_lj_cut_module
+use pair_lj_cut_coul_cut_module
 use pair_lj_sf_module
 use pair_lj_sf_coul_sf_module
 

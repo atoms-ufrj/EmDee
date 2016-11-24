@@ -1,14 +1,19 @@
+# Define DEBUG or FAST mode:
+#   Build the "fast" version with: `make` or `make DEBUG=0`
+#   Build the "debug" version with: `make DEBUG=1`
 DEBUG?=0
-# Build the "fast" version with: `make` or `make DEBUG=0`
-# Build the "debug" version with: `make DEBUG=1`
 
+# Define pair interaction models:
+PAIRMODELS = pair_lj_cut pair_lj_cut_coul_cut pair_lj_sf pair_lj_sf_coul_sf
+
+# Compilers and their basic options:
 FORT = gfortran
 CC   = gcc
 
 BASIC_F_OPTS = -march=native -m64 -fPIC -fopenmp -cpp -fmax-errors=1
 BASIC_C_OPTS = -march=native -m64 -fPIC -fopenmp -cpp -fmax-errors=1
 
-# Warnings:
+# Warning-related options:
 BASIC_F_OPTS += -Wall -Wno-maybe-uninitialized
 BASIC_C_OPTS += -Wall -Wno-maybe-uninitialized
 
@@ -45,18 +50,13 @@ LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
-PAIRMODELS = $(basename $(notdir $(wildcard $(SRCDIR)/pair_*.f90)))
-
-OBJECTS = $(call obj,EmDeeCode ArBee math structs \
-                     models $(PAIRMODELS) pairModelClass modelClass \
+OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
+                     $(PAIRMODELS) pairModelClass modelClass \
                      lists global)
 
 .PHONY: all test clean install uninstall lib
 
 .DEFAULT_GOAL := all
-
-aaa:
-	echo $(PAIRMODELS)
 
 all: lib
 
@@ -64,6 +64,7 @@ clean:
 	rm -rf $(OBJDIR)
 	rm -rf $(LIBDIR)
 	rm -rf $(BINDIR)
+	rm -rf $(SRCDIR)/compute_pair.f90
 
 install:
 	cp $(LIBDIR)/libemdee.* /usr/local/lib/
@@ -114,6 +115,9 @@ $(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 
 $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+
+$(SRCDIR)/compute_pair.f90: $(call src,$(addprefix compute_,$(PAIRMODELS)))
+	bash $(SRCDIR)/make_compute_pair.sh $(PAIRMODELS) > $@
 
 $(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(call obj,$(PAIRMODELS)) $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<

@@ -68,7 +68,7 @@ end where
 
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 
-lj = EmDee_pair_lj( 1.0_rb, 1.0_rb )
+lj = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
 !lj_sf = EmDee_pair_lj_sf_old( 1.0_rb, 1.0_rb, Rc )
 lj_sf = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
 

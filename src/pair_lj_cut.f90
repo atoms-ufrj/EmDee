@@ -17,44 +17,43 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-module pair_lj_coul_module
+module pair_lj_cut_module
 
 use global
 use pairModelClass
-use pair_lj_module
 
-type, extends(cPairModel) :: pair_lj_coul
+type, extends(cPairModel) :: pair_lj_cut
   real(rb) :: epsilon, sigma
   real(rb) :: eps4, sigsq
   contains
-    procedure :: setup => pair_lj_coul_setup
-    procedure :: compute => pair_lj_coul_compute
-    procedure :: mix => pair_lj_coul_mix
-end type pair_lj_coul
+    procedure :: setup => pair_lj_cut_setup
+    procedure :: compute => pair_lj_cut_compute
+    procedure :: mix => pair_lj_cut_mix
+end type pair_lj_cut
 
 contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_pair_lj_coul( epsilon, sigma ) bind(C,name="EmDee_pair_lj_coul")
+  type(c_ptr) function EmDee_pair_lj_cut( epsilon, sigma ) bind(C,name="EmDee_pair_lj_cut")
     real(rb), value :: epsilon, sigma
 
-    type(pair_lj_coul), pointer :: model
+    type(pair_lj_cut), pointer :: model
 
     allocate(model)
     call model % setup( [epsilon, sigma] )
-    EmDee_pair_lj_coul = model % deliver()
+    EmDee_pair_lj_cut = model % deliver()
 
-  end function EmDee_pair_lj_coul
+  end function EmDee_pair_lj_cut
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_coul_setup( model, params )
-    class(pair_lj_coul), intent(inout) :: model
+  subroutine pair_lj_cut_setup( model, params )
+    class(pair_lj_cut), intent(inout) :: model
     real(rb),       intent(in)    :: params(:)
 
     ! Model kind:
-    model%kind = "lj_coul"
+    model%kind = "lj_cut"
 
     ! Model parameters:
     model%epsilon = params(1)
@@ -64,39 +63,36 @@ contains
     model%eps4 = 4.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
-  end subroutine pair_lj_coul_setup
+  end subroutine pair_lj_cut_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_coul_compute( model, Eij, Wij, invR2, Qi, Qj )
-    class(pair_lj_coul), intent(in)  :: model
+  subroutine pair_lj_cut_compute( model, Eij, Wij, invR2, Qi, Qj )
+    class(pair_lj_cut), intent(in)  :: model
     real(rb),       intent(out) :: Eij, Wij
     real(rb),       intent(in)  :: invR2, Qi, Qj
 
-    include "compute_pair_lj_coul.f90"
+    include "compute_pair_lj_cut.f90"
 
-  end subroutine pair_lj_coul_compute
+  end subroutine pair_lj_cut_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_lj_coul_mix( this, other ) result( mixed )
-    class(pair_lj_coul),    intent(in) :: this
+  function pair_lj_cut_mix( this, other ) result( mixed )
+    class(pair_lj_cut),    intent(in) :: this
     class(cPairModel), intent(in) :: other
     class(cPairModel), pointer :: mixed
 
     select type (other)
-      class is (pair_lj_coul)
-        allocate(pair_lj_coul :: mixed)
-        call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
-      class is (pair_lj)
-        allocate(pair_lj :: mixed)
+      class is (pair_lj_cut)
+        allocate(pair_lj_cut :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
       class default
         mixed => null()
     end select
 
-  end function pair_lj_coul_mix
+  end function pair_lj_cut_mix
 
 !---------------------------------------------------------------------------------------------------
 
-end module pair_lj_coul_module
+end module pair_lj_cut_module

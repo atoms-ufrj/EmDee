@@ -22,6 +22,8 @@ module pair_lj_sf_module
 use global
 use pairModelClass
 
+implicit none
+
 type, extends(cPairModel) :: pair_lj_sf
   real(rb) :: epsilon, sigma
   real(rb) :: eps4, sigsq

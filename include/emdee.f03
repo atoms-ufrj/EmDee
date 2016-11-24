@@ -159,22 +159,16 @@ interface
     type(c_ptr) :: EmDee_pair_none
   end function EmDee_pair_none
 
-  function EmDee_pair_lj( epsilon, sigma ) bind(C,name="EmDee_pair_lj")
+  function EmDee_pair_lj_cut( epsilon, sigma ) bind(C,name="EmDee_pair_lj_cut")
     import :: c_double, c_ptr
     real(c_double), value :: epsilon, sigma
-    type(c_ptr)           :: EmDee_pair_lj
-  end function EmDee_pair_lj
+    type(c_ptr)           :: EmDee_pair_lj_cut
+  end function EmDee_pair_lj_cut
 
-  type(c_ptr) function EmDee_pair_lj_coul( epsilon, sigma ) bind(C,name="EmDee_pair_lj_coul")
+  type(c_ptr) function EmDee_pair_lj_cut_coul_cut( epsilon, sigma ) bind(C,name="EmDee_pair_lj_cut_coul_cut")
     import :: c_double, c_ptr
     real(c_double), value :: epsilon, sigma
-  end function EmDee_pair_lj_coul
-
-  function EmDee_pair_lj_sf_old( epsilon, sigma, cutoff ) bind(C,name="EmDee_pair_lj_sf_old")
-    import :: c_double, c_ptr
-    real(c_double), value :: epsilon, sigma, cutoff
-    type(c_ptr)           :: EmDee_pair_lj_sf_old
-  end function EmDee_pair_lj_sf_old
+  end function EmDee_pair_lj_cut_coul_cut
 
   function EmDee_pair_lj_sf( epsilon, sigma ) bind(C,name="EmDee_pair_lj_sf")
     import :: c_double, c_ptr
