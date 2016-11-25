@@ -23,6 +23,8 @@ use global
 use pairModelClass
 use pair_lj_cut_module
 
+!> Abstract class for pair model lj_cut_coul_cut
+!! NOTE: all model parameters must be declared together as real(rb) in the first line
 type, extends(cPairModel) :: pair_lj_cut_coul_cut
   real(rb) :: epsilon, sigma
   real(rb) :: eps4, sigsq
@@ -36,24 +38,11 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_pair_lj_cut_coul_cut( epsilon, sigma ) bind(C,name="EmDee_pair_lj_cut_coul_cut")
-    real(c_double), value :: epsilon, sigma
-
-    type(pair_lj_cut_coul_cut), pointer :: model
-
-    allocate(model)
-    call model % setup( [epsilon, sigma] )
-    EmDee_pair_lj_cut_coul_cut = model % deliver()
-
-  end function EmDee_pair_lj_cut_coul_cut
-
-!---------------------------------------------------------------------------------------------------
-
   subroutine pair_lj_cut_coul_cut_setup( model, params )
     class(pair_lj_cut_coul_cut), intent(inout) :: model
     real(rb),       intent(in)    :: params(:)
 
-    ! Model kind:
+    ! Model name:
     model%name = "lj_cut_coul_cut"
 
     ! Model parameters:

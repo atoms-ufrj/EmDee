@@ -21,9 +21,8 @@
 
 #---------------------------------------------------------------------------------------------------
 
-echo "select type (model)"
 for var in "$@"; do
-    echo "  type is ($var)"
-    echo "    include \"compute_$var.f90\""
+    echo "type is ($var)"
+    echo "  include \"compute_$var.f90\""
 done
-echo "end select"
+

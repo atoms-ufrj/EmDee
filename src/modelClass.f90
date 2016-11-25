@@ -23,11 +23,21 @@ use global
 use, intrinsic :: iso_c_binding
 
 type, abstract :: cModel
-  integer :: id = 0 ! REMOVE
-  real(rb), pointer :: data(:) => null() ! REMOVE
+  character(20) :: name
   contains
     procedure :: deliver => cModel_deliver
+    procedure(cModel_setup), deferred :: setup
 end type cModel
+
+abstract interface
+
+  subroutine cModel_setup( model, params )
+    import
+    class(cModel), intent(inout) :: model
+    real(rb),      intent(in)    :: params(:)
+  end subroutine cModel_setup
+
+end interface
 
 type modelContainer
   class(cModel), allocatable :: model

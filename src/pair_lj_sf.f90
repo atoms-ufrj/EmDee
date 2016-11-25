@@ -24,6 +24,8 @@ use pairModelClass
 
 implicit none
 
+!> Abstract class for pair model lj_sf
+!! NOTE: all model parameters must be declared together as real(rb) in the first line
 type, extends(cPairModel) :: pair_lj_sf
   real(rb) :: epsilon, sigma
   real(rb) :: eps4, sigsq
@@ -37,24 +39,11 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_pair_lj_sf( epsilon, sigma ) bind(C,name="EmDee_pair_lj_sf")
-    real(c_double), value :: epsilon, sigma
-
-    type(pair_lj_sf), pointer :: model
-
-    allocate(model)
-    call model % setup( [epsilon, sigma] )
-    EmDee_pair_lj_sf = model % deliver()
-
-  end function EmDee_pair_lj_sf
-
-!---------------------------------------------------------------------------------------------------
-
   subroutine pair_lj_sf_setup( model, params )
     class(pair_lj_sf), intent(inout) :: model
     real(rb),       intent(in)    :: params(:)
 
-    ! Model kind:
+    ! Model name:
     model%name = "lj_sf"
 
     ! Model parameters:

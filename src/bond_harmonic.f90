@@ -36,19 +36,6 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_bond_harmonic( k, r0 ) bind(C,name="EmDee_bond_harmonic")
-    real(c_double), value :: k, r0
-
-    type(bond_harmonic), pointer :: model
-
-    allocate(model)
-    call model % setup( [k, r0] )
-    EmDee_bond_harmonic = model % deliver()
-
-  end function EmDee_bond_harmonic
-
-!---------------------------------------------------------------------------------------------------
-
   subroutine bond_harmonic_setup( model, params )
     class(bond_harmonic), intent(inout) :: model
     real(rb),             intent(in)    :: params(:)

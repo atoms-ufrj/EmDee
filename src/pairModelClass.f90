@@ -24,23 +24,21 @@ use modelClass
 
 implicit none
 
-!> An abstract class for pair interaction models:
+!> An abstract class for pair interaction models
 type, abstract, extends(cModel) :: cPairModel
-  character(20) :: name !! TRANSFER TO BASE CLASS
-  logical :: shifted_force_vdw = .false.
-  logical :: shifted_force_coul = .false.
+  logical  :: shifted_force_vdw = .false.
+  logical  :: shifted_force_coul = .false.
   real(rb) :: eshift_vdw = zero
   real(rb) :: fshift_vdw = zero
   real(rb) :: eshift_coul = zero
   real(rb) :: fshift_coul = zero
   contains
-    procedure(cPairModel_setup), deferred :: setup
     procedure(cPairModel_compute), deferred :: compute
-    procedure(cPairModel_mix), deferred :: mix
+    procedure(cPairModel_mix),     deferred :: mix
     procedure :: shifting_setup => cPairModel_shifting_setup
 end type cPairModel
 
-!> A class for no-interaction pair model:
+!> A class for pair model "none":
 type, extends(cPairModel) :: pair_none
   contains
     procedure :: setup => pair_none_setup
@@ -59,12 +57,6 @@ type pairModelContainer
 end type pairModelContainer
 
 abstract interface
-
-  subroutine cPairModel_setup( model, params )
-    import
-    class(cPairModel), intent(inout) :: model
-    real(rb),          intent(in)    :: params(:)
-  end subroutine cPairModel_setup
 
   subroutine cPairModel_compute( model, Eij, Wij, invR2, Qi, Qj )
     import
@@ -134,6 +126,7 @@ contains
   subroutine pair_none_setup( model, params )
     class(pair_none), intent(inout) :: model
     real(rb),         intent(in)    :: params(:)
+    model%name = "none"
   end subroutine pair_none_setup
 
 !---------------------------------------------------------------------------------------------------
@@ -152,8 +145,10 @@ contains
     class(pair_none),  intent(in) :: this
     class(cPairModel), intent(in) :: other
     class(cPairModel), pointer    :: mixed
-    ! Mixing of all pair models with pair_none results in pair_none:
+
+    ! Mixing rule: pair_none + any pair model => pair_none
     allocate(pair_none :: mixed)
+
   end function pair_none_mix
 
 !===================================================================================================

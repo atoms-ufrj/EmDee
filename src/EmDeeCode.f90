@@ -17,10 +17,9 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: 1) Improve angle and dihedral handling by defining cAngleModel and cDihedralModel classes
-! TODO: 2) Automatize addition of model definition routines in include files and Julia wrapper
-! TODO: 3) Optimize parallel performance of download in a unique omp parallel
-! TODO: 4) Create indexing for having sequential body particles and free particles in arrays
+! TODO: 1) Automatize addition of model definition routines in include files and Julia wrapper
+! TODO: 2) Optimize parallel performance of download in a unique omp parallel
+! TODO: 3) Create indexing for having sequential body particles and free particles in arrays
 
 module EmDeeCode
 
@@ -33,7 +32,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "24 Nov 2016"
+character(11), parameter :: VERSION = "25 Nov 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -399,18 +398,20 @@ contains
     type(tData), pointer :: me
     type(modelContainer), pointer :: container
 
-    stop "EmDee_add_angle NOT IMPLEMENTED"
-
     call c_f_pointer( md%data, me )
 
     if (.not.c_associated(model)) stop "ERROR: a valid angle model must be provided"
     call c_f_pointer( model, container )
 
-    call c_f_pointer( md%data, me )
-!    call me % angles % add( i, j, k, 0, model )
-    call EmDee_ignore_pair( md, i, j )
-    call EmDee_ignore_pair( md, i, k )
-    call EmDee_ignore_pair( md, j, k )
+    select type (amodel => container%model)
+      class is (cAngleModel)
+        call me % angles % add( i, j, k, 0, amodel )
+        call EmDee_ignore_pair( md, i, j )
+        call EmDee_ignore_pair( md, i, k )
+        call EmDee_ignore_pair( md, j, k )
+      class default
+        stop "ERROR: a valid angle model must be provided"
+    end select
 
   end subroutine EmDee_add_angle
 
@@ -424,21 +425,23 @@ contains
     type(tData), pointer :: me
     type(modelContainer), pointer :: container
 
-    stop "EmDee_add_dihedral NOT IMPLEMENTED"
-
     call c_f_pointer( md%data, me )
 
     if (.not.c_associated(model)) stop "ERROR: a valid dihedral model must be provided"
     call c_f_pointer( model, container )
 
-    call c_f_pointer( md%data, me )
-!    call me % dihedrals % add( i, j, k, l, model )
-    call EmDee_ignore_pair( md, i, j )
-    call EmDee_ignore_pair( md, i, k )
-    call EmDee_ignore_pair( md, i, l )
-    call EmDee_ignore_pair( md, j, k )
-    call EmDee_ignore_pair( md, j, l )
-    call EmDee_ignore_pair( md, k, l )
+    select type (dmodel => container%model)
+      class is (cDihedralModel)
+        call me % dihedrals % add( i, j, k, l, dmodel )
+        call EmDee_ignore_pair( md, i, j )
+        call EmDee_ignore_pair( md, i, k )
+        call EmDee_ignore_pair( md, i, l )
+        call EmDee_ignore_pair( md, j, k )
+        call EmDee_ignore_pair( md, j, l )
+        call EmDee_ignore_pair( md, k, l )
+      class default
+        stop "ERROR: a valid dihedral model must be provided"
+    end select
 
   end subroutine EmDee_add_dihedral
 
@@ -1122,9 +1125,9 @@ contains
         Rij = R(:,bond%i) - R(:,bond%j)
         Rij = Rij - anint(Rij)
         invR2 = me%invL2/sum(Rij*Rij)
-        associate (model => bond%model)
+        select type (model => bond%model)
           include "compute_bond.f90"
-        end associate
+        end select
         Potential = Potential + E
         Virial = Virial + W
         Fij = W*Rij*invR2
@@ -1146,7 +1149,6 @@ contains
     integer  :: i, j, k, m, nangles
     real(rb) :: aa, bb, ab, axb, theta, Ea, Fa
     real(rb) :: Rj(3), Fi(3), Fk(3), a(3), b(3)
-!    type(tModel), pointer :: model
 
     nangles = (me%angles%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*nangles + 1, min( me%angles%number, threadId*nangles )
@@ -1154,27 +1156,28 @@ contains
         i = angle%i
         j = angle%j
         k = angle%k
-!        model => angle%model
+        Rj = R(:,j)
+        a = R(:,i) - Rj
+        b = R(:,k) - Rj
+        a = a - anint(a)
+        b = b - anint(b)
+        aa = sum(a*a)
+        bb = sum(b*b)
+        ab = sum(a*b)
+        axb = sqrt(aa*bb - ab*ab)
+        theta = atan2(axb,ab)
+        select type (model => angle%model)
+          include "compute_angle.f90"
+        end select
+        Fa = Fa/(me%Lbox*axb)
+        Fi = Fa*(b - (ab/aa)*a)
+        Fk = Fa*(a - (ab/bb)*b)
+        F(:,i) = F(:,i) + Fi
+        F(:,k) = F(:,k) + Fk
+        F(:,j) = F(:,j) - (Fi + Fk)
+        Potential = Potential + Ea
+        Virial = Virial + me%Lbox*sum(Fi*a + Fk*b)
       end associate
-      Rj = R(:,j)
-      a = R(:,i) - Rj
-      b = R(:,k) - Rj
-      a = a - anint(a)
-      b = b - anint(b)
-      aa = sum(a*a)
-      bb = sum(b*b)
-      ab = sum(a*b)
-      axb = sqrt(aa*bb - ab*ab)
-      theta = atan2(axb,ab)
-!      call compute_angle()
-      Fa = Fa/(me%Lbox*axb)
-      Fi = Fa*(b - (ab/aa)*a)
-      Fk = Fa*(a - (ab/bb)*b)
-      F(:,i) = F(:,i) + Fi
-      F(:,k) = F(:,k) + Fk
-      F(:,j) = F(:,j) - (Fi + Fk)
-      Potential = Potential + Ea
-      Virial = Virial + me%Lbox*sum(Fi*a + Fk*b)
     end do
 
   end subroutine compute_angles
@@ -1190,19 +1193,18 @@ contains
     integer  :: m, ndihedrals, i, j
     real(rb) :: Rc2, Ed, Fd, r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
-    real(rb) :: normRkj, normX, a, b, phi
+    real(rb) :: normRkj, normX, a, b, phi, factor14
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
-!    class(tModel), pointer :: model
 
     Rc2 = me%RcSq*me%invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*ndihedrals + 1, min( me%dihedrals%number, threadId*ndihedrals )
-      associate(d => me%dihedrals%item(m))
-        Rj = R(:,d%j)
-        Rk = R(:,d%k)
-        rij = R(:,d%i) - Rj
+      associate (dihedral => me%dihedrals%item(m))
+        Rj = R(:,dihedral%j)
+        Rk = R(:,dihedral%k)
+        rij = R(:,dihedral%i) - Rj
         rkj = Rk - Rj
-        rlk = R(:,d%l) - Rk
+        rlk = R(:,dihedral%l) - Rk
         rij = rij - anint(rij)
         rkj = rkj - anint(rkj)
         rlk = rlk - anint(rlk)
@@ -1215,8 +1217,11 @@ contains
         a = sum(x*rlk)
         b = sum(y*rlk)
         phi = atan2(b,a)
-!        model => d%model
-!        call compute_dihedral()
+        select type (model => dihedral%model)
+          class is (cDihedralModel)
+            factor14 = model%factor14
+          include "compute_dihedral.f90"
+        end select
         Fd = Fd/(me%Lbox*(a*a + b*b))
         u = (a*cross(rlk,z) - b*rlk)/normX
         v = (a*cross(rlk,x) + sum(z*u)*rij)/normRkj
@@ -1224,33 +1229,33 @@ contains
         Fi = Fd*sum(u*y)*y
         Fl = Fd*(a*y - b*x)
         Fk = -(Fd*(sum(v*x)*x + sum(w*y)*y) + Fl)
-        F(:,d%i) = F(:,d%i) + Fi
-        F(:,d%k) = F(:,d%k) + Fk
-        F(:,d%l) = F(:,d%l) + Fl
-        F(:,d%j) = F(:,d%j) + (Fi + Fk + Fl)
+        F(:,dihedral%i) = F(:,dihedral%i) + Fi
+        F(:,dihedral%k) = F(:,dihedral%k) + Fk
+        F(:,dihedral%l) = F(:,dihedral%l) + Fl
+        F(:,dihedral%j) = F(:,dihedral%j) + (Fi + Fk + Fl)
         Potential = Potential + Ed
         Virial = Virial + me%Lbox*sum(Fi*rij + Fk*rkj + Fl*(rlk + rkj))
-!        if (model%factor /= zero) then
-          i = d%i
-          j = d%l
+        if (factor14 /= zero) then
+          i = dihedral%i
+          j = dihedral%l
           rij = rij + rlk - rkj
           r2 = sum(rij*rij)
           if (r2 < me%RcSq) then
             invR2 = me%invL2/r2
             Qi = me%charge(i,me%layer)
             Qj = me%charge(j,me%layer)
-            associate( model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model )
+            select type ( model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model )
               include "compute_pair.f90"
-            end associate
-!            Eij = model%factor*Eij
-!            Wij = model%factor*Wij
+            end select
+            Eij = factor14*Eij
+            Wij = factor14*Wij
             Potential = Potential + Eij
             Virial = Virial + Wij
             Fij = Wij*invR2*rij
             F(:,i) = F(:,i) + Fij
             F(:,j) = F(:,j) - Fij
           end if
-!        end if
+        end if
       end associate
     end do
 
@@ -1333,7 +1338,9 @@ contains
                       neighbor%item(npairs) = j
                       if (r2 < Rc2) then
                         invR2 = me%invL2/r2
-                        include "compute_pair.f90"
+                        select type (model)
+                          include "compute_pair.f90"
+                        end select
                         Potential = Potential + Eij
                         Virial = Virial + Wij
                         Fij = Wij*invR2*Rij
@@ -1388,9 +1395,9 @@ contains
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
               invR2 = me%invL2/r2
-              associate( model => pair(me%atomType(j))%model )
+              select type ( model => pair(me%atomType(j))%model )
                 include "compute_pair.f90"
-              end associate
+              end select
               Potential = Potential + Eij
               Virial = Virial + Wij
               Fij = Wij*invR2*Rij
@@ -1436,9 +1443,9 @@ contains
             if (r2 < me%RcSq) then
               invR2 = one/r2
               do layer = 1, me%nlayers
-                associate(model => me%pair(me%atomType(j),itype,layer)%model)
+                select type (model => me%pair(me%atomType(j),itype,layer)%model)
                   include "compute_pair.f90"
-                end associate
+                end select
                 energy(layer) = energy(layer) + Eij
               end do
             end if

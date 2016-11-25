@@ -17,68 +17,68 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-module bondModelClass
+module angleModelClass
 
 use global
 use modelClass
 
 implicit none
 
-!> An abstract class for bond interaction models:
-type, abstract, extends(cModel) :: cBondModel
+!> An abstract class for angle interaction models:
+type, abstract, extends(cModel) :: cAngleModel
   contains
-    procedure(cBondModel_compute), deferred :: compute
-end type cBondModel
+    procedure(cAngleModel_compute), deferred :: compute
+end type cAngleModel
 
-!> A class for no-interaction bond model:
-type, extends(cBondModel) :: bond_none
+!> A class for no-interaction angle model:
+type, extends(cAngleModel) :: angle_none
   contains
-    procedure :: setup => bond_none_setup
-    procedure :: compute => bond_none_compute
-end type bond_none
+    procedure :: setup => angle_none_setup
+    procedure :: compute => angle_none_compute
+end type angle_none
 
 abstract interface
 
-  subroutine cBondModel_compute( model, E, W, invR2 )
+  subroutine cAngleModel_compute( model, Ea, Fa, theta )
     import
-    class(cBondModel), intent(in)  :: model
-    real(rb),          intent(out) :: E, W
-    real(rb),          intent(in)  :: invR2
-  end subroutine cBondModel_compute
+    class(cAngleModel), intent(in) :: model
+    real(rb),          intent(out) :: Ea, Fa
+    real(rb),          intent(in)  :: theta
+  end subroutine cAngleModel_compute
 
 end interface
 
 contains
 
 !===================================================================================================
-!                                   B O N D     N O N E
+!                                   A N G L E     N O N E
 !===================================================================================================
 
-  type(c_ptr) function EmDee_bond_none() bind(C,name="EmDee_bond_none")
-    type(bond_none), pointer :: model
+  type(c_ptr) function EmDee_angle_none() bind(C,name="EmDee_angle_none")
+    type(angle_none), pointer :: model
     allocate(model)
     call model% setup( [zero] )
-    EmDee_bond_none = model % deliver()
-  end function EmDee_bond_none
+    EmDee_angle_none = model % deliver()
+  end function EmDee_angle_none
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_none_setup( model, params )
-    class(bond_none), intent(inout) :: model
+  subroutine angle_none_setup( model, params )
+    class(angle_none), intent(inout) :: model
     real(rb),         intent(in)    :: params(:)
     model%name = "none"
-  end subroutine bond_none_setup
+  end subroutine angle_none_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_none_compute( model, E, W, invR2 )
-    class(bond_none), intent(in)  :: model
-    real(rb),         intent(out) :: E, W
-    real(rb),         intent(in)  :: invR2
-    E = zero
-    W = zero
-  end subroutine bond_none_compute
+  subroutine angle_none_compute( model, Ea, Fa, theta )
+    class(angle_none), intent(in)  :: model
+    real(rb),          intent(out) :: Ea, Fa
+    real(rb),          intent(in)  :: theta
+    Ea = zero
+    Fa = zero
+  end subroutine angle_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-end module bondModelClass
+end module angleModelClass

@@ -170,6 +170,12 @@ interface
     real(c_double), value :: epsilon, sigma
   end function EmDee_pair_lj_cut_coul_cut
 
+  function EmDee_pair_cut_sf_coul_sf( epsilon, sigma ) bind(C,name="EmDee_pair_cut_sf_coul_sf")
+    import
+    real(c_double), value :: epsilon, sigma
+    type(c_ptr)           :: EmDee_pair_cut_sf_coul_sf
+  end function EmDee_pair_cut_sf_coul_sf
+
   function EmDee_pair_lj_sf( epsilon, sigma ) bind(C,name="EmDee_pair_lj_sf")
     import
     real(c_double), value :: epsilon, sigma
@@ -181,6 +187,11 @@ interface
     real(c_double), value :: epsilon, sigma
     type(c_ptr)           :: EmDee_pair_lj_sf_coul_sf
   end function EmDee_pair_lj_sf_coul_sf
+
+  type(c_ptr) function EmDee_pair_softcore_cut( epsilon, sigma, lambda ) bind(C,name="EmDee_pair_softcore_cut")
+    import
+    real(c_double), value :: epsilon, sigma, lambda
+  end function EmDee_pair_softcore_cut
 
 !  function EmDee_pair_softcore( epsilon, sigma, lambda ) bind(C,name="EmDee_pair_softcore")
 !    import

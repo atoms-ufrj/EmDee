@@ -17,68 +17,69 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-module bondModelClass
+module dihedralModelClass
 
 use global
 use modelClass
 
 implicit none
 
-!> An abstract class for bond interaction models:
-type, abstract, extends(cModel) :: cBondModel
+!> An abstract class for dihedral interaction models:
+type, abstract, extends(cModel) :: cDihedralModel
+  real(rb) :: factor14 = zero
   contains
-    procedure(cBondModel_compute), deferred :: compute
-end type cBondModel
+    procedure(cDihedralModel_compute), deferred :: compute
+end type cDihedralModel
 
-!> A class for no-interaction bond model:
-type, extends(cBondModel) :: bond_none
+!> A class for no-interaction dihedral model:
+type, extends(cDihedralModel) :: dihedral_none
   contains
-    procedure :: setup => bond_none_setup
-    procedure :: compute => bond_none_compute
-end type bond_none
+    procedure :: setup => dihedral_none_setup
+    procedure :: compute => dihedral_none_compute
+end type dihedral_none
 
 abstract interface
 
-  subroutine cBondModel_compute( model, E, W, invR2 )
+  subroutine cDihedralModel_compute( model, Ed, Fd, phi )
     import
-    class(cBondModel), intent(in)  :: model
-    real(rb),          intent(out) :: E, W
-    real(rb),          intent(in)  :: invR2
-  end subroutine cBondModel_compute
+    class(cDihedralModel), intent(in)  :: model
+    real(rb),              intent(out) :: Ed, Fd
+    real(rb),              intent(in)  :: phi
+  end subroutine cDihedralModel_compute
 
 end interface
 
 contains
 
 !===================================================================================================
-!                                   B O N D     N O N E
+!                                  D I H E D R A L     N O N E
 !===================================================================================================
 
-  type(c_ptr) function EmDee_bond_none() bind(C,name="EmDee_bond_none")
-    type(bond_none), pointer :: model
+  type(c_ptr) function EmDee_dihedral_none() bind(C,name="EmDee_dihedral_none")
+    type(dihedral_none), pointer :: model
     allocate(model)
     call model% setup( [zero] )
-    EmDee_bond_none = model % deliver()
-  end function EmDee_bond_none
+    EmDee_dihedral_none = model % deliver()
+  end function EmDee_dihedral_none
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_none_setup( model, params )
-    class(bond_none), intent(inout) :: model
+  subroutine dihedral_none_setup( model, params )
+    class(dihedral_none), intent(inout) :: model
     real(rb),         intent(in)    :: params(:)
     model%name = "none"
-  end subroutine bond_none_setup
+  end subroutine dihedral_none_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_none_compute( model, E, W, invR2 )
-    class(bond_none), intent(in)  :: model
-    real(rb),         intent(out) :: E, W
-    real(rb),         intent(in)  :: invR2
-    E = zero
-    W = zero
-  end subroutine bond_none_compute
+  subroutine dihedral_none_compute( model, Ed, Fd, phi )
+    class(dihedral_none), intent(in)  :: model
+    real(rb),             intent(out) :: Ed, Fd
+    real(rb),             intent(in)  :: phi
+    Ed = zero
+    Fd = zero
+  end subroutine dihedral_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-end module bondModelClass
+end module dihedralModelClass

@@ -4,12 +4,17 @@
 DEBUG?=0
 
 # Define models:
-PAIR = lj_cut lj_cut_coul_cut lj_sf lj_sf_coul_sf
+PAIR = lj_cut lj_cut_coul_cut lj_cut_coul_sf lj_sf lj_sf_coul_sf softcore_cut
 BOND = harmonic
+ANGLE =
+DIHEDRAL =
 
 # Add prefixes:
 PAIRMODELS = $(addprefix pair_,$(PAIR))
 BONDMODELS = $(addprefix bond_,$(BOND))
+ANGLEMODELS = $(addprefix pair_,$(ANGLE))
+DIHEDMODELS = $(addprefix pair_,$(DIHEDRAL))
+ALLMODELS = $(PAIRMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
 
 # Compilers and their basic options:
 FORT = gfortran
@@ -27,8 +32,8 @@ FAST_F_OPTS = -Ofast
 FAST_C_OPTS = -Ofast
 
 # Option DEBUG:
-DEBUG_F_OPTS = -g -Og -fopenmp -fcheck=all -Ddebug
-DEBUG_C_OPTS = -g -Og -fopenmp -fstack-check -fsanitize=null -fbounds-check -Ddebug
+DEBUG_F_OPTS = -g -Og -fcheck=all -Ddebug
+DEBUG_C_OPTS = -g -Og -fstack-check -fsanitize=null -fbounds-check -Ddebug
 
 # Checks chosen option:
 ifeq ($(DEBUG), 1)
@@ -58,6 +63,8 @@ src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
                      $(PAIRMODELS) pairModelClass \
                      $(BONDMODELS) bondModelClass \
+                     $(ANGLEMODELS) angleModelClass \
+                     $(DIHEDMODELS) dihedralModelClass \
                      modelClass lists global)
 
 .PHONY: all test clean install uninstall lib
@@ -70,7 +77,7 @@ clean:
 	rm -rf $(OBJDIR)
 	rm -rf $(LIBDIR)
 	rm -rf $(BINDIR)
-	rm -rf $(call src,compute_pair compute_bond models)
+	rm -rf $(call src,compute_pair compute_bond compute_angle compute_dihedral models)
 
 install:
 	cp $(LIBDIR)/libemdee.* /usr/local/lib/
@@ -128,22 +135,32 @@ $(SRCDIR)/compute_pair.f90: $(call src,$(addprefix compute_,$(PAIRMODELS)))
 $(SRCDIR)/compute_bond.f90: $(call src,$(addprefix compute_,$(BONDMODELS)))
 	bash $(SRCDIR)/make_compute.sh $(BONDMODELS) > $@
 
+$(SRCDIR)/compute_angle.f90: $(call src,$(addprefix compute_,$(ANGLEMODELS)))
+	bash $(SRCDIR)/make_compute.sh $(ANGLEMODELS) > $@
+
+$(SRCDIR)/compute_dihedral.f90: $(call src,$(addprefix compute_,$(DIHEDMODELS)))
+	bash $(SRCDIR)/make_compute.sh $(DIHEDMODELS) > $@
+
 $(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(SRCDIR)/models.f90: $(call obj,$(PAIRMODELS)) $(call obj,$(BONDMODELS))
-	bash $(SRCDIR)/make_models_module.sh $(PAIRMODELS) $(BONDMODELS) > $@
+$(SRCDIR)/models.f90: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral)) \
+                      $(SRCDIR)/make_models_module.sh
+	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $@
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o
-	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
-
-$(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(SRCDIR)/compute_bond_%.f90 $(OBJDIR)/bondModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/bondModelClass.o: $(SRCDIR)/bondModelClass.f90 $(OBJDIR)/modelClass.o
+$(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(SRCDIR)/compute_angle_%.f90 $(OBJDIR)/angleModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(SRCDIR)/dihedral_angle_%.f90 $(OBJDIR)/dihedralModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/global.o

@@ -25,4 +25,22 @@ echo "module models"
 for var in "$@"; do
     echo "  use ${var}_module"
 done
+for var in pair bond angle dihedral; do
+    echo "  use ${var}ModelClass"
+done
+echo "contains"
+echo "!----------"
+for var in "$@"; do
+    params=$(grep --ignore-case -A100 -e "^\s*type\s*\,\s*extends.*$var" src/$var.f90 | \
+    grep --ignore-case -m1 -e "^\s*real\s*(\s*rb\s*)" | \
+    sed -e "s/^\s*real\s*(\s*rb\s*)\s*//I" -e "s/::\s*//" -e "s/\s*!.*//")
+    echo "  type(c_ptr) function EmDee_$var($params) bind(C,name=\"EmDee_$var\")"
+    echo "    real(c_double), value :: $params"
+    echo "    type($var), pointer :: model"
+    echo "    allocate(model)"
+    echo "    call model % setup( [$params] )"
+    echo "    EmDee_$var = model % deliver()"
+    echo "  end function EmDee_$var"
+    echo "!----------"
+done
 echo "end module models"
