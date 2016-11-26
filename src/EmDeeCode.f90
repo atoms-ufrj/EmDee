@@ -32,7 +32,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "25 Nov 2016"
+character(11), parameter :: VERSION = "26 Nov 2016"
 
 integer, parameter, private :: extra = 2000
 

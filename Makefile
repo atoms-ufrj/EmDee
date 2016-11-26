@@ -3,18 +3,12 @@
 #   Build the "debug" version with: `make DEBUG=1`
 DEBUG?=0
 
-# Define models:
-PAIR = lj_cut lj_cut_coul_cut lj_cut_coul_sf lj_sf lj_sf_coul_sf softcore_cut
-BOND = harmonic
-ANGLE =
-DIHEDRAL =
-
-# Add prefixes:
-PAIRMODELS = $(addprefix pair_,$(PAIR))
-BONDMODELS = $(addprefix bond_,$(BOND))
-ANGLEMODELS = $(addprefix pair_,$(ANGLE))
-DIHEDMODELS = $(addprefix pair_,$(DIHEDRAL))
-ALLMODELS = $(PAIRMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
+# Force-field models (source files starting with pair_, bond_, angle_, and dihedral_):
+PAIRMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/pair_*.f90))
+BONDMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/bond_*.f90))
+ANGLEMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/angle_*.f90))
+DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
+ALLMODELS   = $(PAIRMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
 
 # Compilers and their basic options:
 FORT = gfortran
