@@ -1,0 +1,4 @@
+#!/bin/bash
+date=$(LANG=en_US date +"%d %b %Y")
+eval "sed -i -e 's/VERSION = \".*/VERSION = \"$date\"/' ./src/EmDeeCode.f90"
+git add ./src/EmDeeCode.f90

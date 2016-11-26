@@ -74,9 +74,7 @@ OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
 all: lib
 
 clean:
-	rm -rf $(OBJDIR)
-	rm -rf $(LIBDIR)
-	rm -rf $(BINDIR)
+	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
 	rm -rf $(call src,compute_pair compute_bond compute_angle compute_dihedral models)
 
 install:
@@ -111,7 +109,9 @@ $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl
 lib: $(LIBDIR)/libemdee.so
 
 $(LIBDIR)/libemdee.so: $(OBJECTS)
-	mkdir -p $(LIBDIR)
+	mkdir -p $(INCDIR) $(LIBDIR)
+	bash $(SRCDIR)/make_fortran_header.sh $(ALLMODELS) > $(INCDIR)/emdee.f03
+	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) > $(INCDIR)/emdee.h
 	$(FORT) -shared -fPIC -o $@ $^ $(LIBS)
 
 # Object files:
@@ -144,8 +144,7 @@ $(SRCDIR)/compute_dihedral.f90: $(call src,$(addprefix compute_,$(DIHEDMODELS)))
 $(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(SRCDIR)/models.f90: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral)) \
-                      $(SRCDIR)/make_models_module.sh
+$(SRCDIR)/models.f90: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral))
 	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $@
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o

@@ -17,7 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: 1) Automatize addition of model definition routines in include files and Julia wrapper
+! TODO: 1) Automatize addition of model definition routines in Julia wrapper
 ! TODO: 2) Optimize parallel performance of download in a unique omp parallel
 ! TODO: 3) Create indexing for having sequential body particles and free particles in arrays
 

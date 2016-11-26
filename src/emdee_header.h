@@ -33,12 +33,7 @@ void EmDee_random_momenta( tEmDee* md, double kT, int adjust, int seed );
 void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_move( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_group_energy( tEmDee md, int na, double* atoms, int ne, double* energies );
-void* EmDee_model_none( double sigma, double epsilon );
-void* EmDee_pair_lj( double sigma, double epsilon );
-void* EmDee_pair_lj_sf( double sigma, double epsilon, double cutoff );
-void* EmDee_pair_softcore( double epsilon, double sigma, double lambda );
-void* EmDee_bond_harmonic( double k, double r0 );
-void* EmDee_bond_morse( double D, double alpha, double r0 );
-void* EmDee_angle_harmonic( double k, double theta0 );
-void* EmDee_dihedral_harmonic( double k, double phi0 );
-
+void* EmDee_pair_none();
+void* EmDee_bond_none();
+void* EmDee_angle_none();
+void* EmDee_dihedral_none();

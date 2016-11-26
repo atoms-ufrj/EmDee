@@ -21,26 +21,12 @@
 
 #---------------------------------------------------------------------------------------------------
 
-echo "module models"
-for model in "$@"; do
-    echo "  use ${model}_module"
-done
-for var in angle dihedral; do # REMOVE...
-    echo "  use ${var}ModelClass"
-done                          # ... WHEN ANGLE AND DIHEDRAL MODELS HAVE BEEN ADDED
-echo "contains"
-echo
+cat src/emdee_header.h
 for model in "$@"; do
     params=$(grep --ignore-case -A100 -e "^\s*type\s*\,\s*extends.*$model" src/$model.f90 | \
              grep --ignore-case -m1 -e "^\s*real\s*(\s*rb\s*)" | \
-             sed -e "s/^\s*real\s*(\s*rb\s*)\s*//I" -e "s/::\s*//" -e "s/\s*!.*//")
-    echo "  type(c_ptr) function EmDee_$model( $params ) bind(C,name=\"EmDee_$model\")"
-    echo "    real(c_double), value :: $params"
-    echo "    type($model), pointer :: model"
-    echo "    allocate(model)"
-    echo "    call model % setup( [$params] )"
-    echo "    EmDee_$model = model % deliver()"
-    echo "  end function EmDee_$model"
-    echo
+             sed -e "s/^\s*real\s*(\s*rb\s*)\s*//I" -e "s/::\s*//" -e "s/\s*!.*//" | \
+             sed -e "s/\([a-zA-Z][a-zA-Z0-9_]*\)/double \1/g" )
+    echo "void* EmDee_$model( $params );"
 done
-echo "end module models"
+
