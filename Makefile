@@ -3,17 +3,6 @@
 #   Build the "debug" version with: `make DEBUG=1`
 DEBUG?=0
 
-# Pair interaction models (order must reflect dependencies):
-PAIRMODELS  = pair_lj_cut pair_lj_cut_coul_cut pair_lj_cut_coul_sf pair_lj_sf \
-              pair_lj_sf_coul_sf pair_softcore_cut
-
-# Bonded interaction models (source files starting with bond_, angle_, and dihedral_):
-BONDMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/bond_*.f90))
-ANGLEMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/angle_*.f90))
-DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
-
-ALLMODELS   = $(PAIRMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
-
 # Compilers and their basic options:
 FORT = gfortran
 CC   = gcc
@@ -58,6 +47,14 @@ LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
+# Force-field models (from source files starting with pair_, bond_, angle_, and dihedral_):
+PAIRMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/pair_*.f90))
+BONDMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/bond_*.f90))
+ANGLEMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/angle_*.f90))
+DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
+ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
+              $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
+
 OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
                      $(PAIRMODELS) pairModelClass \
                      $(BONDMODELS) bondModelClass \
@@ -69,11 +66,14 @@ OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
 
 .DEFAULT_GOAL := all
 
+aaa:
+	echo $(LIST)
+
 all: lib
 
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
-	rm -rf $(call src,compute_pair compute_bond compute_angle compute_dihedral models)
+	rm -rf $(call src,$(addprefix compute_,pair bond angle dihedral) models)
 
 install:
 	cp $(LIBDIR)/libemdee.* /usr/local/lib/
@@ -108,7 +108,7 @@ lib: $(LIBDIR)/libemdee.so
 
 $(LIBDIR)/libemdee.so: $(OBJECTS)
 	mkdir -p $(INCDIR) $(LIBDIR)
-	bash $(SRCDIR)/make_fortran_header.sh $(ALLMODELS) > $(INCDIR)/emdee.f03
+	bash $(SRCDIR)/make_f_header.sh $(ALLMODELS) > $(INCDIR)/emdee.f03
 	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) > $(INCDIR)/emdee.h
 	$(FORT) -shared -fPIC -o $@ $^ $(LIBS)
 
