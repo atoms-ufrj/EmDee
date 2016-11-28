@@ -24,7 +24,7 @@ use modelClass
 
 implicit none
 
-!> An abstract class for pair interaction models
+!> Abstract class for pair interaction models
 type, abstract, extends(cModel) :: cPairModel
   logical  :: shifted_force_vdw = .false.
   logical  :: shifted_force_coul = .false.
@@ -35,26 +35,9 @@ type, abstract, extends(cModel) :: cPairModel
   contains
     procedure(cPairModel_compute), deferred :: compute
     procedure(cPairModel_mix),     deferred :: mix
+
     procedure :: shifting_setup => cPairModel_shifting_setup
 end type cPairModel
-
-!> A class for pair model "none":
-type, extends(cPairModel) :: pair_none
-  contains
-    procedure :: setup => pair_none_setup
-    procedure :: compute => pair_none_compute
-    procedure :: mix => pair_none_mix
-end type pair_none
-
-!> A container structure for pair models:
-type pairModelContainer
-  class(cPairModel), allocatable :: model
-  logical :: overridable
-  contains
-    procedure :: pairModelContainer_assign
-    generic :: assignment(=) => pairModelContainer_assign
-    procedure :: mix => pairModelContainer_mix
-end type pairModelContainer
 
 abstract interface
 
@@ -71,7 +54,32 @@ abstract interface
     class(cPairModel), pointer    :: mixed
   end function cPairModel_mix
 
+  subroutine cPairModel_tail( model, Etail, Wtail, Rc )
+    import
+    class(cPairModel), intent(in)  :: model
+    real(rb),          intent(out) :: Etail, Wtail
+    real(rb),          intent(in)  :: Rc
+  end subroutine cPairModel_tail
+
 end interface
+
+!> Container structure for pair models
+type pairModelContainer
+  class(cPairModel), allocatable :: model
+  logical :: overridable
+  contains
+    procedure :: pairModelContainer_assign
+    generic :: assignment(=) => pairModelContainer_assign
+    procedure :: mix => pairModelContainer_mix
+end type pairModelContainer
+
+!> Class definition for pair model "none"
+type, extends(cPairModel) :: pair_none
+  contains
+    procedure :: setup => pair_none_setup
+    procedure :: compute => pair_none_compute
+    procedure :: mix => pair_none_mix
+end type pair_none
 
 contains
 
@@ -109,47 +117,6 @@ contains
     if (model%shifted_force_coul) model%eshift_coul = model%eshift_coul - Wcoul
 
   end subroutine cPairModel_shifting_setup
-
-!===================================================================================================
-!                                   P A I R     N O N E
-!===================================================================================================
-
-  type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
-    type(pair_none), pointer :: model
-    allocate(model)
-    call model% setup( [zero] )
-    EmDee_pair_none = model % deliver()
-  end function EmDee_pair_none
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine pair_none_setup( model, params )
-    class(pair_none), intent(inout) :: model
-    real(rb),         intent(in)    :: params(:)
-    model%name = "none"
-  end subroutine pair_none_setup
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine pair_none_compute( model, Eij, Wij, invR2, Qi, Qj )
-    class(pair_none), intent(in)  :: model
-    real(rb),         intent(out) :: Eij, Wij
-    real(rb),         intent(in)  :: invR2, Qi, Qj
-    Eij = zero
-    Wij = zero
-  end subroutine pair_none_compute
-
-!---------------------------------------------------------------------------------------------------
-
-  function pair_none_mix( this, other ) result( mixed )
-    class(pair_none),  intent(in) :: this
-    class(cPairModel), intent(in) :: other
-    class(cPairModel), pointer    :: mixed
-
-    ! Mixing rule: pair_none + any pair model => pair_none
-    allocate(pair_none :: mixed)
-
-  end function pair_none_mix
 
 !===================================================================================================
 !                         P A I R     M O D E L    C O N T A I N E R
@@ -194,6 +161,47 @@ contains
     c%overridable = .true.
 
   end function pairModelContainer_mix
+
+!===================================================================================================
+!                                   P A I R     N O N E
+!===================================================================================================
+
+  type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
+    type(pair_none), pointer :: model
+    allocate(model)
+    call model% setup( [zero] )
+    EmDee_pair_none = model % deliver()
+  end function EmDee_pair_none
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine pair_none_setup( model, params )
+    class(pair_none), intent(inout) :: model
+    real(rb),         intent(in)    :: params(:)
+    model%name = "none"
+  end subroutine pair_none_setup
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine pair_none_compute( model, Eij, Wij, invR2, Qi, Qj )
+    class(pair_none), intent(in)  :: model
+    real(rb),         intent(out) :: Eij, Wij
+    real(rb),         intent(in)  :: invR2, Qi, Qj
+    Eij = zero
+    Wij = zero
+  end subroutine pair_none_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  function pair_none_mix( this, other ) result( mixed )
+    class(pair_none),  intent(in) :: this
+    class(cPairModel), intent(in) :: other
+    class(cPairModel), pointer    :: mixed
+
+    ! Mixing rule: pair_none + any pair model => pair_none
+    allocate(pair_none :: mixed)
+
+  end function pair_none_mix
 
 !---------------------------------------------------------------------------------------------------
 

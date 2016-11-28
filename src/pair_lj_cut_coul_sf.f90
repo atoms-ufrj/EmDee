@@ -31,6 +31,7 @@ type, extends(cPairModel) :: pair_lj_cut_coul_sf
     procedure :: setup => pair_lj_cut_coul_sf_setup
     procedure :: compute => pair_lj_cut_coul_sf_compute
     procedure :: mix => pair_lj_cut_coul_sf_mix
+    procedure :: tail => pair_lj_cut_coul_sf_tail
 end type pair_lj_cut_coul_sf
 
 contains
@@ -87,6 +88,14 @@ contains
     end select
 
   end function pair_lj_cut_coul_sf_mix
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine pair_lj_cut_coul_sf_tail( model, Etail, Wtail, Rc )
+    class(pair_lj_cut_coul_sf), intent(in)  :: model
+    real(rb),                   intent(out) :: Etail, Wtail
+    real(rb),                   intent(in)  :: Rc
+  end subroutine pair_lj_cut_coul_sf_tail
 
 !---------------------------------------------------------------------------------------------------
 

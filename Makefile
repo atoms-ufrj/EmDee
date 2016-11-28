@@ -3,11 +3,15 @@
 #   Build the "debug" version with: `make DEBUG=1`
 DEBUG?=0
 
-# Force-field models (source files starting with pair_, bond_, angle_, and dihedral_):
-PAIRMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/pair_*.f90))
+# Pair interaction models (order must reflect dependencies):
+PAIRMODELS  = pair_lj_cut pair_lj_cut_coul_cut pair_lj_cut_coul_sf pair_lj_sf \
+              pair_lj_sf_coul_sf pair_softcore_cut
+
+# Bonded interaction models (source files starting with bond_, angle_, and dihedral_):
 BONDMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/bond_*.f90))
 ANGLEMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/angle_*.f90))
 DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
+
 ALLMODELS   = $(PAIRMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
 
 # Compilers and their basic options:

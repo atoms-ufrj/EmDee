@@ -24,8 +24,8 @@ block
   real(rb) :: rsig2, rsig6, sinv, sinvSq
   rsig2 = model%invSigSq/invR2
   rsig6 = rsig2*rsig2*rsig2
-  sinv = model%sig6/(rsig6 + model%shift)
+  sinv = one/(rsig6 + model%shift)
   sinvSq = sinv*sinv
   Eij = model%prefactor*(sinvSq - sinv)
-  Wij = 6.0_rb*rsig6*sinv*(sinvSq + Eij)
+  Wij = 6.0_rb*rsig6*sinv*(model%prefactor*sinvSq + Eij)
 end block
