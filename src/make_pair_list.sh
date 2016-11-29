@@ -26,9 +26,9 @@ list=""
 others=""
 search="-v"
 for model in "$@"; do
-    if [ $(grep -c -e "use\s*pair_" src/${model}.f90) -eq 0 ]; then
+    if [ $(grep -c -e "^\s*use\s*pair_" src/${model}.f90) -eq 0 ]; then
         list="$list $model"
-        search="$search -e \"use\s*${model}_module\""
+        search="$search -e \"^\s*use\s*${model}_module\""
     else
         others="$others $model"
     fi
@@ -39,9 +39,9 @@ until [[ -z $others ]]; do
     group=$others
     others=""
     for model in $group; do
-        if [ $(eval "grep $search src/$model.f90" | grep -c -e "use\s*pair_") -eq 0 ]; then
+        if [ $(eval "grep $search src/$model.f90" | grep -c -e "^\s*use\s*pair_") -eq 0 ]; then
             list="$list $model"
-            search="$search -e \"use\s*${model}_module\""
+            search="$search -e \"^\s*use\s*${model}_module\""
         else
             others="$others $model"
         fi
