@@ -21,11 +21,12 @@
 ! OUTPUT: Eij, Wij
 
 block
-  real(rb) :: rsig2, rsig6, sinv, sinvSq
+  real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
   rsig2 = model%invSigSq/invR2
   rsig6 = rsig2*rsig2*rsig2
   sinv = one/(rsig6 + model%shift)
   sinvSq = sinv*sinv
+  sinvCb = sinv*sinvSq
   Eij = model%prefactor*(sinvSq - sinv)
-  Wij = 6.0_rb*rsig6*sinv*(model%prefactor*sinvSq + Eij)
+  Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq)
 end block

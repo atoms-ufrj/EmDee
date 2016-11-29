@@ -27,12 +27,11 @@ use pair_lj_cut_module
 !! NOTE: all model parameters must be declared together as real(rb) in the first line
 type, extends(cPairModel) :: pair_lj_cut_coul_cut
   real(rb) :: epsilon, sigma
-  real(rb) :: eps4, sigsq
+  real(rb) :: eps4, eps24, sigsq
   contains
     procedure :: setup => pair_lj_cut_coul_cut_setup
     procedure :: compute => pair_lj_cut_coul_cut_compute
     procedure :: mix => pair_lj_cut_coul_cut_mix
-    procedure :: tail => pair_lj_cut_coul_cut_tail
 end type pair_lj_cut_coul_cut
 
 contains
@@ -52,6 +51,7 @@ contains
 
     ! Pre-computed quantities:
     model%eps4 = 4.0_rb*model%epsilon
+    model%eps24 = 24.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
   end subroutine pair_lj_cut_coul_cut_setup
@@ -86,14 +86,6 @@ contains
     end select
 
   end function pair_lj_cut_coul_cut_mix
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine pair_lj_cut_coul_cut_tail( model, Etail, Wtail, Rc )
-    class(pair_lj_cut_coul_cut), intent(in)  :: model
-    real(rb),                    intent(out) :: Etail, Wtail
-    real(rb),                    intent(in)  :: Rc
-  end subroutine pair_lj_cut_coul_cut_tail
 
 !---------------------------------------------------------------------------------------------------
 

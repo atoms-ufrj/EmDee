@@ -26,5 +26,5 @@ block
   sr6 = sr2*sr2*sr2
   sr12 = sr6*sr6
   Eij = model%eps4*(sr12 - sr6)
-  Wij = 6.0_rb*(model%eps4*sr12 + Eij)
+  Wij = model%eps24*(sr12 + sr12 - sr6)
 end block

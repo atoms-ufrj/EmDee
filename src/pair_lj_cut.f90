@@ -26,7 +26,7 @@ use pairModelClass
 !! NOTE: all model parameters must be declared together as real(rb) in the first line
 type, extends(cPairModel) :: pair_lj_cut
   real(rb) :: epsilon, sigma
-  real(rb) :: eps4, sigsq
+  real(rb) :: eps4, eps24, sigsq
   contains
     procedure :: setup => pair_lj_cut_setup
     procedure :: compute => pair_lj_cut_compute
@@ -39,7 +39,7 @@ contains
 
   subroutine pair_lj_cut_setup( model, params )
     class(pair_lj_cut), intent(inout) :: model
-    real(rb),       intent(in)    :: params(:)
+    real(rb),           intent(in)    :: params(:)
 
     ! Model name:
     model%name = "lj_cut"
@@ -49,7 +49,8 @@ contains
     model%sigma = params(2)
 
     ! Pre-computed quantities:
-    model%eps4 = 4.0_rb*model%epsilon
+    model%eps4  = 4.0_rb*model%epsilon
+    model%eps24 = 24.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
   end subroutine pair_lj_cut_setup

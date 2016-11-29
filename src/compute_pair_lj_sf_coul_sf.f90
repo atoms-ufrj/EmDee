@@ -25,11 +25,11 @@ block
   sr2 = model%sigSq*invR2
   sr6 = sr2*sr2*sr2
   sr12 = sr6*sr6
-  Eij = model%eps4*(sr12 - sr6)
   invR = sqrt(invR2)
   QiQj = Qi*Qj
   QiQjbyR = QiQj*invR
   rFc = (model%fshift_vdw + QiQj*model%fshift_coul)/invR
-  Wij = 6.0_rb*(model%eps4*sr12 + Eij) + QiQjbyR - rFc
-  Eij = Eij + QiQjbyR + rFc + model%eshift_vdw + QiQj*model%eshift_coul
+  Eij = model%eps4*(sr12 - sr6) + QiQjbyR + model%eshift_vdw + QiQj*model%eshift_coul + rFc
+  Wij = model%eps24*(sr12 + sr12 - sr6) + QiQjbyR - rFc
 end block
+

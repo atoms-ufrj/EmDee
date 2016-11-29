@@ -21,15 +21,13 @@
 ! OUTPUT: Eij, Wij
 
 block
-  real(rb) :: sr2, sr6, sr12, rFc, invR, QiQj, QiQjbyR
+  real(rb) :: sr2, sr6, sr12, rFc, QiQj, QiQjbyR
   sr2 = model%sigSq*invR2
   sr6 = sr2*sr2*sr2
   sr12 = sr6*sr6
-  Eij = model%eps4*(sr12 - sr6)
-  invR = sqrt(invR2)
   QiQj = Qi*Qj
-  QiQjbyR = QiQj*invR
+  QiQjbyR = QiQj*sqrt(invR2)
   rFc = QiQjbyR*model%fshift_coul
-  Wij = 6.0_rb*(model%eps4*sr12 + Eij) + QiQjbyR - rFc
-  Eij = Eij + QiQjbyR + rFc + QiQj*model%eshift_coul
+  Eij = model%eps4*(sr12 - sr6) + QiQjbyR + QiQj*model%eshift_coul + rFc
+  Wij = model%eps24*(sr12 + sr12 - sr6) + QiQjbyR - rFc
 end block

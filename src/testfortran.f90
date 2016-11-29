@@ -68,8 +68,10 @@ end where
 
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 
-pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
+!pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
+!pair = EmDee_pair_lj_cut_coul_sf( 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_softcore_cut( 1.0_rb, 1.0_rb, 1.0_rb )
+pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_sf_old( 1.0_rb, 1.0_rb, Rc )
 !pair = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
 
@@ -77,7 +79,7 @@ call EmDee_set_pair_type( md, 1, 1, pair )
 call EmDee_set_pair_type( md, 2, 2, pair )
 !call EmDee_set_pair_type( md, 1, 2, pair )
 
-!call EmDee_set_charges( md, c_loc(Q) )
+call EmDee_set_charges( md, c_loc(Q) )
 
 do i = 1, N-1
   do j = i+1, N

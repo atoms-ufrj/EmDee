@@ -26,7 +26,7 @@ use pair_lj_sf_module
 !! NOTE: all model parameters must be declared together as real(rb) in the first line
 type, extends(cPairModel) :: pair_lj_sf_coul_sf
   real(rb) :: epsilon, sigma
-  real(rb) :: eps4, sigsq
+  real(rb) :: eps4, eps24, sigsq
   contains
     procedure :: setup => pair_lj_sf_coul_sf_setup
     procedure :: compute => pair_lj_sf_coul_sf_compute
@@ -50,6 +50,7 @@ contains
 
     ! Pre-computed quantities:
     model%eps4 = 4.0_rb*model%epsilon
+    model%eps24 = 24.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
     ! Activate shifted-force status:
@@ -77,14 +78,18 @@ contains
     class(cPairModel), pointer :: mixed
 
     select type (other)
+
       class is (pair_lj_sf_coul_sf)
         allocate(pair_lj_sf_coul_sf :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
+
       class is (pair_lj_sf)
         allocate(pair_lj_sf :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
+
       class default
         mixed => null()
+
     end select
 
   end function pair_lj_sf_coul_sf_mix

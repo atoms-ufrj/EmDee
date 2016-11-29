@@ -27,5 +27,5 @@ block
   sr12 = sr6*sr6
   QiQjbyR = Qi*Qj*sqrt(invR2)
   Eij = model%eps4*(sr12 - sr6) + QiQjbyR
-  Wij = 6.0_rb*(model%eps4*sr12 + Eij) + QiQjbyR
+  Wij = model%eps24*(sr12 + sr12 - sr6) + QiQjbyR
 end block

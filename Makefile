@@ -56,10 +56,8 @@ ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
               $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
 
 OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
-                     $(PAIRMODELS) pairModelClass \
-                     $(BONDMODELS) bondModelClass \
-                     $(ANGLEMODELS) angleModelClass \
-                     $(DIHEDMODELS) dihedralModelClass \
+                     $(PAIRMODELS) pairModelClass $(BONDMODELS) bondModelClass \
+                     $(ANGLEMODELS) angleModelClass $(DIHEDMODELS) dihedralModelClass \
                      modelClass lists global)
 
 .PHONY: all test clean install uninstall lib
