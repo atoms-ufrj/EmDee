@@ -21,24 +21,36 @@
 
 #---------------------------------------------------------------------------------------------------
 
+function get_parameters {
+  grep -i -A100 -e "^\s*type\s*\,\s*extends.*$1" src/$1.f90 |
+  grep -i -m1 -B100 "^\s*end\s*type" |
+  sed -e "s/\s*//g" |
+  grep -i -m1 -e "^real(rb)" |
+  sed -e "s/^real(rb)//I" -e "s/:://" -e "s/!.*//" |
+  sed -e "s/,/, /g"
+}
+
 echo "module models"
 for model in "$@"; do
-    echo "  use ${model}_module"
+    echo "use ${model}_module"
 done
-for var in angle dihedral; do # REMOVE...
-    echo "  use ${var}ModelClass"
-done                          # ... WHEN ANGLE AND DIHEDRAL MODELS HAVE BEEN ADDED
+echo "use dihedralModelClass" # REMOVE WHEN DIHEDRAL MODELS HAVE BEEN ADDED
 echo "contains"
 echo
 for model in "$@"; do
-    params=$(grep --ignore-case -A100 -e "^\s*type\s*\,\s*extends.*$model" src/$model.f90 | \
-             grep --ignore-case -m1 -e "^\s*real\s*(\s*rb\s*)" | \
-             sed -e "s/^\s*real\s*(\s*rb\s*)\s*//I" -e "s/::\s*//" -e "s/\s*!.*//")
-    echo "  type(c_ptr) function EmDee_$model( $params ) bind(C,name=\"EmDee_$model\")"
-    echo "    real(c_double), value :: $params"
-    echo "    type($model), pointer :: model"
-    echo "    allocate(model)"
-    echo "    call model % setup( [$params] )"
+    params=$(get_parameters $model)
+    echo "  type(c_ptr) function EmDee_$model( $params ) &"
+    echo "    bind(C,name=\"EmDee_$model\")"
+    if [[ -z $params ]]; then
+        echo "    type($model), pointer :: model"
+        echo "    allocate(model)"
+        echo "    call model % setup( [zero] )"
+    else
+        echo "    real(c_double), value :: $params"
+        echo "    type($model), pointer :: model"
+        echo "    allocate(model)"
+        echo "    call model % setup( [$params] )"
+    fi
     echo "    EmDee_$model = model % deliver()"
     echo "  end function EmDee_$model"
     echo

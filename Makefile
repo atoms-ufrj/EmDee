@@ -64,9 +64,6 @@ OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
 
 .DEFAULT_GOAL := all
 
-aaa:
-	echo $(LIST)
-
 all: lib
 
 clean:
@@ -137,11 +134,10 @@ $(SRCDIR)/compute_angle.f90: $(call src,$(addprefix compute_,$(ANGLEMODELS)))
 $(SRCDIR)/compute_dihedral.f90: $(call src,$(addprefix compute_,$(DIHEDMODELS)))
 	bash $(SRCDIR)/make_compute.sh $(DIHEDMODELS) > $@
 
-$(OBJDIR)/models.o: $(SRCDIR)/models.f90 $(OBJDIR)/global.o
-	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
-
-$(SRCDIR)/models.f90: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral))
-	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $@
+$(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral)) \
+                    $(SRCDIR)/make_models_module.sh
+	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $(SRCDIR)/models.f90
+	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $(SRCDIR)/models.f90
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
@@ -153,6 +149,10 @@ $(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(SRCDIR)/compute_angle_%.f90 $(OBJDI
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(SRCDIR)/dihedral_angle_%.f90 $(OBJDIR)/dihedralModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(SRCDIR)/compute_pair_coul_sf.f90 \
+                            $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o

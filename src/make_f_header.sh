@@ -21,15 +21,37 @@
 
 #---------------------------------------------------------------------------------------------------
 
-grep -v -e "end\s*interface" src/emdee_header.f03
-for model in "$@"; do
-    params=$(grep --ignore-case -A100 -e "^\s*type\s*\,\s*extends.*$model" src/$model.f90 | \
-             grep --ignore-case -m1 -e "^\s*real\s*(\s*rb\s*)" | \
-             sed -e "s/^\s*real\s*(\s*rb\s*)\s*//I" -e "s/::\s*//" -e "s/\s*!.*//")
-    echo "  type(c_ptr) function EmDee_$model( $params ) bind(C,name=\"EmDee_$model\")"
-    echo "    import :: c_ptr, c_double"
-    echo "    real(c_double), value :: $params"
+function get_parameters {
+  grep -i -A100 -e "^\s*type\s*\,\s*extends.*$1" src/$1.f90 |
+  grep -i -m1 -B100 "^\s*end\s*type" |
+  sed -e "s/\s*//g" |
+  grep -i -m1 -e "^real(rb)" |
+  sed -e "s/^real(rb)//I" -e "s/:://" -e "s/!.*//" |
+  sed -e "s/,/, /g"
+}
+
+if [[ $1 == "C" ]]; then
+  cat src/emdee_header.h
+  for model in "$@"; do
+    params=$(get_parameters $model | sed -e "s/\([a-zA-Z][a-zA-Z0-9_]*\)/double \1/g" )
+    echo "void* EmDee_$model( $params );"
+  done
+elif [[ $1 == "F" ]]; then
+  grep -v -e "end\s*interface" src/emdee_header.f03
+  for model in "$@"; do
+    params=$(get_parameters $model)
+    echo "  type(c_ptr) function EmDee_$model( $params ) &"
+    echo "    bind(C,name=\"EmDee_$model\")"
+    if [[ -z $params ]]; then
+      echo "    import :: c_ptr"
+    else
+      echo "    import :: c_ptr, c_double"
+      echo "    real(c_double), value :: $params"
+    fi
     echo "  end function EmDee_$model"
     echo
-done
-echo "end interface"
+  done
+  echo "end interface"
+else
+  echo "ERROR: first argument must be F or C"
+fi

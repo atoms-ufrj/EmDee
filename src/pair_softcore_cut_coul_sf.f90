@@ -23,6 +23,8 @@ use global
 use pairModelClass
 use pair_lj_cut_module
 use pair_lj_cut_coul_sf_module
+use pair_lj_sf_module
+use pair_lj_sf_coul_sf_module
 use pair_softcore_cut_module
 
 real(rb), parameter, private :: alpha      = 0.5_rb, &
@@ -111,6 +113,20 @@ contains
                              this%lambda                       ] )
 
       type is (pair_lj_cut)
+        allocate(pair_softcore_cut_coul_sf :: mixed)
+        call mixed % setup( [sqrt(this%epsilon*other%epsilon), &
+                             half*(this%sigma + other%sigma),  &
+                             this%lambda                       ] )
+
+      ! REMOVE:
+      type is (pair_lj_sf)
+        allocate(pair_softcore_cut_coul_sf :: mixed)
+        call mixed % setup( [sqrt(this%epsilon*other%epsilon), &
+                             half*(this%sigma + other%sigma),  &
+                             this%lambda                       ] )
+
+      ! REMOVE:
+      type is (pair_lj_sf_coul_sf)
         allocate(pair_softcore_cut_coul_sf :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), &
                              half*(this%sigma + other%sigma),  &

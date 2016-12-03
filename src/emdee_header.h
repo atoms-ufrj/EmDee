@@ -32,7 +32,7 @@ void EmDee_random_momenta( tEmDee* md, double kT, int adjust, int seed );
 //void EmDee_restore_state( tEmDee md );
 void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_move( tEmDee* md, double lambda, double alpha, double dt );
-void EmDee_group_energy( tEmDee md, int na, double* atoms, int ne, double* energies );
+void EmDee_group_energy( tEmDee md, int na, double* atoms, double* energies );
 void* EmDee_pair_none();
 void* EmDee_bond_none();
 void* EmDee_angle_none();

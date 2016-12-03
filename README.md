@@ -56,9 +56,7 @@ Standard compilation and testing
 
 * Clone the repository
 
-        git init
-        git remote add upstream https://github.com/craabreu/EmDee
-        git pull upstream master
+        git clone https://github.com/craabreu/EmDee
 
   This will create a local copy of the repository on your device.
 
