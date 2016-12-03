@@ -30,28 +30,19 @@ function get_parameters {
   sed -e "s/,/, /g"
 }
 
-if [[ $1 == "C" ]]; then
-  cat src/emdee_header.h
-  for model in "$@"; do
-    params=$(get_parameters $model | sed -e "s/\([a-zA-Z][a-zA-Z0-9_]*\)/double \1/g" )
-    echo "void* EmDee_$model( $params );"
-  done
-elif [[ $1 == "F" ]]; then
-  grep -v -e "end\s*interface" src/emdee_header.f03
-  for model in "$@"; do
+grep -v -e "end\s*interface" src/emdee_header.f03
+for model in "$@"; do
     params=$(get_parameters $model)
     echo "  type(c_ptr) function EmDee_$model( $params ) &"
     echo "    bind(C,name=\"EmDee_$model\")"
     if [[ -z $params ]]; then
-      echo "    import :: c_ptr"
+        echo "    import :: c_ptr"
     else
-      echo "    import :: c_ptr, c_double"
-      echo "    real(c_double), value :: $params"
+        echo "    import :: c_ptr, c_double"
+        echo "    real(c_double), value :: $params"
     fi
     echo "  end function EmDee_$model"
     echo
-  done
-  echo "end interface"
-else
-  echo "ERROR: first argument must be F or C"
-fi
+done
+echo "end interface"
+
