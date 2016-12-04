@@ -32,7 +32,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "03 Dec 2016"
+character(11), parameter :: VERSION = "04 Dec 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -293,7 +293,6 @@ contains
             pair(itype,itype) = container
             call pair(itype,itype) % model % shifting_setup( me%Rc )
             do ktype = 1, me%ntypes
-!print*, itype, ktype, pair(itype,ktype)%overridable
               if ((ktype /= itype).and.pair(itype,ktype)%overridable) then
                 pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
                 call pair(itype,ktype) % model % shifting_setup( me%Rc )
@@ -866,30 +865,31 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_group_energy( md, na, atoms, energies ) bind(C,name="EmDee_group_energy")
+  subroutine EmDee_group_energy( md, flags, energies ) bind(C,name="EmDee_group_energy")
     type(tEmDee), value :: md
-    integer(ib),  value :: na
-    type(c_ptr),  value :: atoms, energies
+    type(c_ptr),  value :: flags, energies
 
-    real(rb), allocatable :: energy(:,:)
-    integer,      pointer :: atom(:)
-    real(rb),     pointer :: Eext(:)
-    type(tData),  pointer :: me
+    integer(ib), pointer :: flag(:)
+    real(rb),    pointer :: energy(:)
+    type(tData), pointer :: me
+
+    logical,  allocatable :: inGroup(:)
+    real(rb), allocatable :: E(:,:)
 
     call c_f_pointer( md%data, me )
-    call c_f_pointer( atoms, atom, [na] )
-    allocate( energy(me%nlayers,me%nthreads) )
+    call c_f_pointer( flags, flag, [me%natoms] )
+    call c_f_pointer( energies, energy, [me%nlayers] )
 
+    inGroup = flag /= 0
+    allocate( E(me%nlayers,me%nthreads) )
     !$omp parallel num_threads(me%nthreads)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
-      call compute_group_energy( me, thread, na, atom, energy(:,thread) )
+      call compute_group_energy( me, thread, inGroup, E(:,thread) )
     end block
     !$omp end parallel
-
-    call c_f_pointer( energies, Eext, [me%nlayers] )
-    Eext = sum(energy,2)
+    energy = sum(E,2)
 
   end subroutine EmDee_group_energy
 
@@ -1419,16 +1419,17 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_group_energy( me, thread, na, atom, energy )
+  subroutine compute_group_energy( me, thread, inGroup, energy )
     type(tData), intent(in)  :: me
-    integer,     intent(in)  :: thread, na, atom(na)
+    integer,     intent(in)  :: thread
+    logical,     intent(in)  :: inGroup(me%natoms)
     real(rb),    intent(out) :: energy(me%nlayers)
 
     integer  :: i, j, k, m, itype, firstAtom, lastAtom, layer
-    logical  :: iInGroup
     real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3)
     real(rb), allocatable :: Rs(:,:)
+    integer, allocatable :: partner(:)
 
     allocate( Rs(3,me%natoms) )
     Rs = me%invL*me%R
@@ -1439,26 +1440,25 @@ contains
     associate (neighbor => me%neighbor(thread)  )
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
+        partner = neighbor%item(neighbor%first(i):neighbor%last(i))
+        if (.not.inGroup(i)) partner = pack(partner,inGroup(partner))
         itype = me%atomType(i)
         Qi = me%charge(i)
         Ri = Rs(:,i)
-        iInGroup = any(atom == i)
-        do k = neighbor%first(i), neighbor%last(i)
-          j = neighbor%item(k)
-          if (iInGroup .or. any(atom == j)) then
-            Qj = me%charge(j)
-            Rij = Ri - Rs(:,j)
-            Rij = Rij - anint(Rij)
-            r2 = sum(Rij*Rij)
-            if (r2 < Rc2) then
-              invR2 = me%invL2/r2
-              do layer = 1, me%nlayers
-                select type ( model => me%pair(me%atomType(j),itype,layer)%model )
-                  include "compute_pair.f90"
-                end select
-                energy(layer) = energy(layer) + Eij
-              end do
-            end if
+        do k = 1, size(partner)
+          j = partner(k)
+          Qj = me%charge(j)
+          Rij = Ri - Rs(:,j)
+          Rij = Rij - anint(Rij)
+          r2 = sum(Rij*Rij)
+          if (r2 < Rc2) then
+            invR2 = me%invL2/r2
+            do layer = 1, me%nlayers
+              select type ( model => me%pair(me%atomType(j),itype,layer)%model )
+                include "compute_pair.f90"
+              end select
+              energy(layer) = energy(layer) + Eij
+            end do
           end if
         end do
       end do
