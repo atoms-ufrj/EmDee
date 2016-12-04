@@ -123,7 +123,7 @@ type, private :: tData
   real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
   real(rb), allocatable :: P(:,:)         ! Momenta of all atoms
   real(rb), allocatable :: F(:,:)         ! Resultant forces on all atoms
-  real(rb), allocatable :: charge(:,:)    ! Electric charges of all atoms
+  real(rb), allocatable :: charge(:)      ! Electric charges of all atoms
   real(rb), allocatable :: mass(:)        ! Masses of all atoms
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
@@ -200,7 +200,7 @@ contains
     ! Initialize counters and other mutable entities:
     me%startTime = omp_get_wtime()
     allocate( me%R(3,N), me%P(3,N), me%F(3,N), me%R0(3,N), source = zero )
-    allocate( me%charge(N,layers), source = zero )
+    allocate( me%charge(N), source = zero )
     allocate( me%cell(0) )
     allocate( me%atomCell(N) )
 
@@ -264,7 +264,7 @@ contains
 
     call c_f_pointer( md%data, me )
     call c_f_pointer( charges, Q, [me%natoms] )
-    me%charge(:,me%layer) = Q
+    me%charge = Q
     if (me%initialized) call compute_forces( md )
 
   end subroutine EmDee_set_charges
@@ -293,6 +293,7 @@ contains
             pair(itype,itype) = container
             call pair(itype,itype) % model % shifting_setup( me%Rc )
             do ktype = 1, me%ntypes
+!print*, itype, ktype, pair(itype,ktype)%overridable
               if ((ktype /= itype).and.pair(itype,ktype)%overridable) then
                 pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
                 call pair(itype,ktype) % model % shifting_setup( me%Rc )
@@ -870,21 +871,25 @@ contains
     integer(ib),  value :: na
     type(c_ptr),  value :: atoms, energies
 
-    real(rb), allocatable :: energy(:)
-    integer,     pointer :: atom(:)
-    real(rb),    pointer :: Eext(:)
-    type(tData), pointer :: me
+    real(rb), allocatable :: energy(:,:)
+    integer,      pointer :: atom(:)
+    real(rb),     pointer :: Eext(:)
+    type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     call c_f_pointer( atoms, atom, [na] )
-    allocate( energy(me%nlayers) )
+    allocate( energy(me%nlayers,me%nthreads) )
 
-    !$omp parallel num_threads(me%nthreads) reduction(+:energy)
-    call compute_group_energy( me, omp_get_thread_num() + 1, na, atom, energy )
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      call compute_group_energy( me, thread, na, atom, energy(:,thread) )
+    end block
     !$omp end parallel
 
     call c_f_pointer( energies, Eext, [me%nlayers] )
-    Eext = energy
+    Eext = sum(energy,2)
 
   end subroutine EmDee_group_energy
 
@@ -899,7 +904,7 @@ contains
     real(rb) :: time, E, W
     logical  :: buildList
     real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
-    type(tData), pointer :: me
+    type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     md%pairTime = md%pairTime - omp_get_wtime()
@@ -979,8 +984,8 @@ contains
 !===================================================================================================
 
   real(rb) function maximum_approach_sq( N, delta )
-    integer, intent(in) :: N
-    real(rb),    intent(in) :: delta(3,N)
+    integer,  intent(in) :: N
+    real(rb), intent(in) :: delta(3,N)
 
     integer  :: i
     real(rb) :: maximum, next, deltaSq
@@ -1242,8 +1247,8 @@ contains
           r2 = sum(rij*rij)
           if (r2 < me%RcSq) then
             invR2 = me%invL2/r2
-            Qi = me%charge(i,me%layer)
-            Qj = me%charge(j,me%layer)
+            Qi = me%charge(i)
+            Qj = me%charge(j)
             select type ( model => me%pair(me%atomType(i),me%atomType(j),me%layer)%model )
               include "compute_pair.f90"
             end select
@@ -1317,7 +1322,7 @@ contains
           i = atom(k)
           neighbor%first(i) = npairs + 1
           itype = me%atomType(i)
-          Qi = me%charge(i,me%layer)
+          Qi = me%charge(i)
           Ri = Rs(:,i)
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
@@ -1329,7 +1334,7 @@ contains
                 select type ( model => partner(me%atomType(j))%model )
                   type is (pair_none)
                   class default
-                    Qj = me%charge(j,me%layer)
+                    Qj = me%charge(j)
                     Rij = Ri - Rs(:,j)
                     Rij = Rij - anint(Rij)
                     r2 = sum(Rij*Rij)
@@ -1379,7 +1384,7 @@ contains
     Rc2 = me%RcSq*me%invL2
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate (neighbor => me%neighbor(thread), Q => me%charge(:,me%layer))
+    associate (neighbor => me%neighbor(thread), Q => me%charge)
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
@@ -1419,38 +1424,43 @@ contains
     integer,     intent(in)  :: thread, na, atom(na)
     real(rb),    intent(out) :: energy(me%nlayers)
 
-    integer  :: i, j, k, m, layer, itype, firstCell, lastCell
-    real(rb) :: r2, invR2, Eij, Wij, Qi, Qj
+    integer  :: i, j, k, m, itype, firstAtom, lastAtom, layer
+    logical  :: iInGroup
+    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3)
+    real(rb), allocatable :: Rs(:,:)
 
-    firstCell = me%threadCell%first(thread)
-    lastCell  = me%threadCell%last(thread)
-
+    allocate( Rs(3,me%natoms) )
+    Rs = me%invL*me%R
+    Rc2 = me%RcSq*me%invL2
+    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
     energy = zero
-    associate (neighbor => me%neighbor(thread))
-      do m = 1, size(atom)
-        i = atom(m)
-        if ((me%atomCell(i) >= firstCell).and.(me%atomCell(i) <= lastCell)) then
-          itype = me%atomType(i)
-          Qi = me%charge(i,me%layer)
-          Ri = me%R(:,i)
-          do k = neighbor%first(i), neighbor%last(i)
-            j = neighbor%item(k)
-            Qj = me%charge(j,me%layer)
-            Rij = Ri - me%R(:,j)
-            Rij = Rij - me%Lbox*anint(Rij*me%invL)
+    associate (neighbor => me%neighbor(thread)  )
+      do m = firstAtom, lastAtom
+        i = me%cellAtom%item(m)
+        itype = me%atomType(i)
+        Qi = me%charge(i)
+        Ri = Rs(:,i)
+        iInGroup = any(atom == i)
+        do k = neighbor%first(i), neighbor%last(i)
+          j = neighbor%item(k)
+          if (iInGroup .or. any(atom == j)) then
+            Qj = me%charge(j)
+            Rij = Ri - Rs(:,j)
+            Rij = Rij - anint(Rij)
             r2 = sum(Rij*Rij)
-            if (r2 < me%RcSq) then
-              invR2 = one/r2
+            if (r2 < Rc2) then
+              invR2 = me%invL2/r2
               do layer = 1, me%nlayers
-                select type (model => me%pair(me%atomType(j),itype,layer)%model)
+                select type ( model => me%pair(me%atomType(j),itype,layer)%model )
                   include "compute_pair.f90"
                 end select
                 energy(layer) = energy(layer) + Eij
               end do
             end if
-          end do
-        end if
+          end if
+        end do
       end do
     end associate
 

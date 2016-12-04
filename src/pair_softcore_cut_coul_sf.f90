@@ -131,7 +131,6 @@ contains
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), &
                              half*(this%sigma + other%sigma),  &
                              this%lambda                       ] )
-
       class default
         mixed => null()
 
