@@ -30,9 +30,15 @@ real(rb), parameter, private :: alpha      = 0.5_rb, &
                                 exponent_p = 1.0_rb
 
 !> Abstract class for pair model softcore_sf_coul_sf
-!! NOTE: all model parameters must be declared together as real(rb) in the first line
+!! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
+!!        2) allocatable parameters are permitted only for rank=1
+!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
+!!           which will contain their (common) size after allocation
 type, extends(cPairModel) :: pair_softcore_sf_coul_sf
-  real(rb) :: epsilon, sigma, lambda
+  real(rb) :: epsilon !<> Lennard-Jones parameter epsilon
+  real(rb) :: sigma   !<> Lennard-Jones parameter sigma
+  real(rb) :: lambda  !<> Coupling parameter
+
   real(rb) :: prefactor, prefactor6, invSigSq, shift
   contains
     procedure :: setup => pair_softcore_sf_coul_sf_setup

@@ -24,8 +24,12 @@ use angleModelClass
 
 implicit none
 
+!> Abstract class for angle model harmonic
+!! NOTE: model parameters must be declared individually and tagged with comment mark "!<>"
 type, extends(cAngleModel) :: angle_harmonic
-  real(rb) :: k, theta0
+  real(rb) :: k       !<> Force constant
+  real(rb) :: theta0  !<> Equilibrium angle
+
   real(rb) :: minus_k, half_k
   contains
     procedure :: setup => angle_harmonic_setup

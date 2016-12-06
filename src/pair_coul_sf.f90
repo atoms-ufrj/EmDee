@@ -22,7 +22,10 @@ module pair_coul_sf_module
 use pairModelClass
 
 !> Abstract class for pair model coul_sf
-!! NOTE: all model parameters must be declared together as real(rb) in the first line
+!! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
+!!        2) allocatable parameters are permitted only for rank=1
+!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
+!!           which will contain their (common) size after allocation
 type, extends(cPairModel) :: pair_coul_sf
   contains
     procedure :: setup => pair_coul_sf_setup

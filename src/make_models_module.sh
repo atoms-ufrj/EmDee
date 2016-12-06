@@ -21,13 +21,11 @@
 
 #---------------------------------------------------------------------------------------------------
 
-function get_parameters {
+function get_definitions {
   grep -i -A100 -e "^\s*type\s*\,\s*extends.*$1" src/$1.f90 |
   grep -i -m1 -B100 "^\s*end\s*type" |
-  sed -e "s/\s*//g" |
-  grep -i -m1 -e "^real(rb)" |
-  sed -e "s/^real(rb)//I" -e "s/:://" -e "s/!.*//" |
-  sed -e "s/,/, /g"
+  grep -i "!<>" |
+  sed "s/^\s*//"
 }
 
 echo "module models"
@@ -37,22 +35,87 @@ done
 echo "use dihedralModelClass" # REMOVE WHEN DIHEDRAL MODELS HAVE BEEN ADDED
 echo "contains"
 echo
+
 for model in "$@"; do
-    params=$(get_parameters $model)
-    echo "  type(c_ptr) function EmDee_$model( $params ) &"
-    echo "    bind(C,name=\"EmDee_$model\")"
-    if [[ -z $params ]]; then
-        echo "    type($model), pointer :: model"
-        echo "    allocate(model)"
-        echo "    call model % setup( [zero] )"
+
+  # Read parameter definitions from model file:
+  IFS=$'\n' definitions=($(get_definitions $model))
+
+  # Parse parameter definitions:
+  params=()
+  types=()
+  ftypes=()
+  array=()
+  descriptions=()
+  for def in "${definitions[@]}"; do
+    params+=($(echo $def | sed -e "s/\s*!.*//" | grep -oE '[^ ]+$' | sed -e "s/(.*)//"))
+    type=$(echo $def | grep -i -oE -e "^(real|integer)" | tr '[:upper:]' '[:lower:]')
+    types+=($type)
+    ftypes+=($(echo $type | sed -e 's/real/real(c_double)/' -e 's/integer/integer(c_int)/'))
+    if [ -z $(echo $def | grep -i -oE "allocatable") ]; then
+      array+=(0)
     else
-        echo "    real(c_double), value :: $params"
-        echo "    type($model), pointer :: model"
-        echo "    allocate(model)"
-        echo "    call model % setup( [$params] )"
+      array+=(1)
     fi
-    echo "    EmDee_$model = model % deliver()"
-    echo "  end function EmDee_$model"
-    echo
+    descriptions+=($(echo $def | grep -oE "!<>.*" | sed "s/!<>\s*//" ))
+  done
+
+  # Check if allocatable parameters and their sizes have been properly defined:
+  last_type="real"
+  last_array="0"
+  for ((i=0; i<${#params[@]}; i++)); do
+    if [ ${array[i]} -eq 1 ]; then
+      if [ $last_array -eq 0 ] && [[ $last_type != "integer" ]]; then
+        echo "ERROR: parsing of model $model failed.">&2 && exit 1
+      fi
+    fi
+    last_type=${types[i]}
+    last_array=${array[i]}
+  done
+
+  # Write down EmDee_model routine:
+  allparams=${params[@]}
+  echo "  type(c_ptr) function EmDee_$model( ${allparams// /, } ) &"
+  echo "    bind(C,name=\"EmDee_$model\")"
+
+  if [[ -z $allparams ]]; then
+
+    echo "    type($model), pointer :: model"
+    echo "    allocate(model)"
+    echo "    call model % setup( [zero] )"
+
+  else
+
+    # Declare scalar arguments as real or integer and array arguments as type(c_ptr):
+    for ((i=0; i<${#params[@]}; i++)); do
+      if [ ${array[i]} -eq 0 ]; then
+        echo "    ${ftypes[i]}, value :: ${params[i]}"
+      else
+        echo "    type(c_ptr), value :: ${params[i]}"
+      fi
+    done
+
+    # Declare a scalar pointer to model and array pointers to array arguments:
+    echo "    type($model), pointer :: model"
+    for ((i=0; i<${#params[@]}; i++)); do
+      [ ${array[i]} -eq 1 ] && echo "    ${ftypes[i]}, pointer :: ptr_${params[i]}(:)"
+    done
+
+    # Allocate model pointer:
+    echo "    allocate(model)"
+    for ((i=0; i<${#params[@]}; i++)); do
+      [ ${array[i]} -eq 1 ] && echo "    call c_f_pointer( ${params[i]}, ptr_${params[i]}, [$size] )"
+      [ ${array[i]} -eq 0 ] && [[ ${types[i]} == "integer" ]] && size=${params[i]}
+      [ ${array[i]} -eq 1 ] && params[i]="ptr_${params[i]}"
+    done
+    allparams=${params[@]}
+    echo "    call model % setup( [real(rb) :: ${allparams// /, }] )"
+
+  fi
+
+  echo "    EmDee_$model = model % deliver()"
+  echo "  end function EmDee_$model"
+  echo
 done
+
 echo "end module models"

@@ -25,9 +25,14 @@ use pairModelClass
 implicit none
 
 !> Abstract class for pair model lj_sf
-!! NOTE: all model parameters must be declared together as real(rb) in the first line
+!! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
+!!        2) allocatable parameters are permitted only for rank=1
+!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
+!!           which will contain their (common) size after allocation
 type, extends(cPairModel) :: pair_lj_sf
-  real(rb) :: epsilon, sigma
+  real(rb) :: epsilon !<> Lennard-Jones parameter epsilon
+  real(rb) :: sigma   !<> Lennard-Jones parameter sigma
+
   real(rb) :: eps4, eps24, sigsq
   contains
     procedure :: setup => pair_lj_sf_setup

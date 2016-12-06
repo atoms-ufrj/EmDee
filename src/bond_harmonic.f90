@@ -24,8 +24,12 @@ use bondModelClass
 
 implicit none
 
+!> Abstract class for angle model harmonic
+!! NOTE: model parameters must be declared individually and tagged with comment mark "!<>"
 type, extends(cBondModel) :: bond_harmonic
-  real(rb) :: k, r0
+  real(rb) :: k   !<> Force constant
+  real(rb) :: r0  !<> Equilibrium distance
+
   real(rb) :: minus_k, half_k
   contains
     procedure :: setup => bond_harmonic_setup

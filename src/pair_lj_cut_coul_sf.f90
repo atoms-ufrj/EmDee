@@ -23,15 +23,19 @@ use pairModelClass
 use pair_lj_cut_module
 
 !> Abstract class for pair model lj_cut_coul_sf
-!! NOTE: all model parameters must be declared together as real(rb) in the first line
+!! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
+!!        2) allocatable parameters are permitted only for rank=1
+!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
+!!           which will contain their (common) size after allocation
 type, extends(cPairModel) :: pair_lj_cut_coul_sf
-  real(rb) :: epsilon, sigma
+  real(rb) :: epsilon !<> Lennard-Jones parameter epsilon
+  real(rb) :: sigma   !<> Lennard-Jones parameter sigma
+
   real(rb) :: eps4, eps24, sigsq
   contains
     procedure :: setup => pair_lj_cut_coul_sf_setup
     procedure :: compute => pair_lj_cut_coul_sf_compute
     procedure :: mix => pair_lj_cut_coul_sf_mix
-    procedure :: tail => pair_lj_cut_coul_sf_tail
 end type pair_lj_cut_coul_sf
 
 contains
@@ -89,14 +93,6 @@ contains
     end select
 
   end function pair_lj_cut_coul_sf_mix
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine pair_lj_cut_coul_sf_tail( model, Etail, Wtail, Rc )
-    class(pair_lj_cut_coul_sf), intent(in)  :: model
-    real(rb),                   intent(out) :: Etail, Wtail
-    real(rb),                   intent(in)  :: Rc
-  end subroutine pair_lj_cut_coul_sf_tail
 
 !---------------------------------------------------------------------------------------------------
 
