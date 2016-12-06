@@ -169,15 +169,16 @@ contains
   type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
     type(pair_none), pointer :: model
     allocate(model)
-    call model% setup( [zero] )
+    call model % setup()
     EmDee_pair_none = model % deliver()
   end function EmDee_pair_none
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_setup( model, params )
+  subroutine pair_none_setup( model, params, iparams )
     class(pair_none), intent(inout) :: model
-    real(rb),         intent(in)    :: params(:)
+    real(rb), intent(in), optional :: params(:)
+    integer,  intent(in), optional :: iparams(:)
     model%name = "none"
   end subroutine pair_none_setup
 

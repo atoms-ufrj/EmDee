@@ -58,15 +58,16 @@ contains
   type(c_ptr) function EmDee_dihedral_none() bind(C,name="EmDee_dihedral_none")
     type(dihedral_none), pointer :: model
     allocate(model)
-    call model% setup( [zero] )
+    call model % setup()
     EmDee_dihedral_none = model % deliver()
   end function EmDee_dihedral_none
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine dihedral_none_setup( model, params )
+  subroutine dihedral_none_setup( model, params, iparams )
     class(dihedral_none), intent(inout) :: model
-    real(rb),         intent(in)    :: params(:)
+    real(rb), intent(in), optional :: params(:)
+    integer,  intent(in), optional :: iparams(:)
     model%name = "none"
   end subroutine dihedral_none_setup
 

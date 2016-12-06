@@ -57,15 +57,16 @@ contains
   type(c_ptr) function EmDee_angle_none() bind(C,name="EmDee_angle_none")
     type(angle_none), pointer :: model
     allocate(model)
-    call model% setup( [zero] )
+    call model % setup()
     EmDee_angle_none = model % deliver()
   end function EmDee_angle_none
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine angle_none_setup( model, params )
+  subroutine angle_none_setup( model, params, iparams )
     class(angle_none), intent(inout) :: model
-    real(rb),         intent(in)    :: params(:)
+    real(rb), intent(in), optional :: params(:)
+    integer,  intent(in), optional :: iparams(:)
     model%name = "none"
   end subroutine angle_none_setup
 

@@ -31,10 +31,11 @@ end type cModel
 
 abstract interface
 
-  subroutine cModel_setup( model, params )
+  subroutine cModel_setup( model, params, iparams )
     import
     class(cModel), intent(inout) :: model
-    real(rb),      intent(in)    :: params(:)
+    real(rb), intent(in), optional :: params(:)
+    integer,  intent(in), optional :: iparams(:)
   end subroutine cModel_setup
 
 end interface

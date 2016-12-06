@@ -40,9 +40,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine angle_harmonic_setup( model, params )
+  subroutine angle_harmonic_setup( model, params, iparams )
     class(angle_harmonic), intent(inout) :: model
-    real(rb),              intent(in)    :: params(:)
+    real(rb), intent(in), optional :: params(:)
+    integer,  intent(in), optional :: iparams(:)
 
     ! Model name:
     model%name = "harmonic"

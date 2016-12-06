@@ -82,7 +82,7 @@ for model in "$@"; do
 
     echo "    type($model), pointer :: model"
     echo "    allocate(model)"
-    echo "    call model % setup( [zero] )"
+    echo "    call model % setup()"
 
   else
 
@@ -108,8 +108,28 @@ for model in "$@"; do
       [ ${array[i]} -eq 0 ] && [[ ${types[i]} == "integer" ]] && size=${params[i]}
       [ ${array[i]} -eq 1 ] && params[i]="ptr_${params[i]}"
     done
-    allparams=${params[@]}
-    echo "    call model % setup( [real(rb) :: ${allparams// /, }] )"
+
+    # Split parameters into real and integer ones:
+    intpar=()
+    realpar=()
+    for ((i=0; i<${#params[@]}; i++)); do
+      if [[ ${types[i]} == "integer" ]]; then
+        intpar+=(${params[i]})
+      else
+        realpar+=(${params[i]})
+      fi
+    done
+
+    # Call model setup routine:
+    realparams=${realpar[@]}
+    intparams=${intpar[@]}
+    if [ -z $intparams ]; then
+      echo "    call model % setup( [${realparams// /, }] )"
+    elif [ -z $realparams ]; then
+      echo "    call model % setup( iparams = [${intparams// /, }] )"
+    else
+      echo "    call model % setup( [${realparams// /, }], [${intparams// /, }] )"
+    fi
 
   fi
 

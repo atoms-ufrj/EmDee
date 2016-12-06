@@ -50,9 +50,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_softcore_sf_coul_sf_setup( model, params )
+  subroutine pair_softcore_sf_coul_sf_setup( model, params, iparams )
     class(pair_softcore_sf_coul_sf), intent(inout) :: model
-    real(rb),                        intent(in)    :: params(:)
+    real(rb), intent(in), optional :: params(:)
+    integer,  intent(in), optional :: iparams(:)
 
     ! Model name:
     model%name = "softcore_sf_coul_sf"

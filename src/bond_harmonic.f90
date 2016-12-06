@@ -40,9 +40,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_harmonic_setup( model, params )
+  subroutine bond_harmonic_setup( model, params, iparams )
     class(bond_harmonic), intent(inout) :: model
-    real(rb),             intent(in)    :: params(:)
+    real(rb), intent(in), optional :: params(:)
+    integer,  intent(in), optional :: iparams(:)
 
     ! Model name:
     model%name = "harmonic"
