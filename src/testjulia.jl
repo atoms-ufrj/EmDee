@@ -9,7 +9,8 @@ function run(nthreads, file)
   Dt_2 = 0.5*Dt
 
   md = EmDee.system( nthreads, 1, Rc, Rs, N, C_NULL, C_NULL )
-  lj = EmDee.pair_lj_sf( 1.0, 1.0, Rc )
+  lj = EmDee.pair_lj_sf_coul_sf( 1.0, 1.0 )
+  lj = EmDee.pair_softcore_sf_coul_sf( 1.0, 1.0, 1.0 )
   EmDee.set_pair_type( md, 1, 1, lj )
 
   R = generate_configuration( N, L[1] )
@@ -64,7 +65,7 @@ end
 #---------------------------------------------------------------------------------------------------
 
 push!(Base.DL_LOAD_PATH,string(DIR,"/lib"))
-include(string(DIR,"/src/EmDee.jl"))
+include(string(DIR,"/include/EmDee.jl"))
 if length(ARGS) == 1
   run(1,ARGS[1])
 elseif length(ARGS) == 2

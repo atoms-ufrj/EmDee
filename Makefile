@@ -105,6 +105,7 @@ $(LIBDIR)/libemdee.so: $(OBJECTS)
 	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_f_header.sh $(ALLMODELS) > $(INCDIR)/emdee.f03
 	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) > $(INCDIR)/emdee.h
+	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) > $(INCDIR)/EmDee.jl
 	$(FORT) -shared -fPIC -o $@ $^ $(LIBS)
 
 # Object files:

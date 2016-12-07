@@ -27,6 +27,12 @@ use pairModelClass
 !!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
 !!           which will contain their (common) size after allocation
 type, extends(cPairModel) :: pair_coul_sf
+!  integer :: N !<>
+!  integer, allocatable :: A(:) !<>
+!  real, allocatable :: B(:) !<>
+!  integer :: M !<>
+!  real, allocatable :: C(:) !<>
+!  real :: D !<>
   contains
     procedure :: setup => pair_coul_sf_setup
     procedure :: compute => pair_coul_sf_compute
