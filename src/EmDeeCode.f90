@@ -17,7 +17,6 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: Replace compute_forces by an update_forces routine after model layer switch
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
 ! TODO: Optimize parallel performance of download in a unique omp parallel
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
@@ -227,7 +226,6 @@ contains
 
     ! Allocate memory for pair models:
     allocate( none%model, source = pair_none(name="none") )
-!    none % overridable = .true.
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
@@ -255,11 +253,14 @@ contains
   subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_switch_model_layer")
     type(tEmDee), value :: md
     integer(ib),  value :: layer
+
     type(tData), pointer :: me
+
     call c_f_pointer( md%data, me )
     if ((layer < 1).or.(layer > me%nlayers)) stop "ERROR in model layer change: out of range"
+    if (me%initialized) call update_forces( md, layer )
     me%layer = layer
-    if (me%initialized) call compute_forces( md )
+
   end subroutine EmDee_switch_model_layer
 
 !===================================================================================================
@@ -960,9 +961,6 @@ contains
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads), Elayer(me%nlayers,me%nthreads) )
     Rs = me%invL*me%R
-    Fs = zero
-    E = zero
-    W = zero
 
     buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
     if (buildList) then
@@ -1000,6 +998,41 @@ contains
     md%totalTime = time - me%startTime
 
   end subroutine compute_forces
+
+!===================================================================================================
+
+  subroutine update_forces( md, layer )
+    type(tEmDee), intent(inout) :: md
+    integer,      intent(in)    :: layer
+
+    real(rb) :: DE, DW, time
+    real(rb), allocatable :: Rs(:,:), DFs(:,:,:)
+    type(tData),  pointer :: me
+
+    call c_f_pointer( md%data, me )
+    md%pairTime = md%pairTime - omp_get_wtime()
+
+    allocate( Rs(3,me%natoms), DFs(3,me%natoms,me%nthreads) )
+    Rs = me%invL*me%R
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:DE,DW)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      call update_pairs( me, thread, Rs, DFs(:,:,thread), DE, DW, layer )
+    end block
+    !$omp end parallel
+
+    me%F = me%F + me%Lbox*sum(DFs,3)
+    md%Potential = md%Potential + DE
+    md%Virial = md%Virial + third*DW
+    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
+
+    time = omp_get_wtime()
+    md%pairTime = md%pairTime + time
+    md%totalTime = time - me%startTime
+
+  end subroutine update_forces
 
 !===================================================================================================
 
@@ -1330,7 +1363,7 @@ contains
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
+    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
     integer  :: nlocal, ntotal, first, last
@@ -1343,11 +1376,15 @@ contains
     xRc2 = me%xRcSq*me%invL2
     Rc2 = me%RcSq*me%invL2
 
+    F = zero
+    Potential = zero
+    Virial = zero
+    Elayer = zero
+
     include = .true.
     index = 0
     npairs = 0
     associate (neighbor => me%neighbor(thread))
-      Elayer = zero
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
         if (neighbor%nitems < npairs + me%maxpairs) then
@@ -1435,20 +1472,25 @@ contains
 !===================================================================================================
 
   subroutine compute_pairs( me, thread, Rs, F, Potential, Virial, Elayer )
-    type(tData), intent(in)    :: me
-    integer,     intent(in)    :: thread
-    real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
+    type(tData), intent(in)  :: me
+    integer,     intent(in)  :: thread
+    real(rb),    intent(in)  :: Rs(3,me%natoms)
+    real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
 
     Rc2 = me%RcSq*me%invL2
+
+    F = zero
+    Potential = zero
+    Virial = zero
+    Elayer = zero
+
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
     associate (neighbor => me%neighbor(thread), Q => me%charge)
-      Elayer = zero
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
@@ -1491,6 +1533,72 @@ contains
     end associate
 
   end subroutine compute_pairs
+
+!===================================================================================================
+
+  subroutine update_pairs( me, thread, Rs, DF, DE, DW, new_layer )
+    type(tData), intent(in)  :: me
+    integer,     intent(in)  :: thread, new_layer
+    real(rb),    intent(in)  :: Rs(3,me%natoms)
+    real(rb),    intent(out) :: DF(3,me%natoms), DE, DW
+
+    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
+    real(rb) :: Rc2, r2, invR2, new_Eij, new_Wij, Eij, Wij, Qi, Qj
+    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    logical  :: participant(me%ntypes)
+
+    participant = any(me%multilayer,dim=2)
+    Rc2 = me%RcSq*me%invL2
+
+    DF = zero
+    DE = zero
+    DW = zero
+
+    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
+    associate (neighbor => me%neighbor(thread), Q => me%charge)
+      do m = firstAtom, lastAtom
+        i = me%cellAtom%item(m)
+        itype = me%atomType(i)
+        if (participant(itype)) then
+          Qi = Q(i)
+          Ri = Rs(:,i)
+          Fi = zero
+          associate (multilayer => me%multilayer(:,itype))
+            do k = neighbor%first(i), neighbor%last(i)
+              j = neighbor%item(k)
+              jtype = me%atomType(j)
+              if (multilayer(jtype)) then
+                Qj = Q(j)
+                Rij = Ri - Rs(:,j)
+                Rij = Rij - anint(Rij)
+                r2 = sum(Rij*Rij)
+                if (r2 < Rc2) then
+                  invR2 = me%invL2/r2
+                  select type ( model => me%pair(jtype,itype,new_layer)%model )
+                    include "compute_pair.f90"
+                  end select
+                  new_Eij = Eij
+                  new_Wij = Wij
+                  select type ( model => me%pair(jtype,itype,me%layer)%model )
+                    include "compute_pair.f90"
+                  end select
+                  DE = DE + new_Eij - Eij
+                  Wij = new_Wij - Wij
+                  DW = DW + Wij
+                  Fij = Wij*invR2*Rij
+                  Fi = Fi + Fij
+                  DF(:,j) = DF(:,j) - Fij
+                end if
+              end if
+            end do
+          end associate
+          DF(:,i) = DF(:,i) + Fi
+        end if
+      end do
+    end associate
+
+  end subroutine update_pairs
 
 !===================================================================================================
 
