@@ -142,7 +142,7 @@ type, private :: tData
 end type tData
 
 private :: rigid_body_forces, maximum_approach_sq, distribute_atoms, find_pairs_and_compute, &
-           compute_pairs, compute_bonds, compute_angles, compute_dihedrals, compute_group_energy
+           compute_pairs, compute_bonds, compute_angles, compute_dihedrals, set_pair_type
 
 contains
 
@@ -901,37 +901,6 @@ contains
   end subroutine EmDee_move
 
 !===================================================================================================
-
-  subroutine EmDee_group_energy( md, flags, energies ) bind(C,name="EmDee_group_energy")
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: flags, energies
-
-    integer(ib), pointer :: flag(:)
-    real(rb),    pointer :: energy(:)
-    type(tData), pointer :: me
-
-    logical,  allocatable :: inGroup(:)
-    real(rb), allocatable :: E(:,:)
-
-    call c_f_pointer( md%data, me )
-    call c_f_pointer( flags, flag, [me%natoms] )
-    call c_f_pointer( energies, energy, [me%nlayers] )
-
-    inGroup = flag /= 0
-    allocate( E(me%nlayers,me%nthreads) )
-    !$omp parallel num_threads(me%nthreads)
-    block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
-!      call compute_group_energy( me, thread, inGroup, E(:,thread) )
-      call compute_multimodel_energy( me, thread, E(:,thread) )
-    end block
-    !$omp end parallel
-    energy = sum(E,2)
-
-  end subroutine EmDee_group_energy
-
-!===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
 !===================================================================================================
 
@@ -1514,105 +1483,6 @@ contains
     end associate
 
   end subroutine compute_pairs
-
-!===================================================================================================
-
-  subroutine compute_group_energy( me, thread, inGroup, energy )
-    type(tData), intent(in)  :: me
-    integer,     intent(in)  :: thread
-    logical,     intent(in)  :: inGroup(me%natoms)
-    real(rb),    intent(out) :: energy(me%nlayers)
-
-    integer  :: i, j, k, m, itype, firstAtom, lastAtom, layer
-    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
-    real(rb) :: Rij(3), Ri(3)
-    real(rb), allocatable :: Rs(:,:)
-    integer, allocatable :: partner(:)
-
-    allocate( Rs(3,me%natoms) )
-    Rs = me%invL*me%R
-    Rc2 = me%RcSq*me%invL2
-    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
-    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    energy = zero
-    associate (neighbor => me%neighbor(thread)  )
-      do m = firstAtom, lastAtom
-        i = me%cellAtom%item(m)
-        partner = neighbor%item(neighbor%first(i):neighbor%last(i))
-        if (.not.inGroup(i)) partner = pack(partner,inGroup(partner))
-        itype = me%atomType(i)
-        Qi = me%charge(i)
-        Ri = Rs(:,i)
-        do k = 1, size(partner)
-          j = partner(k)
-          Qj = me%charge(j)
-          Rij = Ri - Rs(:,j)
-          Rij = Rij - anint(Rij)
-          r2 = sum(Rij*Rij)
-          if (r2 < Rc2) then
-            invR2 = me%invL2/r2
-            do layer = 1, me%nlayers
-              select type ( model => me%pair(me%atomType(j),itype,layer)%model )
-                include "compute_pair.f90"
-              end select
-              energy(layer) = energy(layer) + Eij
-            end do
-          end if
-        end do
-      end do
-    end associate
-
-  end subroutine compute_group_energy
-
-!===================================================================================================
-
-  subroutine compute_multimodel_energy( me, thread, energy )
-    type(tData), intent(in)  :: me
-    integer,     intent(in)  :: thread
-    real(rb),    intent(out) :: energy(me%nlayers)
-
-    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
-    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
-    real(rb) :: Rij(3), Ri(3)
-    real(rb), allocatable :: Rs(:,:)
-
-    allocate( Rs(3,me%natoms) )
-    Rs = me%invL*me%R
-    Rc2 = me%RcSq*me%invL2
-    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
-    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    energy = zero
-    associate (neighbor => me%neighbor(thread), Q => me%charge)
-      do m = firstAtom, lastAtom
-        i = me%cellAtom%item(m)
-        itype = me%atomType(i)
-        if (me%participant(itype)) then
-          Qi = Q(i)
-          Ri = Rs(:,i)
-          do k = neighbor%first(i), neighbor%last(i)
-            j = neighbor%item(k)
-            jtype = me%atomType(j)
-            if (me%multilayer(itype,jtype)) then
-              Qj = Q(j)
-              Rij = Ri - Rs(:,j)
-              Rij = Rij - anint(Rij)
-              r2 = sum(Rij*Rij)
-              if (r2 < Rc2) then
-                invR2 = me%invL2/r2
-                do layer = 1, me%nlayers
-                  select type ( model => me%pair(itype,jtype,layer)%model )
-                    include "compute_pair.f90"
-                  end select
-                  energy(layer) = energy(layer) + Eij
-                end do
-              end if
-            end if
-          end do
-        end if
-      end do
-    end associate
-
-  end subroutine compute_multimodel_energy
 
 !===================================================================================================
 

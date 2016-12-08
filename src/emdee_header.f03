@@ -150,12 +150,6 @@ interface
     real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_move
 
-  subroutine EmDee_group_energy( md, flags, energies ) bind(C,name="EmDee_group_energy")
-    import :: c_int, c_ptr, tEmDee
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: flags, energies
-  end subroutine EmDee_group_energy
-
   ! TEMPORARY:
   subroutine EmDee_Rotational_Energies( md, Kr ) bind(C,name="EmDee_Rotational_Energies")
     import
