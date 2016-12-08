@@ -6,6 +6,7 @@ typedef struct {
   double Kinetic;        // Total kinetic energy of the system
   double Rotational;     // Rotational kinetic energy of the system
   double Virial;         // Total internal virial of the system
+  double *layerEnergy;   // A vector with the energies due to multilayer models
   int    DOF;            // Total number of degrees of freedom
   int    RDOF;           // Number of rotational degrees of freedom
   void*  Data;           // Pointer to system data
@@ -19,7 +20,8 @@ typedef struct {
 tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, double* masses );
 void EmDee_switch_model_layer( tEmDee* md, int layer );
 void EmDee_set_charges( tEmDee md, double* charges );
-void EmDee_set_pair_type( tEmDee md, int itype, int jtype, void* model );
+void EmDee_set_pair_model( tEmDee md, int itype, int jtype, void* model );
+void EmDee_set_pair_multimodel( tEmDee md, int itype, int jtype, void* model[] );
 void EmDee_ignore_pair( tEmDee md, int i, int j );
 void EmDee_add_bond( tEmDee md, int i, int j, void* model );
 void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );
@@ -32,7 +34,6 @@ void EmDee_random_momenta( tEmDee* md, double kT, int adjust, int seed );
 //void EmDee_restore_state( tEmDee md );
 void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_move( tEmDee* md, double lambda, double alpha, double dt );
-void EmDee_group_energy( tEmDee md, int* flags, double* energies );
 void* EmDee_pair_none();
 void* EmDee_bond_none();
 void* EmDee_angle_none();

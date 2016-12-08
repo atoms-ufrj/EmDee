@@ -31,6 +31,7 @@ type, bind(C) :: tEmDee
   real(c_double) :: Kinetic        ! Total kinetic energy of the system
   real(c_double) :: Rotational     ! Rotational kinetic energy of the system
   real(c_double) :: Virial         ! Total internal virial of the system
+  type(c_ptr)    :: layerEnergy    ! A vector with the energies due to multilayer models
   integer(c_int) :: DOF            ! Total number of degrees of freedom
   integer(c_int) :: RDOF           ! Number of rotational degrees of freedom
   type(c_ptr)    :: Data           ! Pointer to EmDee system data
@@ -47,10 +48,10 @@ interface
     type(tEmDee)          :: EmDee_system
   end function EmDee_system
 
-  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_set_layer")
+  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_switch_model_layer")
     import :: c_int, c_ptr, tEmDee
-    type(tEmDee),   intent(inout) :: md
-    integer(c_int), value         :: layer
+    type(tEmDee),   value :: md
+    integer(c_int), value :: layer
   end subroutine EmDee_switch_model_layer
 
   subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
@@ -59,12 +60,19 @@ interface
     type(c_ptr),  value :: charges
   end subroutine EmDee_set_charges
 
-  subroutine EmDee_set_pair_type( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_type")
+  subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
     import :: c_int, c_ptr, tEmDee
     type(tEmDee),   value :: md
     integer(c_int), value :: itype, jtype
     type(c_ptr),    value :: model
-  end subroutine EmDee_set_pair_type
+  end subroutine EmDee_set_pair_model
+
+  subroutine EmDee_set_pair_multimodel( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_multimodel")
+    import :: c_int, c_ptr, tEmDee
+    type(tEmDee),   value :: md
+    integer(c_int), value :: itype, jtype
+    type(c_ptr),    intent(in) :: model(*)
+  end subroutine EmDee_set_pair_multimodel
 
   subroutine EmDee_ignore_pair( md, i, j ) bind(C,name="EmDee_ignore_pair")
     import :: c_int, c_ptr, tEmDee
@@ -141,12 +149,6 @@ interface
     type(tEmDee),   intent(inout) :: md
     real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_move
-
-  subroutine EmDee_group_energy( md, flags, energies ) bind(C,name="EmDee_group_energy")
-    import :: c_int, c_ptr, tEmDee
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: flags, energies
-  end subroutine EmDee_group_energy
 
   ! TEMPORARY:
   subroutine EmDee_Rotational_Energies( md, Kr ) bind(C,name="EmDee_Rotational_Energies")
