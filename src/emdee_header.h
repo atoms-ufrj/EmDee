@@ -19,7 +19,8 @@ typedef struct {
 tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, double* masses );
 void EmDee_switch_model_layer( tEmDee* md, int layer );
 void EmDee_set_charges( tEmDee md, double* charges );
-void EmDee_set_pair_type( tEmDee md, int itype, int jtype, void* model );
+void EmDee_set_pair_model( tEmDee md, int itype, int jtype, void* model );
+void EmDee_set_pair_multimodel( tEmDee md, int itype, int jtype, void* model[] );
 void EmDee_ignore_pair( tEmDee md, int i, int j );
 void EmDee_add_bond( tEmDee md, int i, int j, void* model );
 void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );

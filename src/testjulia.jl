@@ -8,15 +8,19 @@ function run(nthreads, file)
   L = fill((N/rho)^(1.0/3.0),3)
   Dt_2 = 0.5*Dt
 
-  md = EmDee.system( nthreads, 1, Rc, Rs, N, C_NULL, C_NULL )
-  lj = EmDee.pair_lj_sf_coul_sf( 1.0, 1.0 )
-  lj = EmDee.pair_softcore_sf_coul_sf( 1.0, 1.0, 1.0 )
-  EmDee.set_pair_type( md, 1, 1, lj )
+  md = EmDee.system( nthreads, 2, Rc, Rs, N, C_NULL, C_NULL )
+#  lj = EmDee.pair_lj_sf_coul_sf( 1.0, 1.0 )
+  lj1 = EmDee.pair_softcore_sf_coul_sf( 1.0, 1.0, 1.0 )
+  lj2 = EmDee.pair_softcore_sf_coul_sf( 1.0, 1.0, 0.5 )
+#  EmDee.set_pair_type( md, 1, 1, lj )
+  EmDee.set_pair_multimodel( md, 1, 1, [lj1,lj2] )
 
   R = generate_configuration( N, L[1] )
 
   EmDee.upload( md, L, R, C_NULL, C_NULL )
   EmDee.random_momenta( md, Temp, 1, seed )
+
+  EmDee.switch_model_layer( md, 1 )
 
   println(0, " ", md.Potential, " ", md.Virial)
   for step = 1:Nsteps

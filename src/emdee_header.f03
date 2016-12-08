@@ -47,10 +47,10 @@ interface
     type(tEmDee)          :: EmDee_system
   end function EmDee_system
 
-  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_set_layer")
+  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_switch_model_layer")
     import :: c_int, c_ptr, tEmDee
-    type(tEmDee),   intent(inout) :: md
-    integer(c_int), value         :: layer
+    type(tEmDee),   value :: md
+    integer(c_int), value :: layer
   end subroutine EmDee_switch_model_layer
 
   subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
@@ -59,12 +59,19 @@ interface
     type(c_ptr),  value :: charges
   end subroutine EmDee_set_charges
 
-  subroutine EmDee_set_pair_type( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_type")
+  subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
     import :: c_int, c_ptr, tEmDee
     type(tEmDee),   value :: md
     integer(c_int), value :: itype, jtype
     type(c_ptr),    value :: model
-  end subroutine EmDee_set_pair_type
+  end subroutine EmDee_set_pair_model
+
+  subroutine EmDee_set_pair_multimodel( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_multimodel")
+    import :: c_int, c_ptr, tEmDee
+    type(tEmDee),   value :: md
+    integer(c_int), value :: itype, jtype
+    type(c_ptr),    intent(in) :: model(*)
+  end subroutine EmDee_set_pair_multimodel
 
   subroutine EmDee_ignore_pair( md, i, j ) bind(C,name="EmDee_ignore_pair")
     import :: c_int, c_ptr, tEmDee

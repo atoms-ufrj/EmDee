@@ -31,7 +31,7 @@ use ArBee
 
 implicit none
 
-character(11), parameter :: VERSION = "07 Dec 2016"
+character(11), parameter, private :: VERSION = "07 Dec 2016"
 
 integer, parameter, private :: extra = 2000
 
@@ -132,6 +132,7 @@ type, private :: tData
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
+  logical,                  allocatable :: multilayer(:,:)
 
 end type tData
 
@@ -223,6 +224,7 @@ contains
     allocate( none%model, source = pair_none(name="none") )
     none % overridable = .true.
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
+    allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -242,9 +244,9 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_set_layer")
-    type(tEmDee), intent(inout) :: md
-    integer(ib),  value         :: layer
+  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_switch_model_layer")
+    type(tEmDee), value :: md
+    integer(ib),  value :: layer
     type(tData), pointer :: me
     call c_f_pointer( md%data, me )
     if ((layer < 1).or.(layer > me%nlayers)) stop "ERROR in model layer change: out of range"
@@ -270,47 +272,57 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_set_pair_type( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_type")
+  subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
     type(tEmDee), value :: md
     integer(ib),  value :: itype, jtype
     type(c_ptr),  value :: model
 
-    integer :: ktype
-    type(tData),          pointer :: me
+    integer :: layer
+    type(tData), pointer :: me
     type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
     if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been defined"
-
     if (.not.c_associated(model)) stop "ERROR: a valid pair model must be provided"
 
     call c_f_pointer( model, container )
-    select type (pmodel => container%model)
-      class is (cPairModel)
-        associate (pair => me%pair(:,:,me%layer))
-          if (itype == jtype) then
-            pair(itype,itype) = container
-            call pair(itype,itype) % model % shifting_setup( me%Rc )
-            do ktype = 1, me%ntypes
-              if ((ktype /= itype).and.pair(itype,ktype)%overridable) then
-                pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
-                call pair(itype,ktype) % model % shifting_setup( me%Rc )
-                pair(ktype,itype) = pair(itype,ktype)
-              end if
-            end do
-          else
-            pair(itype,jtype) = container
-            call pair(itype,jtype) % model % shifting_setup( me%Rc )
-            pair(jtype,itype) = pair(itype,jtype)
-            pair(itype,jtype)%overridable = .false.
-            pair(jtype,itype)%overridable = .false.
-          end if
-        end associate
-      class default
-        stop "ERROR: a valid pair model must be provided"
-    end select
+    me%multilayer(itype,jtype) = .false.
+    do layer = 1, me%nlayers
+      call set_pair_type( me, itype, jtype, layer, container )
+    end do
 
-  end subroutine EmDee_set_pair_type
+  end subroutine EmDee_set_pair_model
+
+!===================================================================================================
+
+  subroutine EmDee_set_pair_multimodel( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_multimodel")
+    use :: iso_fortran_env
+    type(tEmDee), value :: md
+    integer(ib),  value :: itype, jtype
+    type(c_ptr), intent(in) :: model(*)
+
+    integer :: layer
+    character(5) :: C
+    type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    call c_f_pointer( md%data, me )
+
+    if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been defined"
+
+    me%multilayer(itype,jtype) = .true.
+    do layer = 1, me%nlayers
+      if (c_associated(model(layer))) then
+        call c_f_pointer( model(layer), container )
+      else
+        write(C,'(I5)') me%nlayers
+        write(ERROR_UNIT,'("ERROR: ",A," valid pair models must be provided")') trim(adjustl(C))
+        stop
+      end if
+      call set_pair_type( me, itype, jtype, layer, container )
+    end do
+
+  end subroutine EmDee_set_pair_multimodel
 
 !===================================================================================================
 
@@ -894,6 +906,42 @@ contains
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
+!===================================================================================================
+
+  subroutine set_pair_type( me, itype, jtype, layer, container )
+    type(tData),          intent(inout) :: me
+    integer(ib),          intent(in)    :: itype, jtype, layer
+    type(modelContainer), intent(in)    :: container
+
+    integer :: ktype
+
+    select type (pmodel => container%model)
+      class is (cPairModel)
+        associate (pair => me%pair(:,:,layer))
+          if (itype == jtype) then
+            pair(itype,itype) = container
+            call pair(itype,itype) % model % shifting_setup( me%Rc )
+            do ktype = 1, me%ntypes
+              if ((ktype /= itype).and.pair(itype,ktype)%overridable) then
+                pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
+                call pair(itype,ktype) % model % shifting_setup( me%Rc )
+                pair(ktype,itype) = pair(itype,ktype)
+              end if
+            end do
+          else
+            pair(itype,jtype) = container
+            call pair(itype,jtype) % model % shifting_setup( me%Rc )
+            pair(jtype,itype) = pair(itype,jtype)
+            pair(itype,jtype)%overridable = .false.
+            pair(jtype,itype)%overridable = .false.
+          end if
+        end associate
+      class default
+        stop "ERROR: a valid pair model must be provided"
+    end select
+
+  end subroutine set_pair_type
+
 !===================================================================================================
 
   subroutine compute_forces( md )
