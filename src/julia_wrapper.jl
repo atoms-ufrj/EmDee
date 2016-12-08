@@ -1,23 +1,24 @@
 module EmDee
 
 type tOptions
-  translate::Int32        # Flag to activate/deactivate translations
-  rotate::Int32           # Flag to activate/deactivate rotations
-  rotationMode::Int32     # Algorithm used for free rotation of rigid bodies
+  translate::Int32           # Flag to activate/deactivate translations
+  rotate::Int32              # Flag to activate/deactivate rotations
+  rotationMode::Int32        # Algorithm used for free rotation of rigid bodies
 end
 
 type tEmDee
-  builds::Int32           # Number of neighbor-list builds
-  pairTime::Float64       # Time taken in force calculations
-  totalTime::Float64      # Total time since initialization
-  Potential::Float64      # Total potential energy of the system
-  Kinetic::Float64        # Total kinetic energy of the system
-  Rotational::Float64     # Rotational kinetic energy of the system
-  Virial::Float64         # Total internal virial of the system
-  DOF::Int32              # Total number of degrees of freedom
-  RDOF::Int32             # Number of rotational degrees of freedom
-  Data::Ptr{Void}         # Pointer to EmDee system data
-  Options::tOptions       # List of options to change EmDee's behavior
+  builds::Int32              # Number of neighbor-list builds
+  pairTime::Float64          # Time taken in force calculations
+  totalTime::Float64         # Total time since initialization
+  Potential::Float64         # Total potential energy of the system
+  Kinetic::Float64           # Total kinetic energy of the system
+  Rotational::Float64        # Rotational kinetic energy of the system
+  Virial::Float64            # Total internal virial of the system
+  layerEnergy::Ptr{Float64}  # A vector with the energies due to multilayer models
+  DOF::Int32                 # Total number of degrees of freedom
+  RDOF::Int32                # Number of rotational degrees of freedom
+  Data::Ptr{Void}            # Pointer to EmDee system data
+  Options::tOptions          # List of options to change EmDee's behavior
 end
 
 typealias VecOrPtr Union{Vector{Float64},Ptr{Void}}
