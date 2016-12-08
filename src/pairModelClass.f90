@@ -66,7 +66,6 @@ end interface
 !> Container structure for pair models
 type pairModelContainer
   class(cPairModel), allocatable :: model
-  logical :: overridable
   contains
     procedure :: pairModelContainer_assign
     generic :: assignment(=) => pairModelContainer_assign
@@ -158,7 +157,6 @@ contains
       write(*,'("WARNING: no mixing rule found for pair interaction models ",A," and ",A,".")') &
         trim(a % model % name), trim(b % name)
     end if
-    c%overridable = .true.
 
   end function pairModelContainer_mix
 

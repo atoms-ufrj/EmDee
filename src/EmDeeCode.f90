@@ -17,8 +17,8 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Replace compute_forces by an update_forces routine after model layer switch
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
-! TODO: Store overridable status of pair models in tData instead of PairModelContainer
 ! TODO: Optimize parallel performance of download in a unique omp parallel
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
 
@@ -135,9 +135,9 @@ type, private :: tData
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
-  logical, allocatable :: multilayer(:,:)
-  logical, allocatable :: participant(:)
-  real(rb), pointer :: layer_energy(:,:)
+  logical,  allocatable :: multilayer(:,:)
+  logical,  allocatable :: overridable(:,:)
+  real(rb), pointer     :: layer_energy(:)
 
 end type tData
 
@@ -227,11 +227,11 @@ contains
 
     ! Allocate memory for pair models:
     allocate( none%model, source = pair_none(name="none") )
-    none % overridable = .true.
+!    none % overridable = .true.
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
-    allocate( me%participant(me%ntypes), source = .false. )
-    allocate( me%layer_energy(me%nlayers,me%nthreads) )
+    allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
+    allocate( me%layer_energy(me%nlayers) )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -240,7 +240,7 @@ contains
     EmDee_system % Potential = zero
     EmDee_system % Kinetic = zero
     EmDee_system % Rotational = zero
-    EmDee_system % layerEnergy = c_loc(me%layer_energy(:,1))
+    EmDee_system % layerEnergy = c_loc(me%layer_energy(1))
     EmDee_system % DOF = 3*(N - 1)
     EmDee_system % rotationDOF = 0
     EmDee_system % data = c_loc(me)
@@ -285,7 +285,7 @@ contains
     integer(ib),  value :: itype, jtype
     type(c_ptr),  value :: model
 
-    integer :: layer
+    integer :: layer, ktype
     type(tData), pointer :: me
     type(modelContainer), pointer :: container
 
@@ -300,9 +300,17 @@ contains
 
     me%multilayer(itype,jtype) = .false.
     me%multilayer(jtype,itype) = .false.
-
-    me%participant(itype) = any(me%multilayer(itype,:))
-    me%participant(jtype) = any(me%multilayer(jtype,:))
+    if (itype == jtype) then
+      do ktype = 1, me%ntypes
+        if ((ktype /= itype).and.me%overridable(itype,ktype)) then
+          me%multilayer(itype,ktype) = me%multilayer(ktype,ktype)
+          me%multilayer(ktype,itype) = me%multilayer(ktype,ktype)
+        end if
+      end do
+    else
+      me%overridable(itype,jtype) = .false.
+      me%overridable(jtype,itype) = .false.
+    end if
 
   end subroutine EmDee_set_pair_model
 
@@ -338,15 +346,15 @@ contains
     me%multilayer(jtype,itype) = .true.
     if (itype == jtype) then
       do ktype = 1, me%ntypes
-        if ((ktype /= itype).and.me%pair(itype,ktype,1)%overridable) then
+        if ((ktype /= itype).and.me%overridable(itype,ktype)) then
           me%multilayer(itype,ktype) = .true.
           me%multilayer(ktype,itype) = .true.
         end if
       end do
+    else
+      me%overridable(itype,jtype) = .false.
+      me%overridable(jtype,itype) = .false.
     end if
-
-    me%participant(itype) = any(me%multilayer(itype,:))
-    me%participant(jtype) = any(me%multilayer(jtype,:))
 
   end subroutine EmDee_set_pair_multimodel
 
@@ -918,7 +926,7 @@ contains
             pair(itype,itype) = container
             call pair(itype,itype) % model % shifting_setup( me%Rc )
             do ktype = 1, me%ntypes
-              if ((ktype /= itype).and.pair(itype,ktype)%overridable) then
+              if ((ktype /= itype).and.me%overridable(itype,ktype)) then
                 pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
                 call pair(itype,ktype) % model % shifting_setup( me%Rc )
                 pair(ktype,itype) = pair(itype,ktype)
@@ -928,8 +936,6 @@ contains
             pair(itype,jtype) = container
             call pair(itype,jtype) % model % shifting_setup( me%Rc )
             pair(jtype,itype) = pair(itype,jtype)
-            pair(itype,jtype)%overridable = .false.
-            pair(jtype,itype)%overridable = .false.
           end if
         end associate
       class default
@@ -946,13 +952,13 @@ contains
     integer  :: M
     real(rb) :: time, E, W
     logical  :: buildList
-    real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
+    real(rb), allocatable :: Rs(:,:), Fs(:,:,:), Elayer(:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     md%pairTime = md%pairTime - omp_get_wtime()
 
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
+    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads), Elayer(me%nlayers,me%nthreads) )
     Rs = me%invL*me%R
     Fs = zero
     E = zero
@@ -972,9 +978,9 @@ contains
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
         if (buildList) then
-          call find_pairs_and_compute( me, thread, Rs, F, E, W )
+          call find_pairs_and_compute( me, thread, Rs, F, E, W, Elayer(:,thread) )
         else
-          call compute_pairs( me, thread, Rs, F, E, W )
+          call compute_pairs( me, thread, Rs, F, E, W, Elayer(:,thread) )
         end if
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
@@ -986,7 +992,7 @@ contains
     me%F = me%Lbox*sum(Fs,3)
     md%Potential = E
     md%Virial = third*W
-    me%layer_energy(:,1) = sum(me%layer_energy,2)
+    me%layer_energy = sum(Elayer,2)
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     time = omp_get_wtime()
@@ -1320,11 +1326,11 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, Rs, F, Potential, Virial )
+  subroutine find_pairs_and_compute( me, thread, Rs, F, Potential, Virial, Elayer )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
     integer  :: nlocal, ntotal, first, last
@@ -1340,8 +1346,8 @@ contains
     include = .true.
     index = 0
     npairs = 0
-    associate (neighbor => me%neighbor(thread), energy => me%layer_energy(:,thread))
-      energy = zero
+    associate (neighbor => me%neighbor(thread))
+      Elayer = zero
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
         if (neighbor%nitems < npairs + me%maxpairs) then
@@ -1404,7 +1410,7 @@ contains
                             select type ( model => me%pair(itype,jtype,layer)%model )
                               include "compute_pair.f90"
                             end select
-                            energy(layer) = energy(layer) + Eij
+                            Elayer(layer) = Elayer(layer) + Eij
                           end do
                         end if
 
@@ -1428,11 +1434,11 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, Rs, F, Potential, Virial )
+  subroutine compute_pairs( me, thread, Rs, F, Potential, Virial, Elayer )
     type(tData), intent(in)    :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
@@ -1441,8 +1447,8 @@ contains
     Rc2 = me%RcSq*me%invL2
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate (neighbor => me%neighbor(thread), Q => me%charge, energy => me%layer_energy(:,thread))
-      energy = zero
+    associate (neighbor => me%neighbor(thread), Q => me%charge)
+      Elayer = zero
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
@@ -1467,14 +1473,16 @@ contains
               Fij = Wij*invR2*Rij
               Fi = Fi + Fij
               F(:,j) = F(:,j) - Fij
+
               if (multilayer(jtype)) then
                 do layer = 1, me%nlayers
                   select type ( model => me%pair(itype,jtype,layer)%model )
                     include "compute_pair.f90"
                   end select
-                  energy(layer) = energy(layer) + Eij
+                  Elayer(layer) = Elayer(layer) + Eij
                 end do
               end if
+
             end if
           end do
         end associate
