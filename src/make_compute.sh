@@ -21,8 +21,17 @@
 
 #---------------------------------------------------------------------------------------------------
 
-for var in "$@"; do
-    echo "type is ($var)"
-    echo "  include \"compute_$var.f90\""
-done
+#for model in "$@"; do
+#    echo "type is ($model)"
+#    echo "  include \"compute_$model.f90\""
+#done
 
+for model in "$@"; do
+  echo "type is ($model)"
+  echo "  block"
+  grep -i -A100 -e "^\s*subroutine\s*${model}_compute" src/$model.f90 |
+  grep -i -m1 -B100 "^\s*end\s*subroutine" |
+  grep -v -i -e "subroutine" -e "intent(.*)"
+  echo "  end block"
+  echo
+done

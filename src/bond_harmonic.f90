@@ -65,7 +65,12 @@ contains
     real(rb),             intent(out) :: E, W
     real(rb),             intent(in)  :: invR2
 
-    include "compute_bond_harmonic.f90"
+    real(rb) :: delta, r
+
+    r = one/sqrt(invR2)
+    delta = r - model%r0
+    E = model%half_k*delta**2
+    W = model%minus_k*delta*r
 
   end subroutine bond_harmonic_compute
 

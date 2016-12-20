@@ -87,7 +87,19 @@ contains
     real(rb),                        intent(out) :: Eij, Wij
     real(rb),                        intent(in)  :: invR2, Qi, Qj
 
-    include "compute_pair_softcore_sf_coul_sf.f90"
+    real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb, rFc, invR, QiQj, QiQjbyR
+
+    rsig2 = model%invSigSq/invR2
+    rsig6 = rsig2*rsig2*rsig2
+    sinv = one/(rsig6 + model%shift)
+    sinvSq = sinv*sinv
+    sinvCb = sinv*sinvSq
+    invR = sqrt(invR2)
+    QiQj = Qi*Qj
+    QiQjbyR = QiQj*invR
+    rFc = (model%fshift_vdw + QiQj*model%fshift_coul)/invR
+    Eij = model%prefactor*(sinvSq - sinv) + QiQjbyR + model%eshift_vdw + QiQj*model%eshift_coul + rFc
+    Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq) + QiQjbyR - rFc
 
   end subroutine pair_softcore_sf_coul_sf_compute
 

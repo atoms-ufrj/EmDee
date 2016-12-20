@@ -63,7 +63,14 @@ contains
     real(rb),       intent(out) :: Eij, Wij
     real(rb),       intent(in)  :: invR2, Qi, Qj
 
-    include "compute_pair_coul_sf.f90"
+    real(rb) :: rFc, invR, QiQj, QiQjbyR
+
+    invR = sqrt(invR2)
+    QiQj = Qi*Qj
+    QiQjbyR = QiQj*invR
+    rFc = QiQj*model%fshift_coul/invR
+    Eij = QiQjbyR + QiQj*model%eshift_coul + rFc
+    Wij = QiQjbyR - rFc
 
   end subroutine pair_coul_sf_compute
 

@@ -81,7 +81,15 @@ contains
     real(rb),                 intent(out) :: Eij, Wij
     real(rb),                 intent(in)  :: invR2, Qi, Qj
 
-    include "compute_pair_softcore_cut.f90"
+    real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
+
+    rsig2 = model%invSigSq/invR2
+    rsig6 = rsig2*rsig2*rsig2
+    sinv = one/(rsig6 + model%shift)
+    sinvSq = sinv*sinv
+    sinvCb = sinv*sinvSq
+    Eij = model%prefactor*(sinvSq - sinv)
+    Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq)
 
   end subroutine pair_softcore_cut_compute
 

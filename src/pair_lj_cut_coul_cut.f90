@@ -69,7 +69,14 @@ contains
     real(rb),       intent(out) :: Eij, Wij
     real(rb),       intent(in)  :: invR2, Qi, Qj
 
-    include "compute_pair_lj_cut_coul_cut.f90"
+    real(rb) :: sr2, sr6, sr12, QiQjbyR
+
+    sr2 = model%sigSq*invR2
+    sr6 = sr2*sr2*sr2
+    sr12 = sr6*sr6
+    QiQjbyR = Qi*Qj*sqrt(invR2)
+    Eij = model%eps4*(sr12 - sr6) + QiQjbyR
+    Wij = model%eps24*(sr12 + sr12 - sr6) + QiQjbyR
 
   end subroutine pair_lj_cut_coul_cut_compute
 

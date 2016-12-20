@@ -123,16 +123,16 @@ $(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(SRCDIR)/compute_pair.f90: $(call src,$(addprefix compute_,$(PAIRMODELS)))
+$(SRCDIR)/compute_pair.f90: $(call src,$(PAIRMODELS))
 	bash $(SRCDIR)/make_compute.sh $(PAIRMODELS) > $@
 
-$(SRCDIR)/compute_bond.f90: $(call src,$(addprefix compute_,$(BONDMODELS)))
+$(SRCDIR)/compute_bond.f90: $(call src,$(BONDMODELS))
 	bash $(SRCDIR)/make_compute.sh $(BONDMODELS) > $@
 
-$(SRCDIR)/compute_angle.f90: $(call src,$(addprefix compute_,$(ANGLEMODELS)))
+$(SRCDIR)/compute_angle.f90: $(call src,$(ANGLEMODELS))
 	bash $(SRCDIR)/make_compute.sh $(ANGLEMODELS) > $@
 
-$(SRCDIR)/compute_dihedral.f90: $(call src,$(addprefix compute_,$(DIHEDMODELS)))
+$(SRCDIR)/compute_dihedral.f90: $(call src,$(DIHEDMODELS))
 	bash $(SRCDIR)/make_compute.sh $(DIHEDMODELS) > $@
 
 $(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral)) \
@@ -140,20 +140,19 @@ $(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond ang
 	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $(SRCDIR)/models.f90
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $(SRCDIR)/models.f90
 
-$(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(SRCDIR)/compute_pair_%.f90 $(OBJDIR)/pairModelClass.o
+$(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(OBJDIR)/pairModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(SRCDIR)/compute_bond_%.f90 $(OBJDIR)/bondModelClass.o
+$(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(OBJDIR)/bondModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(SRCDIR)/compute_angle_%.f90 $(OBJDIR)/angleModelClass.o
+$(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(OBJDIR)/angleModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(SRCDIR)/dihedral_angle_%.f90 $(OBJDIR)/dihedralModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(SRCDIR)/compute_pair_coul_sf.f90 \
-                            $(OBJDIR)/modelClass.o
+$(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o

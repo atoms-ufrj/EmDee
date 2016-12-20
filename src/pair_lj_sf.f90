@@ -73,7 +73,14 @@ contains
     real(rb),       intent(out) :: Eij, Wij
     real(rb),       intent(in)  :: invR2, Qi, Qj
 
-    include "compute_pair_lj_sf.f90"
+    real(rb) :: sr2, sr6, sr12, rFc
+
+    sr2 = model%sigSq*invR2
+    sr6 = sr2*sr2*sr2
+    sr12 = sr6*sr6
+    rFc = model%fshift_vdw/sqrt(invR2)
+    Eij = model%eps4*(sr12 - sr6) + model%eshift_vdw + rFc
+    Wij = model%eps24*(sr12 + sr12 - sr6) - rFc
 
   end subroutine pair_lj_sf_compute
 

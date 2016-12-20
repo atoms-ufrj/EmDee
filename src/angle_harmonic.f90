@@ -65,7 +65,10 @@ contains
     real(rb),              intent(out) :: Ea, Fa
     real(rb),              intent(in)  :: theta
 
-    include "compute_angle_harmonic.f90"
+    real(rb) :: delta
+    delta = theta - model%theta0
+    Ea = model%half_k*delta**2
+    Fa = model%minus_k*delta
 
   end subroutine angle_harmonic_compute
 
