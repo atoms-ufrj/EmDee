@@ -52,10 +52,11 @@ PAIRMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/pair_*.f90))
 BONDMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/bond_*.f90))
 ANGLEMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/angle_*.f90))
 DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
+
 ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
               $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
 
-OBJECTS = $(call obj,EmDeeCode ArBee math structs models \
+OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
                      $(PAIRMODELS) pairModelClass $(BONDMODELS) bondModelClass \
                      $(ANGLEMODELS) angleModelClass $(DIHEDMODELS) dihedralModelClass \
                      modelClass lists global)
@@ -111,7 +112,10 @@ $(LIBDIR)/libemdee.so: $(OBJECTS)
 # Object files:
 
 $(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode compute_pair compute_bond compute_angle compute_dihedral) \
-                       $(call obj,ArBee structs models lists global)
+                       $(call obj,EmDeeData ArBee structs models lists global)
+	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/EmDeeData.o: $(SRCDIR)/EmDeeData.f90 $(call obj,ArBee structs models lists math global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/ArBee.o: $(SRCDIR)/ArBee.f90 $(call obj,math global)
