@@ -454,8 +454,6 @@ contains
     item = string(option)
     if (.not.c_associated(address)) call error( "upload", "provided address is invalid" )
 
-    print*, "Uploading: ", trim(item)
-
     select case (item)
 
       case ("box")
@@ -470,7 +468,7 @@ contains
         if (.not.allocated( me%R )) allocate( me%R(3,me%natoms) )
         call c_f_pointer( address, Ext, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call assign_coordinates( omp_get_thread_num() + 1 )
+        call assign_coordinates( me, omp_get_thread_num() + 1, Ext )
         !$omp end parallel
         me%initialized = me%Lbox > zero
         if (me%initialized) call compute_forces( md )
@@ -479,7 +477,7 @@ contains
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
         call c_f_pointer( address, Ext, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads) reduction(+:TwoKEt,TwoKEr)
-        call assign_momenta( omp_get_thread_num() + 1, twoKEt, twoKEr )
+        call assign_momenta( me, omp_get_thread_num() + 1, Ext, twoKEt, twoKEr )
         !$omp end parallel
 
       case ("forces")
@@ -502,53 +500,6 @@ contains
     end select
 
     contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_coordinates( thread )
-        integer, intent(in) :: thread
-        integer :: i, j
-        real(rb), allocatable :: R(:,:)
-        do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
-          i = me%free(j)
-          me%R(:,i) = Ext(:,i)
-        end do
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => me%body(i))
-            R = Ext(:,b%index)
-            forall (j=2:b%NP) R(:,j) = R(:,j) - me%Lbox*anint((R(:,j) - R(:,1))*me%invL)
-            call b % update( R )
-            me%R(:,b%index) = R
-          end associate
-        end do
-      end subroutine assign_coordinates
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_momenta( thread, twoKEt, twoKEr )
-        integer,  intent(in)  :: thread
-        real(rb), intent(out) :: twoKEt, twoKEr
-        integer :: i, j
-        real(rb) :: L(3), Pj(3)
-        twoKEt = zero
-        twoKEr = zero
-        do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
-          i = me%free(j)
-          me%P(:,i) = Ext(:,i)
-          twoKEt = twoKEt + me%invMass(i)*sum(Ext(:,i)**2)
-        end do
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => me%body(i))
-            b%pcm = zero
-            L = zero
-            do j = 1, b%NP
-              Pj = Ext(:,b%index(j))
-              b%pcm = b%pcm + Pj
-              L = L + cross_product( b%delta(:,j), Pj )
-            end do
-            twoKEt = twoKEt + b%invMass*sum(b%pcm**2)
-            b%pi = matmul( matrix_C(b%q), two*L )
-            b%omega= half*b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-            twoKEr = twoKEr + sum(b%MoI*b%omega**2)
-          end associate
-        end do
-      end subroutine assign_momenta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine assign_forces( thread )
         integer, intent(in) :: thread
