@@ -56,10 +56,6 @@ function switch_model_layer( md::tEmDee, layer::Int )
   ccall( (:EmDee_switch_model_layer,"libemdee"), Void, (tEmDee, Int32), md, layer )
 end
 #---------------------------------------------------------------------------------------------------
-function set_charges( md::tEmDee, charges::Vector{Float64} )
-  ccall( (:EmDee_set_charges,"libemdee"), Void, (tEmDee, Ptr{Float64}), md, charges )
-end
-#---------------------------------------------------------------------------------------------------
 function add_bond( md::tEmDee, i::Int, j::Int, model::Ptr{Void} )
   ccall( (:EmDee_add_bond,"libemdee"), Void,
          (tEmDee, Int32, Int32, Ptr{Void}), md, i, j, model )
@@ -76,19 +72,16 @@ function add_dihedral( md::tEmDee, i::Int, j::Int, k::Int, l::Int, model::Ptr{Vo
 end
 #---------------------------------------------------------------------------------------------------
 function add_rigid_body( md::tEmDee, N::Int, indexes::Vector{Int} )
-  ccall( (:EmDee_add_rigid_body,"libemdee"), Void,
-         (tEmDee, Int32, Ptr{Int32}), md, N, indexes )
+  ccall( (:EmDee_add_rigid_body,"libemdee"), Void, (tEmDee, Int32, Ptr{Int32}), md, N, indexes )
 end
 #---------------------------------------------------------------------------------------------------
 function ignore_pair( md::tEmDee, i::Int, j::Int )
   ccall( (:EmDee_ignore_pair,"libemdee"), Void, (tEmDee, Int32, Int32), md, i, j )
 end
 #---------------------------------------------------------------------------------------------------
-function upload( md::tEmDee, Lbox::VecOrPtr, coords::MatOrPtr,
-                 momenta::MatOrPtr, forces::MatOrPtr )
+function upload( md::tEmDee, option::String, address::Array{Float64} )
   ccall( (:EmDee_upload,"libemdee"), Void,
-         (Ptr{Void}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}),
-         pointer_from_objref(md), Lbox, coords, momenta, forces )
+         (Ptr{Void}, Cstring, Ptr{Float64}), Ref(md), option, address )
 end
 #---------------------------------------------------------------------------------------------------
 function download( md::tEmDee, Lbox::VecOrPtr, coords::MatOrPtr,
@@ -100,20 +93,17 @@ end
 #---------------------------------------------------------------------------------------------------
 function random_momenta( md::tEmDee, kT::Float64, adjust::Int, seed::Int )
   ccall( (:EmDee_random_momenta,"libemdee"), Void,
-         (Ptr{Void}, Float64, Int32, Int32),
-         pointer_from_objref(md), kT, adjust, seed )
+         (Ptr{Void}, Float64, Int32, Int32), Ref(md), kT, adjust, seed )
 end
 #---------------------------------------------------------------------------------------------------
 function boost( md::tEmDee, lambda::Float64, alpha::Float64, dt::Float64 )
   ccall( (:EmDee_boost,"libemdee"), Void,
-         (Ptr{Void}, Float64, Float64, Float64),
-         pointer_from_objref(md), lambda, alpha, dt )
+         (Ptr{Void}, Float64, Float64, Float64), Ref(md), lambda, alpha, dt )
 end
 #---------------------------------------------------------------------------------------------------
 function move( md::tEmDee, lambda::Float64, alpha::Float64, dt::Float64 )
   ccall( (:EmDee_move,"libemdee"), Void,
-         (Ptr{Void}, Float64, Float64, Float64),
-         pointer_from_objref(md), lambda, alpha, dt )
+         (Ptr{Void}, Float64, Float64, Float64), Ref(md), lambda, alpha, dt )
 end
 #---------------------------------------------------------------------------------------------------
 #                                            M O D E L S

@@ -18,7 +18,6 @@
 !            Federal University of Rio de Janeiro, Brazil
 
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
-! TODO: Optimize parallel performance of download in a unique omp parallel
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
 
 module EmDeeCode
@@ -27,7 +26,9 @@ use EmDeeData
 
 implicit none
 
-character(11), parameter, private :: VERSION = "26 Dec 2016"
+private
+
+character(11), parameter :: VERSION = "26 Dec 2016"
 
 type, bind(C) :: tOpts
   integer(ib) :: translate      ! Flag to activate/deactivate translations
@@ -49,13 +50,6 @@ type, bind(C) :: tEmDee
   type(c_ptr) :: Data           ! Pointer to system data
   type(tOpts) :: Options        ! List of options to change EmDee's behavior
 end type tEmDee
-
-type, private :: tCell
-  integer :: neighbor(nbcells)
-end type tCell
-
-private :: maximum_approach_sq, distribute_atoms, find_pairs_and_compute, &
-           compute_pairs, compute_bonds, compute_angles, compute_dihedrals, set_pair_type
 
 contains
 
@@ -117,7 +111,7 @@ contains
 
     ! Initialize counters and other mutable entities:
     me%startTime = omp_get_wtime()
-    allocate( me%R(3,N), me%P(3,N), me%F(3,N), me%R0(3,N), source = zero )
+    allocate( me%P(3,N), me%F(3,N), me%R0(3,N), source = zero )
     allocate( me%charge(N), source = zero )
     allocate( me%cell(0) )
     allocate( me%atomCell(N) )
@@ -179,22 +173,6 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: charges
-
-    real(rb),      pointer :: Q(:)
-    type(tData),   pointer :: me
-
-    call c_f_pointer( md%data, me )
-    call c_f_pointer( charges, Q, [me%natoms] )
-    me%charge = Q
-    if (me%initialized) call compute_forces( md )
-
-  end subroutine EmDee_set_charges
-
-!===================================================================================================
-
   subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
     type(tEmDee), value :: md
     integer(ib),  value :: itype, jtype
@@ -232,10 +210,9 @@ contains
 !===================================================================================================
 
   subroutine EmDee_set_pair_multimodel( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_multimodel")
-    use :: iso_fortran_env
-    type(tEmDee), value :: md
-    integer(ib),  value :: itype, jtype
-    type(c_ptr), intent(in) :: model(*)
+    type(tEmDee), value      :: md
+    integer(ib),  value      :: itype, jtype
+    type(c_ptr),  intent(in) :: model(*)
 
     integer :: layer, ktype
     character(5) :: C
@@ -251,8 +228,7 @@ contains
         call c_f_pointer( model(layer), container )
       else
         write(C,'(I5)') me%nlayers
-        write(ERROR_UNIT,'("ERROR: ",A," valid pair models must be provided")') trim(adjustl(C))
-        stop
+        call error( "set_pair_multimodel", trim(adjustl(C))//" valid pair models must be provided" )
       end if
       call set_pair_type( me, itype, jtype, layer, container )
     end do
@@ -464,45 +440,66 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_upload( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_upload")
-    type(tEmDee), intent(inout) :: md
-    type(c_ptr),  value         :: Lbox, coords, momenta, forces
+  subroutine EmDee_upload( md, option, address ) bind(C,name="EmDee_upload")
+    type(tEmDee),      intent(inout) :: md
+    character(c_char), intent(in)    :: option(*)
+    type(c_ptr),       value         :: address
 
     real(rb) :: twoKEt, twoKEr
-    real(rb), pointer :: L
+    real(rb), pointer :: L, Ext(:,:)
     type(tData), pointer :: me
+    character(sl) :: item
 
     call c_f_pointer( md%data, me )
+    item = string(option)
+    if (.not.c_associated(address)) call error( "upload", "provided address is invalid" )
 
-    if (.not.me%initialized) then
-      me%initialized = c_associated(Lbox) .and. c_associated(coords)
-      if (.not.me%initialized) then
-        stop "ERROR in EmDee_upload: box side length and atomic coordinates are required."
-      end if
-    end if
+    print*, "Uploading: ", trim(item)
 
-    if (c_associated(Lbox)) then
-      call c_f_pointer( Lbox, L )
-      me%Lbox = L
-      me%invL = one/L
-      me%invL2 = me%invL**2
-    end if
+    select case (item)
 
-    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,twoKEr)
-    block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
-      if (c_associated(coords)) call assign_coordinates( thread )
-      if (c_associated(momenta)) call assign_momenta( thread, twoKEt, twoKEr )
-      if (c_associated(forces)) call assign_forces( thread )
-    end block
-    !$omp end parallel
+      case ("box")
+        call c_f_pointer( address, L )
+        me%Lbox = L
+        me%invL = one/L
+        me%invL2 = me%invL**2
+        me%initialized = allocated( me%R )
+        if (me%initialized) call compute_forces( md )
 
-    if (c_associated(coords).and.(.not.c_associated(forces))) call compute_forces( md )
-    if (c_associated(momenta)) then
-      md%Rotational = half*twoKEr
-      md%Kinetic = half*twoKEt + md%Rotational
-    end if
+      case ("coordinates")
+        if (.not.allocated( me%R )) allocate( me%R(3,me%natoms) )
+        call c_f_pointer( address, Ext, [3,me%natoms] )
+        !$omp parallel num_threads(me%nthreads)
+        call assign_coordinates( omp_get_thread_num() + 1 )
+        !$omp end parallel
+        me%initialized = me%Lbox > zero
+        if (me%initialized) call compute_forces( md )
+
+      case ("momenta")
+        if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
+        call c_f_pointer( address, Ext, [3,me%natoms] )
+        !$omp parallel num_threads(me%nthreads) reduction(+:TwoKEt,TwoKEr)
+        call assign_momenta( omp_get_thread_num() + 1, twoKEt, twoKEr )
+        !$omp end parallel
+
+      case ("forces")
+        if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
+        call c_f_pointer( address, Ext, [3,me%natoms] )
+        !$omp parallel num_threads(me%nthreads)
+        call assign_forces( omp_get_thread_num() + 1 )
+        !$omp end parallel
+
+      case ("charges")
+        call c_f_pointer( address, Ext, [me%natoms,1] )
+        !$omp parallel num_threads(me%nthreads)
+        call assign_charges( omp_get_thread_num() + 1 )
+        !$omp end parallel
+        if (me%initialized) call compute_forces( md )
+
+      case default
+        call error( "upload", "invalid option" )
+
+    end select
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -510,15 +507,13 @@ contains
         integer, intent(in) :: thread
         integer :: i, j
         real(rb), allocatable :: R(:,:)
-        real(rb), pointer :: Rext(:,:)
-        call c_f_pointer( coords, Rext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
-          me%R(:,i) = Rext(:,i)
+          me%R(:,i) = Ext(:,i)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
-            R = Rext(:,b%index)
+            R = Ext(:,b%index)
             forall (j=2:b%NP) R(:,j) = R(:,j) - me%Lbox*anint((R(:,j) - R(:,1))*me%invL)
             call b % update( R )
             me%R(:,b%index) = R
@@ -531,21 +526,19 @@ contains
         real(rb), intent(out) :: twoKEt, twoKEr
         integer :: i, j
         real(rb) :: L(3), Pj(3)
-        real(rb), pointer :: Pext(:,:)
         twoKEt = zero
         twoKEr = zero
-        call c_f_pointer( momenta, Pext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
-          me%P(:,i) = Pext(:,i)
-          twoKEt = twoKEt + me%invMass(i)*sum(Pext(:,i)**2)
+          me%P(:,i) = Ext(:,i)
+          twoKEt = twoKEt + me%invMass(i)*sum(Ext(:,i)**2)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
             b%pcm = zero
             L = zero
             do j = 1, b%NP
-              Pj = Pext(:,b%index(j))
+              Pj = Ext(:,b%index(j))
               b%pcm = b%pcm + Pj
               L = L + cross_product( b%delta(:,j), Pj )
             end do
@@ -560,16 +553,22 @@ contains
       subroutine assign_forces( thread )
         integer, intent(in) :: thread
         integer :: i, j
-        real(rb), pointer :: Fext(:,:)
-        call c_f_pointer( forces, Fext, [3,me%natoms] )
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
-          me%F(:,i) = Fext(:,i)
+          me%F(:,i) = Ext(:,i)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          call me % body(i) % force_torque_virial( Fext )
+          call me % body(i) % force_torque_virial( Ext )
         end do
       end subroutine assign_forces
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine assign_charges( thread )
+        integer, intent(in) :: thread
+        integer :: first, last
+        first = (thread - 1)*me%threadAtoms + 1
+        last = min(thread*me%threadAtoms, me%natoms)
+        me%charge(first:last) = Ext(first:last,1)
+      end subroutine assign_charges
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 
@@ -827,40 +826,6 @@ contains
 !                              A U X I L I A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  subroutine set_pair_type( me, itype, jtype, layer, container )
-    type(tData),          intent(inout) :: me
-    integer(ib),          intent(in)    :: itype, jtype, layer
-    type(modelContainer), intent(in)    :: container
-
-    integer :: ktype
-
-    select type (pmodel => container%model)
-      class is (cPairModel)
-        associate (pair => me%pair(:,:,layer))
-          if (itype == jtype) then
-            pair(itype,itype) = container
-            call pair(itype,itype) % model % shifting_setup( me%Rc )
-            do ktype = 1, me%ntypes
-              if ((ktype /= itype).and.me%overridable(itype,ktype)) then
-                pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
-                call pair(itype,ktype) % model % shifting_setup( me%Rc )
-                pair(ktype,itype) = pair(itype,ktype)
-              end if
-            end do
-          else
-            pair(itype,jtype) = container
-            call pair(itype,jtype) % model % shifting_setup( me%Rc )
-            pair(jtype,itype) = pair(itype,jtype)
-          end if
-        end associate
-      class default
-        stop "ERROR: a valid pair model must be provided"
-    end select
-
-  end subroutine set_pair_type
-
-!===================================================================================================
-
   subroutine compute_forces( md )
     type(tEmDee), intent(inout) :: md
 
@@ -966,6 +931,27 @@ contains
     Kr = half*Kr
 
   end subroutine EmDee_Rotational_Energies
+
+!===================================================================================================
+
+  subroutine error( routine, msg )
+    use, intrinsic :: iso_fortran_env
+    character(*), intent(in) :: routine, msg
+    write(ERROR_UNIT,'("Error in EmDee_",A,": ",A,".")') trim(routine), trim(msg)
+    stop
+  end subroutine error
+
+!===================================================================================================
+
+  character(sl) function string( carray )
+    character(c_char), intent(in) :: carray(*)
+    integer :: i
+    string = ""
+    do i = 1, sl
+      if (carray(i) == c_null_char) return
+      string(i:i) = carray(i)
+    end do
+  end function string
 
 !===================================================================================================
 

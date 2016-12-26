@@ -80,7 +80,7 @@ call EmDee_set_pair_model( md, 1, 1, pair )
 call EmDee_set_pair_model( md, 2, 2, pair )
 !call EmDee_set_pair_model( md, 1, 2, pair )
 
-call EmDee_set_charges( md, c_loc(Q) )
+call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 
 do i = 1, N-1
   do j = i+1, N
@@ -93,7 +93,9 @@ call EmDee_add_bond( md, 1, 2, bond )
 call EmDee_add_bond( md, 2, 3, bond )
 call EmDee_add_bond( md, 4, 5, bond )
 
-call EmDee_upload( md, c_loc(L), c_loc(R(1,1)), c_loc(V(1,1)), c_null_ptr )
+call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
+call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
+call EmDee_upload( md, "momenta"//c_null_char, c_loc(V(1,1)) )
 
 do step = 1, Nsteps
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )

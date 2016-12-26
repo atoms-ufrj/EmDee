@@ -117,6 +117,40 @@ contains
 
 !===================================================================================================
 
+  subroutine set_pair_type( me, itype, jtype, layer, container )
+    type(tData),          intent(inout) :: me
+    integer(ib),          intent(in)    :: itype, jtype, layer
+    type(modelContainer), intent(in)    :: container
+
+    integer :: ktype
+
+    select type (pmodel => container%model)
+      class is (cPairModel)
+        associate (pair => me%pair(:,:,layer))
+          if (itype == jtype) then
+            pair(itype,itype) = container
+            call pair(itype,itype) % model % shifting_setup( me%Rc )
+            do ktype = 1, me%ntypes
+              if ((ktype /= itype).and.me%overridable(itype,ktype)) then
+                pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
+                call pair(itype,ktype) % model % shifting_setup( me%Rc )
+                pair(ktype,itype) = pair(itype,ktype)
+              end if
+            end do
+          else
+            pair(itype,jtype) = container
+            call pair(itype,jtype) % model % shifting_setup( me%Rc )
+            pair(jtype,itype) = pair(itype,jtype)
+          end if
+        end associate
+      class default
+        stop "ERROR: a valid pair model must be provided"
+    end select
+
+  end subroutine set_pair_type
+
+!===================================================================================================
+
   subroutine rigid_body_forces( me, Virial )
     type(tData), intent(inout) :: me
     real(rb),    intent(inout) :: Virial

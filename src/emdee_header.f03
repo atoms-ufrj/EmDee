@@ -54,12 +54,6 @@ interface
     integer(c_int), value :: layer
   end subroutine EmDee_switch_model_layer
 
-  subroutine EmDee_set_charges( md, charges ) bind(C,name="EmDee_set_charges")
-    import :: c_ptr, tEmDee
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: charges
-  end subroutine EmDee_set_charges
-
   subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
     import :: c_int, c_ptr, tEmDee
     type(tEmDee),   value :: md
@@ -108,10 +102,11 @@ interface
     integer(c_int), value :: N
   end subroutine EmDee_add_rigid_body
 
-  subroutine EmDee_upload( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_upload")
-    import :: c_ptr, tEmDee
-    type(tEmDee), intent(inout) :: md
-    type(c_ptr),  value         :: Lbox, coords, momenta, forces
+  subroutine EmDee_upload( md, item, address ) bind(C,name="EmDee_upload")
+    import :: c_ptr, c_char, tEmDee
+    type(tEmDee),      intent(inout) :: md
+    character(c_char), intent(in)    :: item(*)
+    type(c_ptr),       value         :: address
   end subroutine EmDee_upload
 
   subroutine EmDee_download( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_download")

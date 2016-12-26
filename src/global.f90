@@ -6,6 +6,7 @@ implicit none
 
 integer, parameter :: ib = c_int
 integer, parameter :: rb = c_double
+integer, parameter :: sl = 256
 
 real(rb), parameter :: zero   = 0.0_rb,                 &
                        one    = 1.0_rb,                 &

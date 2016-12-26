@@ -122,9 +122,13 @@ int main( int argc, char *argv[] )  {
   read_data( &par, filename );
   create_configuration( &par );
   tEmDee md = EmDee_system( threads, 1, par.Rc, par.Rs, par.N, NULL, NULL );
-  void* lj = EmDee_pair_lj_cut( 1.0, 1.0 );   
+  void* lj = EmDee_pair_lj_cut( 1.0, 1.0 );
   EmDee_set_pair_model( md, 1, 1, lj );
-  EmDee_upload( &md, &par.L, par.R, par.V, NULL );
+
+  EmDee_upload( &md, "box", &par.L );
+  EmDee_upload( &md, "coordinates", par.R );
+  EmDee_upload( &md, "momenta", par.V );
+  EmDee_random_momenta( &md, par.Temp, 1, par.seed );
 
   printf("%d %lf %lf\n", 0, md.Potential, md.Virial);
   for (int passo = 1; passo <= par.Npassos; passo++) {
