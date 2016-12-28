@@ -65,7 +65,7 @@ OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
 
 .DEFAULT_GOAL := all
 
-all: lib
+all: lib include
 
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
@@ -100,7 +100,7 @@ $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl
 
 # Static and shared libraries:
 
-lib: $(LIBDIR)/libemdee.so include
+lib: $(LIBDIR)/libemdee.so
 
 include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/EmDee.jl
 

@@ -21,9 +21,6 @@ type tEmDee
   Options::tOptions          # List of options to change EmDee's behavior
 end
 
-typealias VecOrPtr Union{Vector{Float64},Ptr{Void}}
-typealias MatOrPtr Union{Matrix{Float64},Ptr{Void}}
-
 typealias tModel Ptr{Void}
 typealias IntegerArray{T<:Integer} Array{T}
 typealias RealArray{T<:Real} Array{T}

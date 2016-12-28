@@ -17,6 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Add option of automatic versus manual force calculations
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
 
