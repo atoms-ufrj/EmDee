@@ -32,8 +32,8 @@ function csv {
 }
 
 # Remove end of module:
-line=$(grep -n "end" src/julia_wrapper.jl | tail -n1 | cut -f1 -d:)
-sed "${line}d" src/julia_wrapper.jl
+line=$(grep -n "end" src/emdee_header.jl | tail -n1 | cut -f1 -d:)
+sed "${line}d" src/emdee_header.jl
 
 for model in "$@"; do
 

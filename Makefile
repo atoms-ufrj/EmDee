@@ -61,7 +61,7 @@ OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
                      $(ANGLEMODELS) angleModelClass $(DIHEDMODELS) dihedralModelClass \
                      modelClass lists global)
 
-.PHONY: all test clean install uninstall lib
+.PHONY: all test clean install uninstall lib include
 
 .DEFAULT_GOAL := all
 
@@ -100,18 +100,29 @@ $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl
 
 # Static and shared libraries:
 
-lib: $(LIBDIR)/libemdee.so
+lib: $(LIBDIR)/libemdee.so include
+
+include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/EmDee.jl
 
 $(LIBDIR)/libemdee.so: $(OBJECTS)
+	mkdir -p $(LIBDIR)
+	$(FORT) -shared -fPIC -o $@ $(OBJECTS) $(LIBS)
+
+$(INCDIR)/emdee.f03: $(SRCDIR)/emdee_header.f03
 	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_f_header.sh $(ALLMODELS) > $(INCDIR)/emdee.f03
+
+$(INCDIR)/emdee.h: $(SRCDIR)/emdee_header.h
+	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) > $(INCDIR)/emdee.h
+
+$(INCDIR)/EmDee.jl: $(SRCDIR)/emdee_header.jl
+	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) > $(INCDIR)/EmDee.jl
-	$(FORT) -shared -fPIC -o $@ $^ $(LIBS)
 
 # Object files:
 
-$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode compute_pair compute_bond compute_angle compute_dihedral) \
+$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode $(addprefix compute_,pair bond angle dihedral)) \
                        $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 

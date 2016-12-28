@@ -28,7 +28,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "26 Dec 2016"
+character(11), parameter :: VERSION = "28 Dec 2016"
 
 type, bind(C) :: tOpts
   integer(ib) :: translate      ! Flag to activate/deactivate translations
@@ -757,7 +757,7 @@ contains
               if (md%Options%rotationMode == 0) then
                call b % rotate_exact( dt )
               else
-                call b % rotate_approx( dt, n = md%options%rotationMode )
+                call b % rotate_no_squish( dt, n = md%options%rotationMode )
               end if
               forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
             end if

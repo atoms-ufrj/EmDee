@@ -23,21 +23,13 @@ end
 
 typealias VecOrPtr Union{Vector{Float64},Ptr{Void}}
 typealias MatOrPtr Union{Matrix{Float64},Ptr{Void}}
-typealias IVecOrPtr Union{Vector{Int32},Ptr{Void}}
 
 #---------------------------------------------------------------------------------------------------
 function system( threads::Int, layers::Int, rc::Float64, skin::Float64, N::Int,
-                 types::Vector{Int}, masses::VecOrPtr )
+                 types::Vector{Int}, masses::Vector{Float64} )
   return ccall( (:EmDee_system,"libemdee"), tEmDee,
                 (Int32, Int32, Float64, Float64, Int32, Ptr{Int32}, Ptr{Float64}),
                 threads, layers, rc, skin, N, Vector{Int32}(types), masses )
-end
-
-function system( threads::Int, layers::Int, rc::Float64, skin::Float64, N::Int,
-                 types::Ptr{Void}, masses::VecOrPtr )
-  return ccall( (:EmDee_system,"libemdee"), tEmDee,
-                (Int32, Int32, Float64, Float64, Int32, Ptr{Int32}, Ptr{Float64}),
-                threads, layers, rc, skin, N, types, masses )
 end
 #---------------------------------------------------------------------------------------------------
 function set_pair_model( md::tEmDee, itype::Int, jtype::Int, model::Ptr{Void} )

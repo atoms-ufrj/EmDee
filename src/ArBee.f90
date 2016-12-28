@@ -60,8 +60,9 @@ type tBody
     procedure :: setup => tBody_setup
     procedure :: update => tBody_update
     procedure :: particle_momenta => tBody_particle_momenta
-    procedure :: rotate_approx => tBody_rotate_no_squish
+    procedure :: rotate_no_squish => tBody_rotate_no_squish
     procedure :: rotate_exact => tBody_rotate_exact
+    procedure :: rotate_uniaxial => tBody_rotate_uniaxial
     procedure :: force_torque_virial => tBody_force_torque_virial
     procedure :: assign_momenta => tBody_assign_momenta
 
@@ -179,39 +180,39 @@ contains
     dt = delta_t/n
     half_dt = half*dt
     do i = 1, n
-      call uniaxial_rotation( b, 3, half_dt )
-      call uniaxial_rotation( b, 2, half_dt )
-      call uniaxial_rotation( b, 1, dt )
-      call uniaxial_rotation( b, 2, half_dt )
-      call uniaxial_rotation( b, 3, half_dt )
+      call b % rotate_uniaxial( 3, half_dt )
+      call b % rotate_uniaxial( 2, half_dt )
+      call b % rotate_uniaxial( 1, dt )
+      call b % rotate_uniaxial( 2, half_dt )
+      call b % rotate_uniaxial( 3, half_dt )
     end do
     b%delta = matmul( matrix_Ct(b%q), matmul( matrix_B(b%q), b%d ) )
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure subroutine uniaxial_rotation( b, k, dt )
-        class(tBody), intent(inout) :: b
-        integer,      intent(in)    :: k
-        real(rb),     intent(in)    :: dt
-        real(rb) :: BkQ(4), BkPi(4), omega_dt_by_2, vsin, vcos
-        select case (k)
-          case (1)
-            BkQ  = [ -b%q(1),   b%q(0),   b%q(3),  -b%q(2)]
-            BkPi = [-b%pi(1),  b%pi(0),  b%pi(3), -b%pi(2)]
-          case (2)
-            BkQ  = [ -b%q(2),  -b%q(3),   b%q(0),   b%q(1)]
-            BkPi = [-b%pi(2), -b%pi(3),  b%pi(0),  b%pi(1)]
-          case (3)
-            BkQ  = [ -b%q(3),   b%q(2),  -b%q(1),   b%q(0)]
-            BkPi = [-b%pi(3),  b%pi(2), -b%pi(1),  b%pi(0)]
-        end select
-        omega_dt_by_2 = dt*sum(b%pi*BkQ)/(4.0_rb*b%MoI(k))
-        vsin = sin(omega_dt_by_2)
-        vcos = cos(omega_dt_by_2)
-        b%q  = vcos*b%q  + vsin*BkQ
-        b%pi = vcos*b%pi + vsin*BkPi
-      end subroutine uniaxial_rotation
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine tBody_rotate_no_squish
+
+!---------------------------------------------------------------------------------------------------
+
+  pure subroutine tBody_rotate_uniaxial( b, k, dt )
+    class(tBody), intent(inout) :: b
+    integer,      intent(in)    :: k
+    real(rb),     intent(in)    :: dt
+    real(rb) :: BkQ(4), BkPi(4), omega_dt_by_2, vsin, vcos
+    select case (k)
+      case (1)
+        BkQ  = [ -b%q(1),   b%q(0),   b%q(3),  -b%q(2)]
+        BkPi = [-b%pi(1),  b%pi(0),  b%pi(3), -b%pi(2)]
+      case (2)
+        BkQ  = [ -b%q(2),  -b%q(3),   b%q(0),   b%q(1)]
+        BkPi = [-b%pi(2), -b%pi(3),  b%pi(0),  b%pi(1)]
+      case (3)
+        BkQ  = [ -b%q(3),   b%q(2),  -b%q(1),   b%q(0)]
+        BkPi = [-b%pi(3),  b%pi(2), -b%pi(1),  b%pi(0)]
+    end select
+    omega_dt_by_2 = dt*sum(b%pi*BkQ)/(4.0_rb*b%MoI(k))
+    vsin = sin(omega_dt_by_2)
+    vcos = cos(omega_dt_by_2)
+    b%q  = vcos*b%q  + vsin*BkQ
+    b%pi = vcos*b%pi + vsin*BkPi
+  end subroutine tBody_rotate_uniaxial
 
 !---------------------------------------------------------------------------------------------------
 
@@ -226,9 +227,14 @@ contains
 
     w0 = b%omega
     Iw = b%MoI*w0
-    TwoKr = sum(Iw*w0)
-    Lsq = sum(Iw*Iw)
+    Lsq = sum(Iw(2:3)**2)
+    if (Lsq < epsilon(one)) then
+      call b % rotate_uniaxial( 1, dt )
+      return
+    end if
+    Lsq = Iw(1)**2 + Lsq
     L = sqrt(Lsq)
+    TwoKr = sum(Iw*w0)
     r1 = Lsq - TwoKr*b%MoI(3)
     r3 = TwoKr*b%MoI(1) - Lsq
     l1 = b%I223*r1
