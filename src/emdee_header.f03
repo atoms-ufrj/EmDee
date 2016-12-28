@@ -109,10 +109,11 @@ interface
     type(c_ptr),       value         :: address
   end subroutine EmDee_upload
 
-  subroutine EmDee_download( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_download")
-    import :: c_ptr, tEmDee
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: Lbox, coords, momenta, forces
+  subroutine EmDee_download( md, item, address ) bind(C,name="EmDee_download")
+    import :: c_ptr, c_char, tEmDee
+    type(tEmDee),      value      :: md
+    character(c_char), intent(in) :: item(*)
+    type(c_ptr),       value      :: address
   end subroutine EmDee_download
 
   subroutine EmDee_random_momenta( md, kT, adjust, seed ) bind(C,name="EmDee_random_momenta")

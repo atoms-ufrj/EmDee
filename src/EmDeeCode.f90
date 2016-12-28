@@ -525,41 +525,54 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_download( md, Lbox, coords, momenta, forces ) bind(C,name="EmDee_download")
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: Lbox, coords, momenta, forces
+  subroutine EmDee_download( md, option, address ) bind(C,name="EmDee_download")
+    type(tEmDee),      value      :: md
+    character(c_char), intent(in) :: option(*)
+    type(c_ptr),       value      :: address
 
-    real(rb),    pointer :: L, Pext(:,:), Rext(:,:), Fext(:,:)
+    real(rb), pointer :: L, Ext(:,:)
     type(tData), pointer :: me
+    character(sl) :: item
 
     call c_f_pointer( md%data, me )
+    item = string(option)
+    if (.not.c_associated(address)) call error( "download", "provided address is invalid" )
 
-    if (c_associated(Lbox)) then
-      call c_f_pointer( Lbox, L )
-      L = me%Lbox
-    end if
+    select case (item)
 
-    if (c_associated(coords)) then
-      call c_f_pointer( coords, Rext, [3,me%natoms] )
-      Rext = me%R
-    end if
+      case ("box")
+        call c_f_pointer( address, L )
+        L = me%Lbox
 
-    if (c_associated(forces)) then
-      call c_f_pointer( forces, Fext, [3,me%natoms] )
-      Fext = me%F
-    end if
+      case ("coordinates")
+        if (.not.allocated( me%R )) call error( "download", "coordinates have not been allocated" )
+        call c_f_pointer( address, Ext, [3,me%natoms] )
+        !$omp parallel num_threads(me%nthreads)
+        call download( omp_get_thread_num() + 1, me%R, Ext )
+        !$omp end parallel
 
-    if (c_associated(momenta)) then
-      call c_f_pointer( momenta, Pext, [3,me%natoms] )
-      !$omp parallel num_threads(me%nthreads)
-      call get_momenta( omp_get_thread_num() + 1 )
-      !$omp end parallel
-    end if
+      case ("momenta")
+        call c_f_pointer( address, Ext, [3,me%natoms] )
+        !$omp parallel num_threads(me%nthreads)
+        call get_momenta( omp_get_thread_num() + 1, Ext )
+        !$omp end parallel
+
+      case ("forces")
+        call c_f_pointer( address, Ext, [3,me%natoms] )
+        !$omp parallel num_threads(me%nthreads)
+        call download( omp_get_thread_num() + 1, me%F, Ext )
+        !$omp end parallel
+
+      case default
+        call error( "download", "invalid option" )
+
+    end select
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine get_momenta( thread )
-        integer, intent(in) :: thread
+      subroutine get_momenta( thread, Pext )
+        integer,  intent(in)    :: thread
+        real(rb), intent(inout) :: Pext(3,me%natoms)
         integer :: i
         forall (i = (thread - 1)*me%threadAtoms + 1 : min(thread*me%threadAtoms, me%nfree))
           Pext(:,me%free(i)) = me%P(:,me%free(i))
@@ -568,6 +581,16 @@ contains
           Pext(:,me%body(i)%index) = me%body(i) % particle_momenta()
         end forall
       end subroutine get_momenta
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine download( thread, origin, destiny )
+        integer,  intent(in)    :: thread
+        real(rb), intent(in)    :: origin(3,me%natoms)
+        real(rb), intent(inout) :: destiny(3,me%natoms)
+        integer :: first, last
+        first = (thread - 1)*me%threadAtoms + 1
+        last = min(thread*me%threadAtoms, me%natoms)
+        destiny(:,first:last) = origin(:,first:last)
+      end subroutine download
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_download
 

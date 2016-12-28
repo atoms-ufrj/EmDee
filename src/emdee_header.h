@@ -27,7 +27,7 @@ void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );
 void EmDee_add_dihedral( tEmDee md, int i, int j, int k, int l, void* model );
 void EmDee_add_rigid_body( tEmDee md, int N, int* indexes );
 void EmDee_upload( tEmDee* md, char *option, double* address );
-void EmDee_download( tEmDee md, double* Lbox, double* coords, double* momenta, double* forces );
+void EmDee_download( tEmDee md, char *option, double* address );
 void EmDee_random_momenta( tEmDee* md, double kT, int adjust, int seed );
 //void EmDee_save_state( tEmDee md, int rigid );
 //void EmDee_restore_state( tEmDee md );
