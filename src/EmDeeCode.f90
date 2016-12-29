@@ -29,7 +29,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "28 Dec 2016"
+character(11), parameter :: VERSION = "29 Dec 2016"
 
 type, bind(C) :: tOpts
   integer(ib) :: translate      ! Flag to activate/deactivate translations
@@ -90,7 +90,7 @@ contains
     ! Set up atom types:
     if (c_associated(types)) then
       call c_f_pointer( types, ptype, [N] )
-      if (minval(ptype) /= 1) stop "ERROR: wrong specification of atom types."
+      if (minval(ptype) /= 1) call error( "system", "wrong specification of atom types" )
       me%ntypes = maxval(ptype)
       allocate( me%atomType(N), source = ptype )
     else
@@ -166,7 +166,7 @@ contains
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
-    if ((layer < 1).or.(layer > me%nlayers)) stop "ERROR in model layer change: out of range"
+    if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
     if (me%initialized) call update_forces( md, layer )
     me%layer = layer
 
@@ -184,8 +184,10 @@ contains
     type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
-    if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been defined"
-    if (.not.c_associated(model)) stop "ERROR: a valid pair model must be provided"
+    if (me%initialized) &
+      call error( "set_pair_model", "cannot set model after coordinates have been defined" )
+    if (.not.c_associated(model)) &
+      call error( "set_pair_model", "a valid pair model must be provided" )
 
     call c_f_pointer( model, container )
     do layer = 1, me%nlayers
@@ -222,7 +224,8 @@ contains
 
     call c_f_pointer( md%data, me )
 
-    if (me%initialized) stop "ERROR: cannot set pair type after coordinates have been defined"
+    if (me%initialized) &
+      call error( "set_pair_multimodel", "cannot set model after coordinates have been defined" )
 
     do layer = 1, me%nlayers
       if (c_associated(model(layer))) then
@@ -312,7 +315,7 @@ contains
 
     call c_f_pointer( md%data, me )
 
-    if (.not.c_associated(model)) stop "ERROR: a valid bond model must be provided"
+    if (.not.c_associated(model)) call error( "add_bond", "a valid model must be provided" )
     call c_f_pointer( model, container )
 
     select type (bmodel => container%model)
@@ -320,7 +323,7 @@ contains
         call me % bonds % add( i, j, 0, 0, bmodel )
         call EmDee_ignore_pair( md, i, j )
       class default
-        stop "ERROR: a valid bond model must be provided"
+        call error( "add_bond", "the provided model must be a bond model" )
     end select
 
   end subroutine EmDee_add_bond
@@ -337,7 +340,7 @@ contains
 
     call c_f_pointer( md%data, me )
 
-    if (.not.c_associated(model)) stop "ERROR: a valid angle model must be provided"
+    if (.not.c_associated(model)) call error( "add_angle", "a valid model must be provided" )
     call c_f_pointer( model, container )
 
     select type (amodel => container%model)
@@ -347,7 +350,7 @@ contains
         call EmDee_ignore_pair( md, i, k )
         call EmDee_ignore_pair( md, j, k )
       class default
-        stop "ERROR: a valid angle model must be provided"
+        call error( "add_angle", "the provided model must be an angle model" )
     end select
 
   end subroutine EmDee_add_angle
@@ -364,7 +367,7 @@ contains
 
     call c_f_pointer( md%data, me )
 
-    if (.not.c_associated(model)) stop "ERROR: a valid dihedral model must be provided"
+    if (.not.c_associated(model)) call error( "add_dihedral", "a valid model must be provided" )
     call c_f_pointer( model, container )
 
     select type (dmodel => container%model)
@@ -377,7 +380,7 @@ contains
         call EmDee_ignore_pair( md, j, l )
         call EmDee_ignore_pair( md, k, l )
       class default
-        stop "ERROR: a valid dihedral model must be provided"
+        call error( "add_dihedral", "the provided model must be a dihedral model" )
     end select
 
   end subroutine EmDee_add_dihedral
@@ -408,7 +411,7 @@ contains
     isFree(atom) = .false.
     me%nfree = me%nfree - N
     md%DOF = md%DOF - 3*N
-    if (count(isFree) /= me%nfree) stop "Error adding rigid body: only free atoms are allowed."
+    if (count(isFree) /= me%nfree) call error( "add_rigid_body", "only free atoms are allowed" )
     me%free(1:me%nfree) = pack([(i,i=1,me%natoms)],isFree)
     me%threadAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
 
@@ -612,7 +615,7 @@ contains
     TwoKEr = zero
     associate (rng => me%random)
       if (me%nbodies /= 0) then
-        if (.not.me%initialized) stop "ERROR in random momenta: coordinates not defined."
+        if (.not.me%initialized) call error( "random_momenta", "coordinates have not defined" )
         do i = 1, me%nbodies
           associate (b => me%body(i))
             b%pcm = sqrt(b%mass*kT)*[rng%normal(), rng%normal(), rng%normal()]
