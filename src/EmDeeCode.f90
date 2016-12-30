@@ -45,7 +45,6 @@ type, bind(C) :: tEmDee
   real(rb)    :: Kinetic        ! Total kinetic energy of the system
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
-  type(c_ptr) :: layerEnergy    ! A vector with the energies due to multilayer models
   integer(ib) :: DOF            ! Total number of degrees of freedom
   integer(ib) :: rotationDOF    ! Number of rotational degrees of freedom
   type(c_ptr) :: Data           ! Pointer to system data
@@ -147,7 +146,6 @@ contains
     EmDee_system % Potential = zero
     EmDee_system % Kinetic = zero
     EmDee_system % Rotational = zero
-    EmDee_system % layerEnergy = c_loc(me%layer_energy(1))
     EmDee_system % DOF = 3*(N - 1)
     EmDee_system % rotationDOF = 0
     EmDee_system % data = c_loc(me)
@@ -450,7 +448,7 @@ contains
     type(c_ptr),       value         :: address
 
     real(rb) :: twoKEt, twoKEr
-    real(rb), pointer :: L, Ext(:,:)
+    real(rb), pointer :: scalar, Vector(:), Matrix(:,:)
     type(tData), pointer :: me
     character(sl) :: item
 
@@ -461,40 +459,40 @@ contains
     select case (item)
 
       case ("box")
-        call c_f_pointer( address, L )
-        me%Lbox = L
-        me%invL = one/L
+        call c_f_pointer( address, scalar )
+        me%Lbox = scalar
+        me%invL = one/scalar
         me%invL2 = me%invL**2
         me%initialized = allocated( me%R )
         if (me%initialized) call compute_forces( md )
 
       case ("coordinates")
         if (.not.allocated( me%R )) allocate( me%R(3,me%natoms) )
-        call c_f_pointer( address, Ext, [3,me%natoms] )
+        call c_f_pointer( address, Matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call assign_coordinates( me, omp_get_thread_num() + 1, Ext )
+        call assign_coordinates( me, omp_get_thread_num() + 1, Matrix )
         !$omp end parallel
         me%initialized = me%Lbox > zero
         if (me%initialized) call compute_forces( md )
 
       case ("momenta")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
-        call c_f_pointer( address, Ext, [3,me%natoms] )
+        call c_f_pointer( address, Matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads) reduction(+:TwoKEt,TwoKEr)
-        call assign_momenta( me, omp_get_thread_num() + 1, Ext, twoKEt, twoKEr )
+        call assign_momenta( me, omp_get_thread_num() + 1, Matrix, twoKEt, twoKEr )
         !$omp end parallel
 
       case ("forces")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
-        call c_f_pointer( address, Ext, [3,me%natoms] )
+        call c_f_pointer( address, Matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call assign_forces( omp_get_thread_num() + 1 )
+        call assign_forces( omp_get_thread_num() + 1, Matrix )
         !$omp end parallel
 
       case ("charges")
-        call c_f_pointer( address, Ext, [me%natoms,1] )
+        call c_f_pointer( address, Vector, [me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call assign_charges( omp_get_thread_num() + 1 )
+        call assign_charges( omp_get_thread_num() + 1, Vector )
         !$omp end parallel
         if (me%initialized) call compute_forces( md )
 
@@ -505,24 +503,26 @@ contains
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_forces( thread )
-        integer, intent(in) :: thread
+      subroutine assign_forces( thread, Fext )
+        integer,  intent(in) :: thread
+        real(rb), intent(in) :: Fext(3,me%natoms)
         integer :: i, j
         do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
           i = me%free(j)
-          me%F(:,i) = Ext(:,i)
+          me%F(:,i) = Fext(:,i)
         end do
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          call me % body(i) % force_torque_virial( Ext )
+          call me % body(i) % force_torque_virial( Fext )
         end do
       end subroutine assign_forces
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_charges( thread )
-        integer, intent(in) :: thread
+      subroutine assign_charges( thread, Qext )
+        integer,  intent(in) :: thread
+        real(rb), intent(in) :: Qext(me%natoms)
         integer :: first, last
         first = (thread - 1)*me%threadAtoms + 1
         last = min(thread*me%threadAtoms, me%natoms)
-        me%charge(first:last) = Ext(first:last,1)
+        me%charge(first:last) = Qext(first:last)
       end subroutine assign_charges
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
@@ -534,7 +534,7 @@ contains
     character(c_char), intent(in) :: option(*)
     type(c_ptr),       value      :: address
 
-    real(rb), pointer :: L, Ext(:,:)
+    real(rb), pointer :: scalar, vector(:), matrix(:,:)
     type(tData), pointer :: me
     character(sl) :: item
 
@@ -545,27 +545,31 @@ contains
     select case (item)
 
       case ("box")
-        call c_f_pointer( address, L )
-        L = me%Lbox
+        call c_f_pointer( address, scalar )
+        scalar = me%Lbox
 
       case ("coordinates")
         if (.not.allocated( me%R )) call error( "download", "coordinates have not been allocated" )
-        call c_f_pointer( address, Ext, [3,me%natoms] )
+        call c_f_pointer( address, matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call download( omp_get_thread_num() + 1, me%R, Ext )
+        call download( omp_get_thread_num() + 1, me%R, matrix )
         !$omp end parallel
 
       case ("momenta")
-        call c_f_pointer( address, Ext, [3,me%natoms] )
+        call c_f_pointer( address, matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call get_momenta( omp_get_thread_num() + 1, Ext )
+        call get_momenta( omp_get_thread_num() + 1, matrix )
         !$omp end parallel
 
       case ("forces")
-        call c_f_pointer( address, Ext, [3,me%natoms] )
+        call c_f_pointer( address, matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call download( omp_get_thread_num() + 1, me%F, Ext )
+        call download( omp_get_thread_num() + 1, me%F, matrix )
         !$omp end parallel
+
+      case ("multienergy")
+        call c_f_pointer( address, vector, [me%nlayers] )
+        vector = me%layer_energy
 
       case default
         call error( "download", "invalid option" )

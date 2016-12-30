@@ -6,7 +6,6 @@ typedef struct {
   double Kinetic;        // Total kinetic energy of the system
   double Rotational;     // Rotational kinetic energy of the system
   double Virial;         // Total internal virial of the system
-  double *layerEnergy;   // A vector with the energies due to multilayer models
   int    DOF;            // Total number of degrees of freedom
   int    RDOF;           // Number of rotational degrees of freedom
   void*  Data;           // Pointer to system data
