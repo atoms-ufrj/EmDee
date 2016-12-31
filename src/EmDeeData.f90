@@ -238,20 +238,36 @@ contains
     type(tData), intent(inout) :: me
 
     integer :: i, j, k
-    logical :: all_none
-    type(pair_none) :: none
+    logical :: charged(me%ntypes)
+    logical :: no_coul, all_none, coulomb
+    type(coul_none) :: coulnone
+    type(pair_none) :: pairnone
+
+    k = 1
+    no_coul = same_type_as( me%coul(k)%model, coulnone )
+    if (me%coul_multilayer) then
+      do while (no_coul .and. (k < me%nlayers))
+        k = k + 1
+        no_coul = no_coul .and. same_type_as( me%coul(k)%model, coulnone )
+      end do
+    end if
+
+    coulomb = .not.no_coul
+    if (coulomb) then
+      forall (i=1:me%ntypes) charged(i) = count((me%atomType == i).and.(me%charge /= zero)) > 0
+    end if
 
     do i = 1, me%ntypes
       do j = i, me%ntypes
         k = 1
-        all_none = same_type_as( me%pair(i,j,k)%model, none )
+        all_none = same_type_as( me%pair(i,j,k)%model, pairnone )
         if (me%multilayer(i,j)) then
           do while (all_none .and. (k < me%nlayers))
             k = k + 1
-            all_none = all_none .and. same_type_as( me%pair(i,j,k)%model, none )
+            all_none = all_none .and. same_type_as( me%pair(i,j,k)%model, pairnone )
           end do
         end if
-        me%interact(i,j) = .not.all_none
+        me%interact(i,j) = (.not.all_none) .or. (coulomb.and.charged(i).and.charged(j))
         me%interact(j,i) = me%interact(i,j)
       end do
     end do
