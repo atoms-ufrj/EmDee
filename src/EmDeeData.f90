@@ -109,6 +109,7 @@ type :: tData
   type(pairModelContainer), allocatable :: pair(:,:,:)
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
+  logical,  allocatable :: interact(:,:)
   real(rb), pointer     :: layer_energy(:)
 
   type(coulModelContainer), allocatable :: coul(:)
@@ -230,6 +231,32 @@ contains
     end select
 
   end subroutine set_pair_type
+
+!===================================================================================================
+
+  subroutine check_actual_interactions( me )
+    type(tData), intent(inout) :: me
+
+    integer :: i, j, k
+    logical :: all_none
+    type(pair_none) :: none
+
+    do i = 1, me%ntypes
+      do j = i, me%ntypes
+        k = 1
+        all_none = same_type_as( me%pair(i,j,k)%model, none )
+        if (me%multilayer(i,j)) then
+          do while (all_none .and. (k < me%nlayers))
+            k = k + 1
+            all_none = all_none .and. same_type_as( me%pair(i,j,k)%model, none )
+          end do
+        end if
+        me%interact(i,j) = .not.all_none
+        me%interact(j,i) = me%interact(i,j)
+      end do
+    end do
+
+  end subroutine check_actual_interactions
 
 !===================================================================================================
 
@@ -622,9 +649,8 @@ contains
               if (include(m)) then
                 j = atom(m)
                 jtype = me%atomType(j)
-                select type ( model => partner(jtype)%model )
-                  type is (pair_none)
-                  class default
+                if (me%interact(itype,jtype)) then
+                  associate ( model => partner(jtype)%model )
                     Qj = me%charge(j)
                     Rij = Ri - Rs(:,j)
                     Rij = Rij - anint(Rij)
@@ -654,7 +680,8 @@ contains
 
                       end if
                     end if
-                end select
+                  end associate
+                end if
               end if
             end do
           end associate

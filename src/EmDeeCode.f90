@@ -135,6 +135,7 @@ contains
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers) )
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
+    allocate( me%interact(me%ntypes,me%ntypes), source = .false. )
     allocate( me%layer_energy(me%nlayers) )
 
     ! Allocate memory for Coulomb models:
@@ -522,6 +523,7 @@ contains
     call c_f_pointer( md%data, me )
     item = string(option)
     if (.not.c_associated(address)) call error( "upload", "provided address is invalid" )
+    if (.not.me%initialized) call check_actual_interactions( me )
 
     select case (item)
 
@@ -557,6 +559,8 @@ contains
         !$omp end parallel
 
       case ("charges")
+        if (me%initialized) &
+          call error( "upload", "cannot set charges after box and coordinates initialization" )
         call c_f_pointer( address, Vector, [me%natoms] )
         !$omp parallel num_threads(me%nthreads)
         call assign_charges( omp_get_thread_num() + 1, Vector )

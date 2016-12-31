@@ -125,7 +125,7 @@ $(INCDIR)/EmDee.jl: $(SRCDIR)/emdee_header.jl
 
 # Object files:
 
-$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode $(addprefix compute_,pair bond angle dihedral)) \
+$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode $(addprefix compute_,pair coul bond angle dihedral)) \
                        $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
@@ -142,16 +142,19 @@ $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(SRCDIR)/compute_pair.f90: $(call src,$(PAIRMODELS))
-	bash $(SRCDIR)/make_compute.sh $(PAIRMODELS) > $@
+	bash $(SRCDIR)/make_compute.sh pair $(PAIRMODELS) > $@
+
+$(SRCDIR)/compute_coul.f90: $(call src,$(COULMODELS))
+	bash $(SRCDIR)/make_compute.sh coul $(COULMODELS) > $@
 
 $(SRCDIR)/compute_bond.f90: $(call src,$(BONDMODELS))
-	bash $(SRCDIR)/make_compute.sh $(BONDMODELS) > $@
+	bash $(SRCDIR)/make_compute.sh bond $(BONDMODELS) > $@
 
 $(SRCDIR)/compute_angle.f90: $(call src,$(ANGLEMODELS))
-	bash $(SRCDIR)/make_compute.sh $(ANGLEMODELS) > $@
+	bash $(SRCDIR)/make_compute.sh angle $(ANGLEMODELS) > $@
 
 $(SRCDIR)/compute_dihedral.f90: $(call src,$(DIHEDMODELS))
-	bash $(SRCDIR)/make_compute.sh $(DIHEDMODELS) > $@
+	bash $(SRCDIR)/make_compute.sh dihedral $(DIHEDMODELS) > $@
 
 $(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair coul bond angle dihedral)) \
                     $(SRCDIR)/make_models_module.sh

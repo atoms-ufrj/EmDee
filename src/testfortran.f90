@@ -72,7 +72,7 @@ call EmDee_set_coul_model( md, EmDee_coul_none() )
 
 !pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_cut_coul_sf( 1.0_rb, 1.0_rb )
-pair = EmDee_pair_softcore_cut( 1.0_rb, 1.0_rb, 1.0_rb )
+pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_softcore_sf_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_sf_old( 1.0_rb, 1.0_rb, Rc )

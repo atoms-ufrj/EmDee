@@ -21,12 +21,14 @@
 
 #---------------------------------------------------------------------------------------------------
 
-#for model in "$@"; do
-#    echo "type is ($model)"
-#    echo "  include \"compute_$model.f90\""
-#done
+if [[ "$1" == "pair" ]] || [[ "$1" == "coul" ]]; then
+  echo "type is ($1_none)"
+  echo "  Eij = zero"
+  echo "  Wij = zero"
+  echo
+fi
 
-for model in "$@"; do
+for model in "${@:2}"; do
   echo "type is ($model)"
   echo "  block"
   grep -i -A100 -e "^\s*subroutine\s*${model}_compute" src/$model.f90 |
