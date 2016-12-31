@@ -123,7 +123,7 @@ contains
 
   subroutine pairModelContainer_assign( new, old )
     class(pairModelContainer), intent(inout) :: new
-    type(modelContainer), intent(in)    :: old
+    type(modelContainer),      intent(in)    :: old
 
     if (allocated(new%model)) deallocate( new%model )
 

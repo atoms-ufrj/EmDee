@@ -23,7 +23,7 @@ use global
 use, intrinsic :: iso_c_binding
 
 type, abstract :: cModel
-  character(20) :: name
+  character(20) :: name = "none"
   contains
     procedure :: deliver => cModel_deliver
     procedure(cModel_setup), deferred :: setup
@@ -42,11 +42,16 @@ end interface
 
 type modelContainer
   class(cModel), allocatable :: model
+  contains
+    procedure :: modelContainer_assign
+    generic :: assignment(=) => modelContainer_assign
 end type modelContainer
 
 contains
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
+!                                   M O D E L    C L A S S
+!===================================================================================================
 
   type(c_ptr) function cModel_deliver( this )
     class(cModel), intent(in) :: this
@@ -58,6 +63,22 @@ contains
     cModel_deliver = c_loc(container)
 
   end function cModel_deliver
+
+!===================================================================================================
+!                                M O D E L    C O N T A I N E R
+!===================================================================================================
+
+  subroutine modelContainer_assign( new, old )
+    class(modelContainer), intent(inout) :: new
+    type(modelContainer),  intent(in)    :: old
+
+    if (allocated(new%model)) deallocate( new%model )
+
+    if (allocated(old%model)) then
+      allocate( new%model, source = old%model )
+    end if
+
+  end subroutine modelContainer_assign
 
 !---------------------------------------------------------------------------------------------------
 

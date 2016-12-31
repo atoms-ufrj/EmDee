@@ -63,11 +63,10 @@ contains
     type(c_ptr), value :: types, masses
     type(tEmDee)       :: EmDee_system
 
-    integer :: i
+    integer :: i, j, k
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
-    type(pairModelContainer) :: none
 
     write(*,'("EmDee (version: ",A11,")")') VERSION
 
@@ -133,11 +132,25 @@ contains
     call me % excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( none%model, source = pair_none(name="none") )
-    allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
+    allocate( me%pair(me%ntypes,me%ntypes,me%nlayers) )
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
     allocate( me%layer_energy(me%nlayers) )
+
+    ! Allocate memory for Coulomb models:
+    allocate( me%coul(me%nlayers) )
+    me%coul_multilayer = .false.
+    allocate( me%coul_energy(me%nlayers), source = zero )
+
+    ! Initialize pair and coul models as none:
+    do k = 1, me%nlayers
+      do j = 1, me%ntypes
+        do i = 1, me%ntypes
+          allocate( pair_none::me%pair(i,j,k)%model )
+        end do
+      end do
+      allocate( coul_none::me%coul(k)%model )
+    end do
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -169,6 +182,60 @@ contains
     me%layer = layer
 
   end subroutine EmDee_switch_model_layer
+
+!===================================================================================================
+
+  subroutine EmDee_set_coul_model( md, model ) bind(C,name="EmDee_coul_model")
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: model
+
+    integer :: layer
+    type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    call c_f_pointer( md%data, me )
+    if (me%initialized) &
+      call error( "set_coul_model", "cannot set model after coordinates have been defined" )
+    if (.not.c_associated(model)) &
+      call error( "set_coul_model", "a valid Coulomb model must be provided" )
+
+    call c_f_pointer( model, container )
+    do layer = 1, me%nlayers
+      call set_coul_model( me, layer, container )
+    end do
+    me%coul_multilayer = .false.
+
+  end subroutine EmDee_set_coul_model
+
+!===================================================================================================
+
+  subroutine EmDee_set_coul_multimodel( md, model ) bind(C,name="EmDee_set_coul_multimodel")
+    type(tEmDee), value      :: md
+    type(c_ptr),  intent(in) :: model(*)
+
+    integer :: layer
+    character(5) :: C
+    type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    call c_f_pointer( md%data, me )
+
+    if (me%initialized) &
+      call error( "set_coul_multimodel", "cannot set model after coordinates have been defined" )
+
+    do layer = 1, me%nlayers
+      if (c_associated(model(layer))) then
+        call c_f_pointer( model(layer), container )
+      else
+        write(C,'(I5)') me%nlayers
+        C = adjustl(C)
+        call error( "set_coul_multimodel", trim(C)//" valid Coulomb models must be provided" )
+      end if
+      call set_coul_model( me, layer, container )
+    end do
+    me%coul_multilayer = .true.
+
+  end subroutine EmDee_set_coul_multimodel
 
 !===================================================================================================
 

@@ -32,6 +32,18 @@ function system( threads::Integer, layers::Integer, rc::Real, skin::Real, N::Int
                 threads, layers, rc, skin, N, Vector{Int32}(types), Vector{Float64}(masses) )
 end
 #---------------------------------------------------------------------------------------------------
+function set_coul_model( md::tEmDee, model::tModel )
+  ccall( (:EmDee_set_coul_model,"libemdee"), Void,
+         (tEmDee, tModel),
+         md, model )
+end
+#---------------------------------------------------------------------------------------------------
+function set_coul_multimodel( md::tEmDee, model::Array{tModel} )
+  ccall( (:EmDee_set_coul_multimodel,"libemdee"), Void,
+         (tEmDee, tModel),
+         md, model )
+end
+#---------------------------------------------------------------------------------------------------
 function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel )
   ccall( (:EmDee_set_pair_model,"libemdee"), Void,
          (tEmDee, Int32, Int32, tModel),

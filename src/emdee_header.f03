@@ -53,6 +53,18 @@ interface
     integer(c_int), value :: layer
   end subroutine EmDee_switch_model_layer
 
+  subroutine EmDee_set_coul_model( md, model ) bind(C,name="EmDee_coul_model")
+    import :: c_ptr, tEmDee
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: model
+  end subroutine EmDee_set_coul_model
+
+  subroutine EmDee_set_coul_multimodel( md, model ) bind(C,name="EmDee_set_coul_multimodel")
+    import :: c_ptr, tEmDee
+    type(tEmDee), value      :: md
+    type(c_ptr),  intent(in) :: model(*)
+  end subroutine EmDee_set_coul_multimodel
+
   subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
     import :: c_int, c_ptr, tEmDee
     type(tEmDee),   value :: md
@@ -62,8 +74,8 @@ interface
 
   subroutine EmDee_set_pair_multimodel( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_multimodel")
     import :: c_int, c_ptr, tEmDee
-    type(tEmDee),   value :: md
-    integer(c_int), value :: itype, jtype
+    type(tEmDee),   value      :: md
+    integer(c_int), value      :: itype, jtype
     type(c_ptr),    intent(in) :: model(*)
   end subroutine EmDee_set_pair_multimodel
 

@@ -111,6 +111,10 @@ type :: tData
   logical,  allocatable :: overridable(:,:)
   real(rb), pointer     :: layer_energy(:)
 
+  type(coulModelContainer), allocatable :: coul(:)
+  logical           :: coul_multilayer
+  real(rb), pointer :: coul_energy(:)
+
 end type tData
 
 contains
@@ -177,6 +181,21 @@ contains
   end subroutine assign_momenta
 
 !===================================================================================================
+
+  subroutine set_coul_model( me, layer, container )
+    type(tData),          intent(inout) :: me
+    integer(ib),          intent(in)    :: layer
+    type(modelContainer), intent(in)    :: container
+
+    select type (pmodel => container%model)
+      class is (cCoulModel)
+        me%coul(layer) = container
+        call me % coul(layer) % model % shifting_setup( me%Rc )
+      class default
+        stop "ERROR: a valid Coulomb model must be provided"
+    end select
+
+  end subroutine set_coul_model
 
 !===================================================================================================
 
