@@ -1,6 +1,10 @@
 EmDee: A Molecular Dynamics Laboratory
 ======================================
 
+[![Build Status](https://travis-ci.org/atoms-ufrj/EmDee.svg?branch=master)](https://travis-ci.org/atoms-ufrj/EmDee)
+
+[![codecov.io](http://codecov.io/github/atoms-ufrj/EmDee/coverage.svg?branch=master)](http://codecov.io/github/atoms-ufrj/EmDee?branch=master)
+
 EmDee is a minimalist library that can perform, in a very efficient way, the most computationally
 demanding tasks of classical molecular dynamics simulations:
 

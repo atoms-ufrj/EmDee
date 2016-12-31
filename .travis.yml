@@ -1,0 +1,51 @@
+language: cpp
+
+notifications:
+  email: false
+
+sudo: false
+
+matrix:
+  include:
+
+    - os: linux
+      compiler: gcc
+      addons: &gfortran5
+        apt:
+          sources: ubuntu-toolchain-r-test
+          packages:
+          - gfortran-5
+          - gcc-5
+      env: VERSION=5 DEBUG=0 COVERAGE=0
+
+    - os: linux
+      compiler: gcc
+      addons: *gfortran5
+      env: VERSION=5 DEBUG=1 COVERAGE=0
+
+    - os: linux
+      compiler: gcc
+      addons: &gfortran6
+        apt:
+          sources: ubuntu-toolchain-r-test
+          packages:
+          - gfortran-6
+          - gcc-6
+      env: VERSION=6 DEBUG=0 COVERAGE=0
+
+    - os: linux
+      compiler: gcc
+      addons: *gfortran6
+      env: VERSION=6 DEBUG=1 COVERAGE=1
+
+script:
+  - make -j 2 CC=gcc-$VERSION FORT=gfortran-$VERSION test
+  - test/testfortran 2 examples/small.inp
+  - test/testc 2 examples/small.inp
+
+after_success:
+  - |
+    if [[ $COVERAGE == "1" ]]; then
+      bash <(curl -s https://codecov.io/bash) -x gcov-$VERSION
+    fi
+

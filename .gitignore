@@ -14,3 +14,6 @@ src/models.f90
 src/compute_angle.f90
 src/compute_dihedral.f90
 include/
+*.gcno
+*.gcda
+*.gcov

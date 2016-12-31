@@ -1,11 +1,14 @@
 # Define DEBUG or FAST mode:
 #   Build the "fast" version with: `make` or `make DEBUG=0`
 #   Build the "debug" version with: `make DEBUG=1`
-DEBUG?=0
+DEBUG ?= 0
+
+# Installation prefix:
+PREFIX ?= /usr/local
 
 # Compilers and their basic options:
-FORT = gfortran
-CC   = gcc
+FORT ?= gfortran
+CC ?= gcc
 
 BASIC_F_OPTS = -march=native -m64 -fPIC -fopenmp -cpp -fmax-errors=1
 BASIC_C_OPTS = -march=native -m64 -fPIC -fopenmp -cpp -fmax-errors=1
@@ -19,17 +22,21 @@ FAST_F_OPTS = -Ofast
 FAST_C_OPTS = -Ofast
 
 # Option DEBUG:
-DEBUG_F_OPTS = -g -Og -fcheck=all -Ddebug
-DEBUG_C_OPTS = -g -Og -fstack-check -fsanitize=null -fbounds-check -Ddebug
+DEBUG_F_OPTS = --coverage -g -Og -fcheck=all -Ddebug
+DEBUG_C_OPTS = --coverage -g -Og -fstack-check -fsanitize=null -fbounds-check -Ddebug
 
 # Checks chosen option:
 ifeq ($(DEBUG), 1)
-  F_OPTS = $(BASIC_F_OPTS) $(DEBUG_F_OPTS)
-  C_OPTS = $(BASIC_C_OPTS) $(DEBUG_C_OPTS)
+F_OPTS = $(BASIC_F_OPTS) $(DEBUG_F_OPTS)
+C_OPTS = $(BASIC_C_OPTS) $(DEBUG_C_OPTS)
 else
-  F_OPTS = $(BASIC_F_OPTS) $(FAST_F_OPTS)
-  C_OPTS = $(BASIC_C_OPTS) $(FAST_C_OPTS)
+F_OPTS = $(BASIC_F_OPTS) $(FAST_F_OPTS)
+C_OPTS = $(BASIC_C_OPTS) $(FAST_C_OPTS)
 endif
+
+LN_INC_OPT = -I$(INCDIR)
+LN_SO_OPT = -Wl,-rpath,'$$ORIGIN/../lib'
+LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
 
 SRCDIR = ./src
 OBJDIR = $(SRCDIR)/obj
@@ -39,10 +46,6 @@ INCDIR = ./include
 
 LIBS = -lgfortran -lm -lgomp
 EMDEELIB = -L$(LIBDIR) -lemdee
-
-LN_INC_OPT = -I$(INCDIR)
-LN_SO_OPT = -Wl,-rpath,'$$ORIGIN/../lib'
-LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
 
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
@@ -72,13 +75,13 @@ clean:
 	rm -rf $(call src,$(addprefix compute_,pair bond angle dihedral) models)
 
 install:
-	cp $(LIBDIR)/libemdee.* /usr/local/lib/
-	cp $(INCDIR)/emdee.* /usr/local/include/
+	cp $(LIBDIR)/libemdee.* $(PREFIX)/lib/
+	cp $(INCDIR)/emdee.* $(PREFIX)/include/
 	ldconfig
 
 uninstall:
-	rm -f /usr/local/lib/libemdee.so
-	rm -f /usr/local/include/emdee.h /usr/local/include/emdee.f03
+	rm -f $(PREFIX)/lib/libemdee.so
+	rm -f $(PREFIX)/include/emdee.h $(PREFIX)/include/emdee.f03
 	ldconfig
 
 # Executables:
@@ -106,7 +109,7 @@ include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/EmDee.jl
 
 $(LIBDIR)/libemdee.so: $(OBJECTS)
 	mkdir -p $(LIBDIR)
-	$(FORT) -shared -fPIC -o $@ $(OBJECTS) $(LIBS)
+	$(FORT) $(F_OPTS) -shared -fPIC -o $@ $(OBJECTS) $(LIBS)
 
 $(INCDIR)/emdee.f03: $(SRCDIR)/emdee_header.f03
 	mkdir -p $(INCDIR) $(LIBDIR)
