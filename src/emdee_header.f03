@@ -157,6 +157,10 @@ interface
     import :: c_ptr
   end function EmDee_pair_none
 
+  type(c_ptr) function EmDee_coul_none( ) bind(C,name="EmDee_coul_none")
+    import :: c_ptr
+  end function EmDee_coul_none
+
   type(c_ptr) function EmDee_bond_none( ) bind(C,name="EmDee_bond_none")
     import :: c_ptr
   end function EmDee_bond_none

@@ -50,18 +50,18 @@ EMDEELIB = -L$(LIBDIR) -lemdee
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
-# Force-field models (from source files starting with pair_, bond_, angle_, and dihedral_):
+# Force-field models (from source files starting with pair_, coul_, bond_, angle_, and dihedral_):
 PAIRMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/pair_*.f90))
+COULMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/coul_*.f90))
 BONDMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/bond_*.f90))
 ANGLEMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/angle_*.f90))
 DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
 
 ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
-              $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
+              $(COULMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
 
-OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
-                     $(PAIRMODELS) pairModelClass $(BONDMODELS) bondModelClass \
-                     $(ANGLEMODELS) angleModelClass $(DIHEDMODELS) dihedralModelClass \
+OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models $(ALLMODELS) \
+                     $(addsuffix ModelClass,pair coul bond angle dihedral) \
                      modelClass lists global)
 
 .PHONY: all test clean install uninstall lib include
@@ -153,12 +153,15 @@ $(SRCDIR)/compute_angle.f90: $(call src,$(ANGLEMODELS))
 $(SRCDIR)/compute_dihedral.f90: $(call src,$(DIHEDMODELS))
 	bash $(SRCDIR)/make_compute.sh $(DIHEDMODELS) > $@
 
-$(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral)) \
+$(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair coul bond angle dihedral)) \
                     $(SRCDIR)/make_models_module.sh
 	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $(SRCDIR)/models.f90
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $(SRCDIR)/models.f90
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(OBJDIR)/pairModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/coul_%.o: $(SRCDIR)/coul_%.f90 $(OBJDIR)/coulModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(OBJDIR)/bondModelClass.o
@@ -167,10 +170,7 @@ $(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(OBJDIR)/bondModelClass.o
 $(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(OBJDIR)/angleModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(SRCDIR)/dihedral_angle_%.f90 $(OBJDIR)/dihedralModelClass.o
-	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
-
-$(OBJDIR)/pairModelClass.o: $(SRCDIR)/pairModelClass.f90 $(OBJDIR)/modelClass.o
+$(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(OBJDIR)/dihedralModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o

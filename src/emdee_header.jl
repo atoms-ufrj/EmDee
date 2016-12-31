@@ -116,6 +116,10 @@ function pair_none()
   return ccall( (:EmDee_pair_none,"libemdee"), tModel, () )
 end
 #---------------------------------------------------------------------------------------------------
+function coul_none()
+  return ccall( (:EmDee_coul_none,"libemdee"), tModel, () )
+end
+#---------------------------------------------------------------------------------------------------
 function bond_none()
   return ccall( (:EmDee_bond_none,"libemdee"), tModel, () )
 end
