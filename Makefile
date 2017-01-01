@@ -95,15 +95,15 @@ runtests: test
 
 test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
 
-$(TSTDIR)/%: $(TSTDIR)/%.f90 $(LIBDIR)/libemdee.so
+$(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 lib
 	mkdir -p $(TSTDIR)
 	$(FORT) $(F_OPTS) -o $@ $(LN_OPTS) -J$(OBJDIR) $< $(EMDEELIB)
 
-$(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
+$(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h lib
 	mkdir -p $(BINDIR)
 	$(CC) $(C_OPTS) -o $@ $(LN_OPTS) $< $(EMDEELIB) -lm
 
-$(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl
+$(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl $(INCDIR)/libemdee.jl lib
 	mkdir -p $(BINDIR)
 	(echo '#!/usr/bin/env julia' && echo 'DIR="${CURDIR}"' && cat $<) > $@
 	chmod +x $@
