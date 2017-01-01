@@ -39,9 +39,7 @@ matrix:
       env: VERSION=6 DEBUG=1 COVERAGE=1
 
 script:
-  - make -j 2 CC=gcc-$VERSION FORT=gfortran-$VERSION test
-  - test/testfortran 2 examples/small.inp
-  - test/testc 2 examples/small.inp
+  - make -j 2 CC=gcc-$VERSION FORT=gfortran-$VERSION runtests
 
 after_success:
   - |

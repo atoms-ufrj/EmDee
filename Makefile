@@ -40,9 +40,10 @@ LN_OPTS = $(LN_INC_OPT) $(LN_SO_OPT)
 
 SRCDIR = ./src
 OBJDIR = $(SRCDIR)/obj
-BINDIR = ./test
+BINDIR = ./bin
 LIBDIR = ./lib
 INCDIR = ./include
+TSTDIR = ./test
 
 LIBS = -lgfortran -lm -lgomp
 EMDEELIB = -L$(LIBDIR) -lemdee
@@ -64,6 +65,8 @@ OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
                      $(ANGLEMODELS) angleModelClass $(DIHEDMODELS) dihedralModelClass \
                      modelClass lists global)
 
+TESTS = $(patsubst %.f90,%,$(wildcard $(TSTDIR)/*.f90))
+
 .PHONY: all test clean install uninstall lib include
 
 .DEFAULT_GOAL := all
@@ -73,23 +76,27 @@ all: lib include
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
 	rm -rf $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral) models)
+	rm -rf $(TESTS)
 
 install:
 	cp $(LIBDIR)/libemdee.* $(PREFIX)/lib/
-	cp $(INCDIR)/emdee.* $(PREFIX)/include/
+	cp $(INCDIR)/*.* $(PREFIX)/include/
 	ldconfig
 
 uninstall:
 	rm -f $(PREFIX)/lib/libemdee.so
-	rm -f $(PREFIX)/include/emdee.h $(PREFIX)/include/emdee.f03
+	rm -f $(addprefix $(PREFIX)/include/,emdee.h emdee.f03 libemdee.jl) 
 	ldconfig
+
+runtests: test
+	cd $(TSTDIR) && bash runtests.sh
 
 # Executables:
 
-test: $(addprefix $(BINDIR)/,testfortran testc testjulia)
+test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
 
-$(BINDIR)/testfortran: $(SRCDIR)/testfortran.f90 $(INCDIR)/emdee.f03 $(LIBDIR)/libemdee.so
-	mkdir -p $(BINDIR)
+$(TSTDIR)/%: $(TSTDIR)/%.f90 $(LIBDIR)/libemdee.so
+	mkdir -p $(TSTDIR)
 	$(FORT) $(F_OPTS) -o $@ $(LN_OPTS) -J$(OBJDIR) $< $(EMDEELIB)
 
 $(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
@@ -125,7 +132,7 @@ $(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl
 
 # Object files:
 
-$(OBJDIR)/EmDeeCode.o: $(SRCDIR)/EmDeeCode.f90 \
+$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode inner_loop) \
                        $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral)) \
                        $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<

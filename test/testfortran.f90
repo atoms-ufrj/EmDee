@@ -102,7 +102,7 @@ do step = 1, Nsteps
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
   call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
-  if (md%options%computeProps) print*, step, md%Potential, md%Virial
+  if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
 end do
 print*, "neighbor list builds = ", md%builds
 print*, "pair time = ", md%pairTime, " s."

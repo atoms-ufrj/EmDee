@@ -642,34 +642,7 @@ contains
                   if (r2 < xRc2) then
                     npairs = npairs + 1
                     neighbor%item(npairs) = j
-                    if (r2 < Rc2) then
-                      invR2 = me%invL2/r2
-                      Qj = me%charge(j)
-                      if (compute) then
-                        select type (model => partner(jtype)%model)
-                          include "compute_pair.f90"
-                        end select
-                        Potential = Potential + Eij
-                        Virial = Virial + Wij
-                        Fij = Wij*invR2*Rij
-                        if (multilayer(jtype)) then
-                          do layer = 1, me%nlayers
-                            select type ( model => me%pair(itype,jtype,layer)%model )
-                              include "compute_pair.f90"
-                            end select
-                            Elayer(layer) = Elayer(layer) + Eij
-                            Wlayer(layer) = Wlayer(layer) + Wij
-                          end do
-                        end if
-                      else
-                        select type (model => partner(jtype)%model)
-                          include "compute_pair_virial.f90"
-                        end select
-                        Fij = Wij*invR2*Rij
-                      end if
-                      Fi = Fi + Fij
-                      F(:,j) = F(:,j) - Fij
-                    end if
+                    include "inner_loop.f90"
                   end if
                 end if
               end if
@@ -710,48 +683,20 @@ contains
 
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate (neighbor => me%neighbor(thread), Q => me%charge)
+    associate (neighbor => me%neighbor(thread) )
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
-        Qi = Q(i)
+        Qi = me%charge(i)
         Ri = Rs(:,i)
         Fi = zero
-        associate (pair => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
+        associate (partner => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
             Rij = Ri - Rs(:,j)
             Rij = Rij - anint(Rij)
             r2 = sum(Rij*Rij)
-            if (r2 < Rc2) then
-              invR2 = me%invL2/r2
-              jtype = me%atomType(j)
-              Qj = Q(j)
-              if (compute) then
-                select type ( model => pair(jtype)%model )
-                  include "compute_pair.f90"
-                end select
-                Potential = Potential + Eij
-                Virial = Virial + Wij
-                Fij = Wij*invR2*Rij
-                if (multilayer(jtype)) then
-                  do layer = 1, me%nlayers
-                    select type ( model => me%pair(itype,jtype,layer)%model )
-                      include "compute_pair.f90"
-                    end select
-                    Elayer(layer) = Elayer(layer) + Eij
-                    Wlayer(layer) = Wlayer(layer) + Wij
-                  end do
-                end if
-              else
-                select type ( model => pair(jtype)%model )
-                  include "compute_pair_virial.f90"
-                end select
-                Fij = Wij*invR2*Rij
-              end if
-              Fi = Fi + Fij
-              F(:,j) = F(:,j) - Fij
-            end if
+            include "inner_loop.f90"
           end do
         end associate
         F(:,i) = F(:,i) + Fi
