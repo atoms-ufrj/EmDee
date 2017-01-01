@@ -3,7 +3,8 @@ lib/
 src/obj/
 equations/build/
 tools/
-test/
+test/*
+!test/*.f90
 src/compute_*.f90
 src/models.f90
 include/
