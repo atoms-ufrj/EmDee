@@ -137,7 +137,8 @@ contains
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
-    allocate( me%layer_energy(me%nlayers) )
+    allocate( me%interact(me%ntypes,me%ntypes), source = .false. )
+    allocate( me%layer_energy(me%nlayers), me%layer_virial(me%nlayers), source = zero )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -164,9 +165,11 @@ contains
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
-    if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
-    if (me%initialized) call update_forces( md, layer )
-    me%layer = layer
+    if (layer /= me%layer) then
+      if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
+      if (me%initialized) call update_forces( md, layer )
+      me%layer = layer
+    end if
 
   end subroutine EmDee_switch_model_layer
 
@@ -463,7 +466,10 @@ contains
         me%Lbox = scalar
         me%invL = one/scalar
         me%invL2 = me%invL**2
-        me%initialized = allocated( me%R )
+        if (.not.me%initialized) then
+          me%initialized = allocated( me%R )
+          if (me%initialized) call check_actual_interactions( me )
+        end if
         if (me%initialized) call compute_forces( md )
 
       case ("coordinates")
@@ -472,7 +478,10 @@ contains
         !$omp parallel num_threads(me%nthreads)
         call assign_coordinates( me, omp_get_thread_num() + 1, Matrix )
         !$omp end parallel
-        me%initialized = me%Lbox > zero
+        if (.not.me%initialized) then
+          me%initialized = me%Lbox > zero
+          if (me%initialized) call check_actual_interactions( me )
+        end if
         if (me%initialized) call compute_forces( md )
 
       case ("momenta")
@@ -490,6 +499,8 @@ contains
         !$omp end parallel
 
       case ("charges")
+        if (me%initialized) &
+          call error( "upload", "cannot set charges after box and coordinates initialization" ) 
         call c_f_pointer( address, Vector, [me%natoms] )
         !$omp parallel num_threads(me%nthreads)
         call assign_charges( omp_get_thread_num() + 1, Vector )
@@ -570,6 +581,10 @@ contains
       case ("multienergy")
         call c_f_pointer( address, vector, [me%nlayers] )
         vector = me%layer_energy
+
+      case ("multivirial")
+        call c_f_pointer( address, vector, [me%nlayers] )
+        vector = me%layer_virial
 
       case default
         call error( "download", "invalid option" )
@@ -814,13 +829,14 @@ contains
     integer  :: M
     real(rb) :: time, E, W
     logical  :: buildList
-    real(rb), allocatable :: Rs(:,:), Fs(:,:,:), Elayer(:,:)
+    real(rb), allocatable :: Rs(:,:), Fs(:,:,:), Elayer(:,:), Wlayer(:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     md%pairTime = md%pairTime - omp_get_wtime()
 
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads), Elayer(me%nlayers,me%nthreads) )
+    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
+    allocate( Elayer(me%nlayers,me%nthreads), Wlayer(me%nlayers,me%nthreads) )
     Rs = me%invL*me%R
 
     buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
@@ -837,9 +853,9 @@ contains
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
         if (buildList) then
-          call find_pairs_and_compute( me, thread, Rs, F, E, W, Elayer(:,thread) )
+          call find_pairs_and_compute( me, thread, Rs, F, E, W, Elayer(:,thread), Wlayer(:,thread) )
         else
-          call compute_pairs( me, thread, Rs, F, E, W, Elayer(:,thread) )
+          call compute_pairs( me, thread, Rs, F, E, W, Elayer(:,thread), Wlayer(:,thread) )
         end if
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
@@ -852,6 +868,7 @@ contains
     md%Potential = E
     md%Virial = third*W
     me%layer_energy = sum(Elayer,2)
+    me%layer_virial = third*sum(Wlayer,2)
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     time = omp_get_wtime()

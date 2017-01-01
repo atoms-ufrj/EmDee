@@ -61,6 +61,9 @@ contains
     model%eps24 = 24.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
+    ! Mark active contributions:
+    model%vdw = .true.
+
     ! Activate shifted-force status:
     model%shifted_force_vdw = .true.
 

@@ -76,6 +76,10 @@ contains
     model%invSigSq = one/model%sigma**2
     model%shift = alpha*(one - model%lambda)**exponent_p
 
+    ! Mark active contributions:
+    model%vdw = model%lambda /= zero
+    model%coulomb = .true.
+
     ! Activate shifted-force status:
     model%shifted_force_coul = .true.
 
@@ -88,16 +92,17 @@ contains
     real(rb),                         intent(out) :: Eij, Wij
     real(rb),                         intent(in)  :: invR2, Qi, Qj
 
-    real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb, rFc, QiQj, QiQjbyR
+    real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb, invR, QiQj, QiQjbyR, rFc
 
     rsig2 = model%invSigSq/invR2
     rsig6 = rsig2*rsig2*rsig2
     sinv = one/(rsig6 + model%shift)
     sinvSq = sinv*sinv
     sinvCb = sinv*sinvSq
+    invR = sqrt(invR2)
     QiQj = Qi*Qj
-    QiQjbyR = QiQj*sqrt(invR2)
-    rFc = QiQjbyR*model%fshift_coul
+    QiQjbyR = QiQj*invR
+    rFc = QiQj*model%fshift_coul/invR
     Eij = model%prefactor*(sinvSq - sinv) + QiQjbyR + QiQj*model%eshift_coul + rFc
     Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq) + QiQjbyR - rFc
 

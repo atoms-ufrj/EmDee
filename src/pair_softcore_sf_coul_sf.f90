@@ -74,6 +74,10 @@ contains
     model%invSigSq = one/model%sigma**2
     model%shift = alpha*(one - model%lambda)**exponent_p
 
+    ! Mark active contributions:
+    model%vdw = model%lambda /= zero
+    model%coulomb = .true.
+
     ! Activate shifted-force status:
     model%shifted_force_vdw = .true.
     model%shifted_force_coul = .true.

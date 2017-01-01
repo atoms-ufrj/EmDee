@@ -51,6 +51,9 @@ contains
     ! Model name:
     model%name = "coul_sf"
 
+    ! Mark active contributions:
+    model%coulomb = .true.
+
     ! Activate shifted-force status:
     model%shifted_force_coul = .true.
 

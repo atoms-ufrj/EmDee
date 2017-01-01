@@ -60,6 +60,10 @@ contains
     model%eps24 = 24.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
+    ! Mark active contributions:
+    model%vdw = .true.
+    model%coulomb = .true.
+
   end subroutine pair_lj_cut_coul_cut_setup
 
 !---------------------------------------------------------------------------------------------------

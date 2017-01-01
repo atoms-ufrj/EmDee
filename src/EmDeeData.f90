@@ -109,7 +109,9 @@ type :: tData
   type(pairModelContainer), allocatable :: pair(:,:,:)
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
-  real(rb), pointer     :: layer_energy(:)
+  logical,  allocatable :: interact(:,:)
+  real(rb), allocatable :: layer_energy(:)
+  real(rb), allocatable :: layer_virial(:)
 
 end type tData
 
@@ -177,6 +179,33 @@ contains
   end subroutine assign_momenta
 
 !===================================================================================================
+
+  subroutine check_actual_interactions( me )
+    type(tData), intent(inout) :: me
+
+    integer :: i, j, k
+    logical :: no_interaction, coulomb_only, neutral(me%ntypes)
+    logical :: inert
+
+    do i = 1, me%ntypes
+      neutral(i) = count((me%atomType == i).and.(me%charge /= zero)) == 0
+      do j = 1, i
+        associate( pair => me%pair(i,j,:) )
+          k = 0
+          inert = .true.
+          do while (inert .and. (k < me%nlayers))
+            k = k + 1
+            no_interaction = .not.(pair(k)%model%vdw .or. pair(k)%model%vdw)
+            coulomb_only = pair(k)%model%coulomb .and. (.not. pair(k)%model%vdw)
+            inert = no_interaction .or. (coulomb_only .and. neutral(i) .and. neutral(j))
+          end do
+          me%interact(i,j) = .not.inert
+          me%interact(j,i) = me%interact(i,j)
+        end associate
+      end do
+    end do
+
+  end subroutine check_actual_interactions
 
 !===================================================================================================
 
@@ -541,11 +570,12 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, Rs, F, Potential, Virial, Elayer )
+  subroutine find_pairs_and_compute( me, thread, Rs, F, Potential, Virial, Elayer, Wlayer )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
+    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial, &
+                                  Elayer(me%nlayers), Wlayer(me%nlayers)
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
     integer  :: nlocal, ntotal, first, last
@@ -562,6 +592,7 @@ contains
     Potential = zero
     Virial = zero
     Elayer = zero
+    Wlayer = zero
 
     include = .true.
     index = 0
@@ -603,39 +634,38 @@ contains
               if (include(m)) then
                 j = atom(m)
                 jtype = me%atomType(j)
-                select type ( model => partner(jtype)%model )
-                  type is (pair_none)
-                  class default
-                    Qj = me%charge(j)
-                    Rij = Ri - Rs(:,j)
-                    Rij = Rij - anint(Rij)
-                    r2 = sum(Rij*Rij)
-                    if (r2 < xRc2) then
-                      npairs = npairs + 1
-                      neighbor%item(npairs) = j
-                      if (r2 < Rc2) then
-                        invR2 = me%invL2/r2
-                        select type (model)
-                          include "compute_pair.f90"
-                        end select
-                        Potential = Potential + Eij
-                        Virial = Virial + Wij
-                        Fij = Wij*invR2*Rij
-                        Fi = Fi + Fij
-                        F(:,j) = F(:,j) - Fij
+                if (me%interact(itype,jtype)) then
+                  Qj = me%charge(j)
+                  Rij = Ri - Rs(:,j)
+                  Rij = Rij - anint(Rij)
+                  r2 = sum(Rij*Rij)
+                  if (r2 < xRc2) then
+                    npairs = npairs + 1
+                    neighbor%item(npairs) = j
+                    if (r2 < Rc2) then
+                      invR2 = me%invL2/r2
+                      select type (model => partner(jtype)%model)
+                        include "compute_pair.f90"
+                      end select
+                      Potential = Potential + Eij
+                      Virial = Virial + Wij
+                      Fij = Wij*invR2*Rij
+                      Fi = Fi + Fij
+                      F(:,j) = F(:,j) - Fij
 
-                        if (multilayer(jtype)) then
-                          do layer = 1, me%nlayers
-                            select type ( model => me%pair(itype,jtype,layer)%model )
-                              include "compute_pair.f90"
-                            end select
-                            Elayer(layer) = Elayer(layer) + Eij
-                          end do
-                        end if
-
+                      if (multilayer(jtype)) then
+                        do layer = 1, me%nlayers
+                          select type ( model => me%pair(itype,jtype,layer)%model )
+                            include "compute_pair.f90"
+                          end select
+                          Elayer(layer) = Elayer(layer) + Eij
+                          Wlayer(layer) = Wlayer(layer) + Wij
+                        end do
                       end if
+
                     end if
-                end select
+                  end if
+                end if
               end if
             end do
           end associate
@@ -653,11 +683,12 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, Rs, F, Potential, Virial, Elayer )
+  subroutine compute_pairs( me, thread, Rs, F, Potential, Virial, Elayer, Wlayer )
     type(tData), intent(in)  :: me
     integer,     intent(in)  :: thread
     real(rb),    intent(in)  :: Rs(3,me%natoms)
-    real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
+    real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, &
+                                Elayer(me%nlayers), Wlayer(me%nlayers)
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
@@ -669,6 +700,7 @@ contains
     Potential = zero
     Virial = zero
     Elayer = zero
+    Wlayer = zero
 
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
@@ -704,6 +736,7 @@ contains
                     include "compute_pair.f90"
                   end select
                   Elayer(layer) = Elayer(layer) + Eij
+                  Wlayer(layer) = Wlayer(layer) + Wij
                 end do
               end if
 

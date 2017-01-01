@@ -72,6 +72,9 @@ contains
     model%invSigSq = one/model%sigma**2
     model%shift = alpha*(one - model%lambda)**exponent_p
 
+    ! Mark active contributions:
+    model%vdw = model%lambda /= zero
+
   end subroutine pair_softcore_cut_setup
 
 !---------------------------------------------------------------------------------------------------

@@ -26,6 +26,8 @@ implicit none
 
 !> Abstract class for pair interaction models
 type, abstract, extends(cModel) :: cPairModel
+  logical  :: vdw = .false.
+  logical  :: coulomb = .false.
   logical  :: shifted_force_vdw = .false.
   logical  :: shifted_force_coul = .false.
   real(rb) :: eshift_vdw = zero
