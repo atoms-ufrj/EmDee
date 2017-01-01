@@ -36,6 +36,7 @@ type, abstract, extends(cModel) :: cPairModel
   real(rb) :: fshift_coul = zero
   contains
     procedure(cPairModel_compute), deferred :: compute
+    procedure(cPairModel_virial),  deferred :: virial
     procedure(cPairModel_mix),     deferred :: mix
 
     procedure :: shifting_setup => cPairModel_shifting_setup
@@ -50,18 +51,18 @@ abstract interface
     real(rb),          intent(in)  :: invR2, Qi, Qj
   end subroutine cPairModel_compute
 
+  function cPairModel_virial( model, invR2, Qi, Qj ) result( Wij )
+    import
+    class(cPairModel), intent(in)  :: model
+    real(rb),          intent(in)  :: invR2, Qi, Qj
+    real(rb)                       :: Wij
+  end function cPairModel_virial
+
   function cPairModel_mix( this, other ) result( mixed )
     import
     class(cPairModel), intent(in) :: this, other
     class(cPairModel), pointer    :: mixed
   end function cPairModel_mix
-
-  subroutine cPairModel_tail( model, Etail, Wtail, Rc )
-    import
-    class(cPairModel), intent(in)  :: model
-    real(rb),          intent(out) :: Etail, Wtail
-    real(rb),          intent(in)  :: Rc
-  end subroutine cPairModel_tail
 
 end interface
 
@@ -79,6 +80,7 @@ type, extends(cPairModel) :: pair_none
   contains
     procedure :: setup => pair_none_setup
     procedure :: compute => pair_none_compute
+    procedure :: virial => pair_none_virial
     procedure :: mix => pair_none_mix
 end type pair_none
 
@@ -191,6 +193,15 @@ contains
     Eij = zero
     Wij = zero
   end subroutine pair_none_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  function pair_none_virial( model, invR2, Qi, Qj ) result( Wij )
+    class(pair_none), intent(in) :: model
+    real(rb),         intent(in) :: invR2, Qi, Qj
+    real(rb)                     :: Wij
+    Wij = zero
+  end function pair_none_virial
 
 !---------------------------------------------------------------------------------------------------
 

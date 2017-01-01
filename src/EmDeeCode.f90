@@ -17,6 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Change name of exported Julia wrapper
 ! TODO: Add option of automatic versus manual force calculations
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
@@ -32,8 +33,9 @@ private
 character(11), parameter :: VERSION = "29 Dec 2016"
 
 type, bind(C) :: tOpts
-  integer(ib) :: translate      ! Flag to activate/deactivate translations
-  integer(ib) :: rotate         ! Flag to activate/deactivate rotations
+  logical(lb) :: translate      ! Flag to activate/deactivate translations
+  logical(lb) :: rotate         ! Flag to activate/deactivate rotations
+  logical(lb) :: computeProps   ! Flag to activate/deactivate energy and virial computations
   integer(ib) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
 end type tOpts
 
@@ -47,6 +49,7 @@ type, bind(C) :: tEmDee
   real(rb)    :: Virial         ! Total internal virial of the system
   integer(ib) :: DOF            ! Total number of degrees of freedom
   integer(ib) :: rotationDOF    ! Number of rotational degrees of freedom
+  logical(lb) :: UpToDate       ! Flag to attest whether energy and virial have been computated
   type(c_ptr) :: Data           ! Pointer to system data
   type(tOpts) :: Options        ! List of options to change EmDee's behavior
 end type tEmDee
@@ -150,8 +153,9 @@ contains
     EmDee_system % DOF = 3*(N - 1)
     EmDee_system % rotationDOF = 0
     EmDee_system % data = c_loc(me)
-    EmDee_system % Options % translate = 1
-    EmDee_system % Options % rotate = 1
+    EmDee_system % Options % translate = .true.
+    EmDee_system % Options % rotate = .true.
+    EmDee_system % Options % computeProps = .true.
     EmDee_system % Options % rotationMode = 0
 
   end function EmDee_system
@@ -579,10 +583,12 @@ contains
         !$omp end parallel
 
       case ("multienergy")
+        if (.not.md%UpToDate) call error( "download", "layer energies are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
         vector = me%layer_energy
 
       case ("multivirial")
+        if (.not.md%UpToDate) call error( "download", "layer virials are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
         vector = me%layer_virial
 
@@ -703,7 +709,6 @@ contains
     real(rb),     value         :: lambda, alpha, dt
 
     real(rb) :: CP, CF, Ctau, twoKEt, twoKEr, KEt
-    logical  :: tflag, rflag
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -713,19 +718,17 @@ contains
     CF = lambda*CF
     Ctau = two*CF
 
-    tflag = md % Options % translate /= 0
-    rflag = md % Options % rotate /= 0
     twoKEt = zero
     twoKEr = zero
     !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,twoKEr)
     call boost( omp_get_thread_num() + 1, twoKEt, twoKEr )
     !$omp end parallel
-    if (tflag) then
+    if (md%Options%translate) then
       KEt = half*twoKEt
     else
       KEt = md%Kinetic - md%Rotational
     end if
-    if (rflag) md%Rotational = half*twoKEr
+    if (md%Options%rotate) md%Rotational = half*twoKEr
     md%Kinetic = KEt + md%Rotational
 
     contains
@@ -736,17 +739,17 @@ contains
         integer  :: i, j
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
-            if (tflag) then
+            if (md%Options%translate) then
               b%pcm = CP*b%pcm + CF*b%F
               twoKEt = twoKEt + b%invMass*sum(b%pcm*b%pcm)
             end if
-            if (rflag) then
+            if (md%Options%rotate) then
               call b%assign_momenta( CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau ) )
               twoKEr = twoKEr + sum(b%MoI*b%omega*b%Omega)
             end if
           end associate
         end do
-        if (tflag) then
+        if (md%Options%translate) then
           do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
             j = me%free(i)
             me%P(:,j) = CP*me%P(:,j) + CF*me%F(:,j)
@@ -764,7 +767,6 @@ contains
     real(rb),     value         :: lambda, alpha, dt
 
     real(rb) :: cR, cP
-    logical  :: tflag, rflag
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -781,9 +783,6 @@ contains
     end if
     cP = lambda*cP
 
-    tflag = md % Options % translate /= 0
-    rflag = md % Options % rotate /= 0
-
     !$omp parallel num_threads(me%nthreads)
     call move( omp_get_thread_num() + 1, cP, cR )
     !$omp end parallel
@@ -798,8 +797,8 @@ contains
         integer :: i, j
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
           associate(b => me%body(i))
-            if (tflag) b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
-            if (rflag) then
+            if (md%Options%translate) b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
+            if (md%Options%rotate) then
               if (md%Options%rotationMode == 0) then
                call b % rotate_exact( dt )
               else
@@ -809,7 +808,7 @@ contains
             end if
           end associate
         end do
-        if (tflag) then
+        if (md%Options%translate) then
           do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
             j = me%free(i)
             me%R(:,j) = cR*me%R(:,j) + cP*me%P(:,j)*me%invMass(j)
@@ -847,15 +846,16 @@ contains
       md%builds = md%builds + 1
     endif
 
+    md%UpToDate = md%Options%computeProps
     !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
-      associate( F => Fs(:,:,thread) )
+      associate( F => Fs(:,:,thread), EL => Elayer(:,thread), WL => Wlayer(:,thread) )
         if (buildList) then
-          call find_pairs_and_compute( me, thread, Rs, F, E, W, Elayer(:,thread), Wlayer(:,thread) )
+          call find_pairs_and_compute( me, thread, md%UpToDate, Rs, F, E, W, EL, WL )
         else
-          call compute_pairs( me, thread, Rs, F, E, W, Elayer(:,thread), Wlayer(:,thread) )
+          call compute_pairs( me, thread, md%UpToDate, Rs, F, E, W, EL, WL )
         end if
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )

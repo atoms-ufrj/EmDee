@@ -98,10 +98,11 @@ call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 call EmDee_upload( md, "momenta"//c_null_char, c_loc(V(1,1)) )
 
 do step = 1, Nsteps
+  md%options%computeProps = mod(step,Nprop) == 0
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
   call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
-  if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
+  if (md%options%computeProps) print*, step, md%Potential, md%Virial
 end do
 print*, "neighbor list builds = ", md%builds
 print*, "pair time = ", md%pairTime, " s."

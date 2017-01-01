@@ -27,15 +27,10 @@ use pairModelClass
 !!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
 !!           which will contain their (common) size after allocation
 type, extends(cPairModel) :: pair_coul_sf
-!  integer :: N !<>
-!  integer, allocatable :: A(:) !<>
-!  real, allocatable :: B(:) !<>
-!  integer :: M !<>
-!  real, allocatable :: C(:) !<>
-!  real :: D !<>
   contains
     procedure :: setup => pair_coul_sf_setup
     procedure :: compute => pair_coul_sf_compute
+    procedure :: virial => pair_coul_sf_virial
     procedure :: mix => pair_coul_sf_mix
 end type pair_coul_sf
 
@@ -63,8 +58,8 @@ contains
 
   subroutine pair_coul_sf_compute( model, Eij, Wij, invR2, Qi, Qj )
     class(pair_coul_sf), intent(in)  :: model
-    real(rb),       intent(out) :: Eij, Wij
-    real(rb),       intent(in)  :: invR2, Qi, Qj
+    real(rb),            intent(out) :: Eij, Wij
+    real(rb),            intent(in)  :: invR2, Qi, Qj
 
     real(rb) :: rFc, invR, QiQj, QiQjbyR
 
@@ -76,6 +71,20 @@ contains
     Wij = QiQjbyR - rFc
 
   end subroutine pair_coul_sf_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  function pair_coul_sf_virial( model, invR2, Qi, Qj ) result( Wij )
+    class(pair_coul_sf), intent(in) :: model
+    real(rb),            intent(in) :: invR2, Qi, Qj
+    real(rb)                        :: Wij
+
+    real(rb) :: invR
+
+    invR = sqrt(invR2)
+    Wij = Qi*Qj*(invR - model%fshift_coul/invR)
+
+  end function pair_coul_sf_virial
 
 !---------------------------------------------------------------------------------------------------
 

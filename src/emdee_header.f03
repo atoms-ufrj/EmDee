@@ -18,23 +18,25 @@
 !            Federal University of Rio de Janeiro, Brazil
 
 type, bind(C) :: tOptions
-  integer(c_int) :: translate      ! Flag to activate/deactivate translations
-  integer(c_int) :: rotate         ! Flag to activate/deactivate rotations
-  integer(c_int) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
+  logical(c_bool) :: translate      ! Flag to activate/deactivate translations
+  logical(c_bool) :: rotate         ! Flag to activate/deactivate rotations
+  logical(c_bool) :: computeProps   ! Flag to activate/deactivate energy and virial computations
+  integer(c_int)  :: rotationMode   ! Algorithm used for free rotation of rigid bodies
 end type tOptions
 
 type, bind(C) :: tEmDee
-  integer(c_int) :: builds         ! Number of neighbor-list builds
-  real(c_double) :: pairTime       ! Time taken in force calculations
-  real(c_double) :: totalTime      ! Total time since initialization
-  real(c_double) :: Potential      ! Total potential energy of the system
-  real(c_double) :: Kinetic        ! Total kinetic energy of the system
-  real(c_double) :: Rotational     ! Rotational kinetic energy of the system
-  real(c_double) :: Virial         ! Total internal virial of the system
-  integer(c_int) :: DOF            ! Total number of degrees of freedom
-  integer(c_int) :: RDOF           ! Number of rotational degrees of freedom
-  type(c_ptr)    :: Data           ! Pointer to EmDee system data
-  type(tOptions) :: Options        ! List of options to change EmDee's behavior
+  integer(c_int)  :: builds         ! Number of neighbor-list builds
+  real(c_double)  :: pairTime       ! Time taken in force calculations
+  real(c_double)  :: totalTime      ! Total time since initialization
+  real(c_double)  :: Potential      ! Total potential energy of the system
+  real(c_double)  :: Kinetic        ! Total kinetic energy of the system
+  real(c_double)  :: Rotational     ! Rotational kinetic energy of the system
+  real(c_double)  :: Virial         ! Total internal virial of the system
+  integer(c_int)  :: DOF            ! Total number of degrees of freedom
+  integer(c_int)  :: RDOF           ! Number of rotational degrees of freedom
+  logical(c_bool) :: UpToDate       ! Flag to attest whether energy and virial have been computed
+  type(c_ptr)     :: Data           ! Pointer to EmDee system data
+  type(tOptions)  :: Options        ! List of options to change EmDee's behavior
 end type tEmDee
 
 interface

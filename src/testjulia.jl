@@ -65,7 +65,7 @@ end
 #---------------------------------------------------------------------------------------------------
 
 push!(Base.DL_LOAD_PATH,string(DIR,"/lib"))
-include(string(DIR,"/include/EmDee.jl"))
+include(string(DIR,"/include/libemdee.jl"))
 if length(ARGS) == 1
   run(1,ARGS[1])
 elseif length(ARGS) == 2

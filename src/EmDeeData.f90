@@ -570,9 +570,10 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, Rs, F, Potential, Virial, Elayer, Wlayer )
+  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Potential, Virial, Elayer, Wlayer )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
+    logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial, &
                                   Elayer(me%nlayers), Wlayer(me%nlayers)
@@ -635,7 +636,6 @@ contains
                 j = atom(m)
                 jtype = me%atomType(j)
                 if (me%interact(itype,jtype)) then
-                  Qj = me%charge(j)
                   Rij = Ri - Rs(:,j)
                   Rij = Rij - anint(Rij)
                   r2 = sum(Rij*Rij)
@@ -644,25 +644,31 @@ contains
                     neighbor%item(npairs) = j
                     if (r2 < Rc2) then
                       invR2 = me%invL2/r2
-                      select type (model => partner(jtype)%model)
-                        include "compute_pair.f90"
-                      end select
-                      Potential = Potential + Eij
-                      Virial = Virial + Wij
-                      Fij = Wij*invR2*Rij
+                      Qj = me%charge(j)
+                      if (compute) then
+                        select type (model => partner(jtype)%model)
+                          include "compute_pair.f90"
+                        end select
+                        Potential = Potential + Eij
+                        Virial = Virial + Wij
+                        Fij = Wij*invR2*Rij
+                        if (multilayer(jtype)) then
+                          do layer = 1, me%nlayers
+                            select type ( model => me%pair(itype,jtype,layer)%model )
+                              include "compute_pair.f90"
+                            end select
+                            Elayer(layer) = Elayer(layer) + Eij
+                            Wlayer(layer) = Wlayer(layer) + Wij
+                          end do
+                        end if
+                      else
+                        select type (model => partner(jtype)%model)
+                          include "compute_pair_virial.f90"
+                        end select
+                        Fij = Wij*invR2*Rij
+                      end if
                       Fi = Fi + Fij
                       F(:,j) = F(:,j) - Fij
-
-                      if (multilayer(jtype)) then
-                        do layer = 1, me%nlayers
-                          select type ( model => me%pair(itype,jtype,layer)%model )
-                            include "compute_pair.f90"
-                          end select
-                          Elayer(layer) = Elayer(layer) + Eij
-                          Wlayer(layer) = Wlayer(layer) + Wij
-                        end do
-                      end if
-
                     end if
                   end if
                 end if
@@ -683,13 +689,13 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, Rs, F, Potential, Virial, Elayer, Wlayer )
+  subroutine compute_pairs( me, thread, compute, Rs, F, Potential, Virial, Elayer, Wlayer )
     type(tData), intent(in)  :: me
     integer,     intent(in)  :: thread
+    logical(lb), intent(in)  :: compute
     real(rb),    intent(in)  :: Rs(3,me%natoms)
     real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, &
                                 Elayer(me%nlayers), Wlayer(me%nlayers)
-
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
@@ -714,32 +720,37 @@ contains
         associate (pair => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
-            Qj = Q(j)
             Rij = Ri - Rs(:,j)
             Rij = Rij - anint(Rij)
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
               invR2 = me%invL2/r2
               jtype = me%atomType(j)
-              select type ( model => pair(jtype)%model )
-                include "compute_pair.f90"
-              end select
-              Potential = Potential + Eij
-              Virial = Virial + Wij
-              Fij = Wij*invR2*Rij
+              Qj = Q(j)
+              if (compute) then
+                select type ( model => pair(jtype)%model )
+                  include "compute_pair.f90"
+                end select
+                Potential = Potential + Eij
+                Virial = Virial + Wij
+                Fij = Wij*invR2*Rij
+                if (multilayer(jtype)) then
+                  do layer = 1, me%nlayers
+                    select type ( model => me%pair(itype,jtype,layer)%model )
+                      include "compute_pair.f90"
+                    end select
+                    Elayer(layer) = Elayer(layer) + Eij
+                    Wlayer(layer) = Wlayer(layer) + Wij
+                  end do
+                end if
+              else
+                select type ( model => pair(jtype)%model )
+                  include "compute_pair_virial.f90"
+                end select
+                Fij = Wij*invR2*Rij
+              end if
               Fi = Fi + Fij
               F(:,j) = F(:,j) - Fij
-
-              if (multilayer(jtype)) then
-                do layer = 1, me%nlayers
-                  select type ( model => me%pair(itype,jtype,layer)%model )
-                    include "compute_pair.f90"
-                  end select
-                  Elayer(layer) = Elayer(layer) + Eij
-                  Wlayer(layer) = Wlayer(layer) + Wij
-                end do
-              end if
-
             end if
           end do
         end associate

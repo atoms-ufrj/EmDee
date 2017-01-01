@@ -72,7 +72,7 @@ all: lib include
 
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
-	rm -rf $(call src,$(addprefix compute_,pair bond angle dihedral) models)
+	rm -rf $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral) models)
 
 install:
 	cp $(LIBDIR)/libemdee.* $(PREFIX)/lib/
@@ -105,7 +105,7 @@ $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl
 
 lib: $(LIBDIR)/libemdee.so
 
-include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/EmDee.jl
+include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/libemdee.jl
 
 $(LIBDIR)/libemdee.so: $(OBJECTS)
 	mkdir -p $(LIBDIR)
@@ -119,13 +119,14 @@ $(INCDIR)/emdee.h: $(SRCDIR)/emdee_header.h
 	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) > $(INCDIR)/emdee.h
 
-$(INCDIR)/EmDee.jl: $(SRCDIR)/emdee_header.jl
+$(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl
 	mkdir -p $(INCDIR) $(LIBDIR)
-	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) > $(INCDIR)/EmDee.jl
+	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) > $(INCDIR)/libemdee.jl
 
 # Object files:
 
-$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode $(addprefix compute_,pair bond angle dihedral)) \
+$(OBJDIR)/EmDeeCode.o: $(SRCDIR)/EmDeeCode.f90 \
+                       $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral)) \
                        $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
@@ -143,6 +144,9 @@ $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 
 $(SRCDIR)/compute_pair.f90: $(call src,$(PAIRMODELS))
 	bash $(SRCDIR)/make_compute.sh pair $(PAIRMODELS) > $@
+
+$(SRCDIR)/compute_pair_virial.f90: $(call src,$(PAIRMODELS))
+	bash $(SRCDIR)/make_compute_virial.sh pair $(PAIRMODELS) > $@
 
 $(SRCDIR)/compute_bond.f90: $(call src,$(BONDMODELS))
 	bash $(SRCDIR)/make_compute.sh bond $(BONDMODELS) > $@

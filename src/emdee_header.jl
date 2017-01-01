@@ -1,12 +1,13 @@
 module EmDee
 
-type tOptions
+immutable tOptions
   translate::Int32           # Flag to activate/deactivate translations
   rotate::Int32              # Flag to activate/deactivate rotations
+  computeProps::Int32        # Flag to activate/deactivate energy and virial computations
   rotationMode::Int32        # Algorithm used for free rotation of rigid bodies
 end
 
-type tEmDee
+immutable tEmDee
   builds::Int32              # Number of neighbor-list builds
   pairTime::Float64          # Time taken in force calculations
   totalTime::Float64         # Total time since initialization
@@ -16,6 +17,7 @@ type tEmDee
   Virial::Float64            # Total internal virial of the system
   DOF::Int32                 # Total number of degrees of freedom
   RDOF::Int32                # Number of rotational degrees of freedom
+  UpToDate::Int32            # Flag to attest whether energy and virial have been computated
   Data::Ref{Void}            # Pointer to EmDee system data
   Options::tOptions          # List of options to change EmDee's behavior
 end

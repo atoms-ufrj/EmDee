@@ -45,6 +45,7 @@ type, extends(cPairModel) :: pair_softcore_cut_coul_sf
   contains
     procedure :: setup => pair_softcore_cut_coul_sf_setup
     procedure :: compute => pair_softcore_cut_coul_sf_compute
+    procedure :: virial => pair_softcore_cut_coul_sf_virial
     procedure :: mix => pair_softcore_cut_coul_sf_mix
 end type pair_softcore_cut_coul_sf
 
@@ -107,6 +108,25 @@ contains
     Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq) + QiQjbyR - rFc
 
   end subroutine pair_softcore_cut_coul_sf_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  function pair_softcore_cut_coul_sf_virial( model, invR2, Qi, Qj ) result( Wij )
+    class(pair_softcore_cut_coul_sf), intent(in) :: model
+    real(rb),                         intent(in) :: invR2, Qi, Qj
+    real(rb)                                     :: Wij
+
+    real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb, invR
+
+    rsig2 = model%invSigSq/invR2
+    rsig6 = rsig2*rsig2*rsig2
+    sinv = one/(rsig6 + model%shift)
+    sinvSq = sinv*sinv
+    sinvCb = sinv*sinvSq
+    invR = sqrt(invR2)
+    Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq) + Qi*Qj*(invR - model%fshift_coul/invR)
+
+  end function pair_softcore_cut_coul_sf_virial
 
 !---------------------------------------------------------------------------------------------------
 
