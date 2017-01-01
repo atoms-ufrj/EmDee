@@ -42,6 +42,7 @@ type, bind(C) :: tEmDee
   real(rb)    :: pairTime       ! Time taken in force calculations
   real(rb)    :: totalTime      ! Total time since initialization
   real(rb)    :: Potential      ! Total potential energy of the system
+  real(rb)    :: Coulombic      ! Coulombic potential energy of the system
   real(rb)    :: Kinetic        ! Total kinetic energy of the system
   real(rb)    :: Rotational     ! Rotational kinetic energy of the system
   real(rb)    :: Virial         ! Total internal virial of the system
@@ -142,6 +143,7 @@ contains
     allocate( me%coul(me%nlayers) )
     me%coul_multilayer = .false.
     allocate( me%coul_energy(me%nlayers), source = zero )
+    allocate( me%hasCoulomb(me%nlayers), source = .false. )
 
     ! Initialize pair and coul models as none:
     do k = 1, me%nlayers
@@ -178,9 +180,11 @@ contains
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
-    if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
-    if (me%initialized) call update_forces( md, layer )
-    me%layer = layer
+    if (layer /= me%layer) then
+      if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
+      if (me%initialized) call update_forces( md, layer )
+      me%layer = layer
+    end if
 
   end subroutine EmDee_switch_model_layer
 
@@ -883,15 +887,18 @@ contains
     type(tEmDee), intent(inout) :: md
 
     integer  :: M
-    real(rb) :: time, E, W
+    real(rb) :: time, E, EC, W
     logical  :: buildList
-    real(rb), allocatable :: Rs(:,:), Fs(:,:,:), Elayer(:,:)
+    real(rb), allocatable :: Rs(:,:), Fs(:,:,:), FCs(:,:,:), Elayer(:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     md%pairTime = md%pairTime - omp_get_wtime()
 
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads), Elayer(me%nlayers,me%nthreads) )
+    allocate( Rs(3,me%natoms) )
+    allocate( Fs(3,me%natoms,me%nthreads) )
+    allocate( FCs(3,me%natoms,me%nthreads) )
+    allocate( Elayer(me%nlayers,me%nthreads) )
     Rs = me%invL*me%R
 
     buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
@@ -902,25 +909,27 @@ contains
       md%builds = md%builds + 1
     endif
 
-    !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
+    !$omp parallel num_threads(me%nthreads) reduction(+:E,EC,W)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
-      associate( F => Fs(:,:,thread) )
+      associate( F => Fs(:,:,thread), FC => FCs(:,:,thread) )
         if (buildList) then
-          call find_pairs_and_compute( me, thread, Rs, F, E, W, Elayer(:,thread) )
+          call find_pairs_and_compute( me, thread, Rs, F, FC, E, EC, W, Elayer(:,thread) )
         else
-          call compute_pairs( me, thread, Rs, F, E, W, Elayer(:,thread) )
+          call compute_pairs( me, thread, Rs, F, FC, E, EC, W, Elayer(:,thread) )
         end if
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
-        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E, W )
+        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, FC, E, EC, W )
       end associate
     end block
     !$omp end parallel
 
-    me%F = me%Lbox*sum(Fs,3)
-    md%Potential = E
+    me%FC = me%Lbox*sum(FCs,3)
+    me%F = me%Lbox*sum(Fs,3) + me%FC
+    md%Coulombic = EC
+    md%Potential = E + EC
     md%Virial = third*W
     me%layer_energy = sum(Elayer,2)
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
@@ -938,24 +947,24 @@ contains
     integer,      intent(in)    :: layer
 
     real(rb) :: DE, DW, time
-    real(rb), allocatable :: Rs(:,:), DFs(:,:,:)
+    real(rb), allocatable :: Rs(:,:), DFs(:,:,:), DFCs(:,:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     md%pairTime = md%pairTime - omp_get_wtime()
 
-    allocate( Rs(3,me%natoms), DFs(3,me%natoms,me%nthreads) )
+    allocate( Rs(3,me%natoms), DFs(3,me%natoms,me%nthreads), DFCs(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
 
     !$omp parallel num_threads(me%nthreads) reduction(+:DE,DW)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
-      call update_pairs( me, thread, Rs, DFs(:,:,thread), DE, DW, layer )
+      call update_pairs( me, thread, Rs, DFs(:,:,thread), DFCs(:,:,thread), DE, DW, layer )
     end block
     !$omp end parallel
 
-    me%F = me%F + me%Lbox*sum(DFs,3)
+    me%F = me%F + me%Lbox*sum(DFs + DFCs,3)
     md%Potential = md%Potential + DE
     md%Virial = md%Virial + third*DW
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )

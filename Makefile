@@ -72,7 +72,7 @@ all: lib include
 
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
-	rm -rf $(call src,$(addprefix compute_,pair bond angle dihedral) models)
+	rm -rf $(call src,$(addprefix compute_,pair coul bond angle dihedral) models)
 
 install:
 	cp $(LIBDIR)/libemdee.* $(PREFIX)/lib/

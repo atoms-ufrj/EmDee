@@ -68,12 +68,14 @@ end where
 
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 
-call EmDee_set_coul_model( md, EmDee_coul_none() )
+!pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
+
+call EmDee_set_coul_model( md, EmDee_coul_sf() )
+pair = EmDee_pair_softcore_cut( 1.0_rb, 1.0_rb, 1.0_rb )
+
 
 !pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_cut_coul_sf( 1.0_rb, 1.0_rb )
-pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
-!pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_softcore_sf_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_sf_old( 1.0_rb, 1.0_rb, Rc )
 !pair = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
@@ -99,6 +101,7 @@ call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 call EmDee_upload( md, "momenta"//c_null_char, c_loc(V(1,1)) )
 
+print*, 0, md%Potential, md%Virial
 do step = 1, Nsteps
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
   call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )

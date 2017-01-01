@@ -97,6 +97,7 @@ type :: tData
   real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
   real(rb), allocatable :: P(:,:)         ! Momenta of all atoms
   real(rb), allocatable :: F(:,:)         ! Resultant forces on all atoms
+  real(rb), allocatable :: FC(:,:)        ! Coulombic forces on all atoms
   real(rb), allocatable :: charge(:)      ! Electric charges of all atoms
   real(rb), allocatable :: mass(:)        ! Masses of all atoms
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
@@ -113,6 +114,7 @@ type :: tData
   real(rb), pointer     :: layer_energy(:)
 
   type(coulModelContainer), allocatable :: coul(:)
+  logical, allocatable :: hasCoulomb(:)
   logical           :: coul_multilayer
   real(rb), pointer :: coul_energy(:)
 
@@ -239,20 +241,14 @@ contains
 
     integer :: i, j, k
     logical :: charged(me%ntypes)
-    logical :: no_coul, all_none, coulomb
+    logical :: all_none, coulomb
     type(coul_none) :: coulnone
     type(pair_none) :: pairnone
 
-    k = 1
-    no_coul = same_type_as( me%coul(k)%model, coulnone )
-    if (me%coul_multilayer) then
-      do while (no_coul .and. (k < me%nlayers))
-        k = k + 1
-        no_coul = no_coul .and. same_type_as( me%coul(k)%model, coulnone )
-      end do
-    end if
-
-    coulomb = .not.no_coul
+    do k = 1, me%nlayers
+      me%hasCoulomb(k) = .not.same_type_as( me%coul(k)%model, coulnone )
+    end do
+    coulomb = any(me%hasCoulomb)
     if (coulomb) then
       forall (i=1:me%ntypes) charged(i) = count((me%atomType == i).and.(me%charge /= zero)) > 0
     end if
@@ -516,11 +512,11 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_dihedrals( me, threadId, R, F, Potential, Virial )
+  subroutine compute_dihedrals( me, threadId, R, F, FC, Potential, Coulombic, Virial )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: threadId
     real(rb),    intent(in)    :: R(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(inout) :: F(3,me%natoms), FC(3,me%natoms), Potential, Coulombic, Virial
 
     integer  :: m, ndihedrals, i, j
     real(rb) :: Rc2, Ed, Fd, r2, invR2, Eij, Wij, Qi, Qj
@@ -603,32 +599,37 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, Rs, F, Potential, Virial, Elayer )
+  subroutine find_pairs_and_compute( me, thread, Rs, F, FC, Potential, Coulombic, Virial, Elayer )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
+    real(rb),    intent(out)   :: F(3,me%natoms), FC(3,me%natoms)
+    real(rb),    intent(out)   :: Potential, Coulombic, Virial, Elayer(me%nlayers)
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
     integer  :: nlocal, ntotal, first, last
     real(rb) :: xRc2, Rc2, r2, invR2, Eij, Wij, Qi, Qj
-    logical  :: include(0:me%maxpairs)
+    logical  :: include(0:me%maxpairs), hasCoulomb
     integer  :: atom(me%maxpairs), index(me%natoms)
-    real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
+    real(rb) :: Ri(3), Rij(3), Fi(3), FCi(3), Fij(3), RijByR2(3)
     integer,  allocatable :: xlist(:)
 
     xRc2 = me%xRcSq*me%invL2
     Rc2 = me%RcSq*me%invL2
 
     F = zero
+    FC = zero
     Potential = zero
+    Coulombic = zero
     Virial = zero
     Elayer = zero
+
+    hasCoulomb = me%hasCoulomb(me%layer)
 
     include = .true.
     index = 0
     npairs = 0
-    associate (neighbor => me%neighbor(thread))
+    associate( neighbor => me%neighbor(thread), coulModel => me%coul(me%layer)%model )
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
         if (neighbor%nitems < npairs + me%maxpairs) then
@@ -658,50 +659,72 @@ contains
           Qi = me%charge(i)
           Ri = Rs(:,i)
           Fi = zero
+          FCi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
           include(xlist) = .false.
-          associate (partner => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
+          associate( partner => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype) )
             do m = k + 1, ntotal
               if (include(m)) then
                 j = atom(m)
                 jtype = me%atomType(j)
                 if (me%interact(itype,jtype)) then
-                  associate ( model => partner(jtype)%model )
-                    Qj = me%charge(j)
-                    Rij = Ri - Rs(:,j)
-                    Rij = Rij - anint(Rij)
-                    r2 = sum(Rij*Rij)
-                    if (r2 < xRc2) then
-                      npairs = npairs + 1
-                      neighbor%item(npairs) = j
-                      if (r2 < Rc2) then
-                        invR2 = me%invL2/r2
-                        select type (model)
-                          include "compute_pair.f90"
-                        end select
-                        Potential = Potential + Eij
-                        Virial = Virial + Wij
-                        Fij = Wij*invR2*Rij
-                        Fi = Fi + Fij
-                        F(:,j) = F(:,j) - Fij
+                  Qj = me%charge(j)
+                  Rij = Ri - Rs(:,j)
+                  Rij = Rij - anint(Rij)
+                  r2 = sum(Rij*Rij)
+                  if (r2 < xRc2) then
+                    npairs = npairs + 1
+                    neighbor%item(npairs) = j
+                    if (r2 < Rc2) then
 
-                        if (multilayer(jtype)) then
-                          do layer = 1, me%nlayers
-                            select type ( model => me%pair(itype,jtype,layer)%model )
-                              include "compute_pair.f90"
-                            end select
-                            Elayer(layer) = Elayer(layer) + Eij
-                          end do
-                        end if
+                      invR2 = me%invL2/r2
+                      RijByR2 = invR2*Rij
+                      select type (model => partner(jtype)%model)
+                        include "compute_pair.f90"
+                      end select
+                      Potential = Potential + Eij
+                      Virial = Virial + Wij
+                      Fij = Wij*RijByR2
+                      Fi = Fi + Fij
+                      F(:,j) = F(:,j) - Fij
 
+                      if (multilayer(jtype)) then
+                        do layer = 1, me%nlayers
+                          select type ( model => me%pair(itype,jtype,layer)%model )
+                            include "compute_pair.f90"
+                          end select
+                          Elayer(layer) = Elayer(layer) + Eij
+                        end do
                       end if
+
+                      if (hasCoulomb) then
+                        select type (model => coulModel)
+                          include "compute_coul.f90"
+                        end select
+                        Coulombic = Coulombic + Eij
+                        Virial = Virial + Wij
+                        Fij = Wij*RijByR2
+                        FCi = FCi + Fij
+                        FC(:,j) = FC(:,j) - Fij
+                      end if
+
+                      if (me%coul_multilayer) then
+                        do layer = 1, me%nlayers
+                          select type (model => me%coul(layer)%model)
+                            include "compute_coul.f90"
+                          end select
+                          Elayer(layer) = Elayer(layer) + Eij
+                        end do
+                      end if
+
                     end if
-                  end associate
+                  end if
                 end if
               end if
             end do
+            F(:,i) = F(:,i) + Fi
+            if (hasCoulomb) FC(:,i) = FC(:,i) + FCi
           end associate
-          F(:,i) = F(:,i) + Fi
           neighbor%last(i) = npairs
           include(xlist) = .true.
         end do
@@ -715,48 +738,56 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, Rs, F, Potential, Virial, Elayer )
+  subroutine compute_pairs( me, thread, Rs, F, FC, Potential, Coulombic, Virial, Elayer )
     type(tData), intent(in)  :: me
     integer,     intent(in)  :: thread
     real(rb),    intent(in)  :: Rs(3,me%natoms)
-    real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, Elayer(me%nlayers)
+    real(rb),    intent(out) :: F(3,me%natoms), FC(3,me%natoms)
+    real(rb),    intent(out) :: Potential, Coulombic, Virial, Elayer(me%nlayers)
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
+    logical  :: hasCoulomb
     real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
-    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    real(rb) :: Rij(3), Ri(3), Fi(3), FCi(3), Fij(3), RijByR2(3)
 
     Rc2 = me%RcSq*me%invL2
 
     F = zero
+    FC = zero
     Potential = zero
+    Coulombic = zero
     Virial = zero
     Elayer = zero
 
+    hasCoulomb = me%hasCoulomb(me%layer)
+
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate (neighbor => me%neighbor(thread), Q => me%charge)
+    associate( neighbor => me%neighbor(thread), coulModel => me%coul(me%layer)%model )
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
-        Qi = Q(i)
+        Qi = me%charge(i)
         Ri = Rs(:,i)
         Fi = zero
+        FCi = zero
         associate (pair => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
           do k = neighbor%first(i), neighbor%last(i)
             j = neighbor%item(k)
-            Qj = Q(j)
+            Qj = me%charge(j)
             Rij = Ri - Rs(:,j)
             Rij = Rij - anint(Rij)
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
               invR2 = me%invL2/r2
+              RijByR2 = invR2*Rij
               jtype = me%atomType(j)
               select type ( model => pair(jtype)%model )
                 include "compute_pair.f90"
               end select
               Potential = Potential + Eij
               Virial = Virial + Wij
-              Fij = Wij*invR2*Rij
+              Fij = Wij*RijByR2
               Fi = Fi + Fij
               F(:,j) = F(:,j) - Fij
 
@@ -769,10 +800,31 @@ contains
                 end do
               end if
 
+              if (hasCoulomb) then
+                select type (model => coulModel)
+                  include "compute_coul.f90"
+                end select
+                Coulombic = Coulombic + Eij
+                Virial = Virial + Wij
+                Fij = Wij*RijByR2
+                FCi = FCi + Fij
+                FC(:,j) = FC(:,j) - Fij
+              end if
+
+              if (me%coul_multilayer) then
+                do layer = 1, me%nlayers
+                  select type (model => me%coul(layer)%model)
+                    include "compute_coul.f90"
+                  end select
+                  Elayer(layer) = Elayer(layer) + Eij
+                end do
+              end if
+
             end if
           end do
         end associate
         F(:,i) = F(:,i) + Fi
+        if (hasCoulomb) FC(:,i) = FC(:,i) + FCi
       end do
     end associate
 
@@ -780,11 +832,11 @@ contains
 
 !===================================================================================================
 
-  subroutine update_pairs( me, thread, Rs, DF, DE, DW, new_layer )
+  subroutine update_pairs( me, thread, Rs, DF, DFC, DE, DW, new_layer )
     type(tData), intent(in)  :: me
     integer,     intent(in)  :: thread, new_layer
     real(rb),    intent(in)  :: Rs(3,me%natoms)
-    real(rb),    intent(out) :: DF(3,me%natoms), DE, DW
+    real(rb),    intent(out) :: DF(3,me%natoms), DFC(3,me%natoms), DE, DW
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
     real(rb) :: Rc2, r2, invR2, new_Eij, new_Wij, Eij, Wij, Qi, Qj
@@ -795,6 +847,7 @@ contains
     Rc2 = me%RcSq*me%invL2
 
     DF = zero
+    DFC = zero
     DE = zero
     DW = zero
 

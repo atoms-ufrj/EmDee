@@ -11,6 +11,7 @@ type tEmDee
   pairTime::Float64          # Time taken in force calculations
   totalTime::Float64         # Total time since initialization
   Potential::Float64         # Total potential energy of the system
+  Coulombic::Float64         # Coulombic potential energy of the system
   Kinetic::Float64           # Total kinetic energy of the system
   Rotational::Float64        # Rotational kinetic energy of the system
   Virial::Float64            # Total internal virial of the system

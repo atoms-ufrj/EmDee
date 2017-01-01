@@ -21,8 +21,9 @@
 
 #---------------------------------------------------------------------------------------------------
 
-if [[ "$1" == "pair" ]] || [[ "$1" == "coul" ]]; then
-  echo "type is ($1_none)"
+kind=$1
+if [[ $kind == "pair" ]] || [[ $kind == "coul" ]]; then
+  echo "type is (${kind}_none)"
   echo "  Eij = zero"
   echo "  Wij = zero"
   echo

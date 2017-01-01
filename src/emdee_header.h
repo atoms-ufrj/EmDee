@@ -3,6 +3,7 @@ typedef struct {
   double pairTime;       // Time taken in force calculations
   double totalTime;      // Total time since initialization
   double Potential;      // Total potential energy of the system
+  double Coulombic;      // Coulombic potential energy of the system
   double Kinetic;        // Total kinetic energy of the system
   double Rotational;     // Rotational kinetic energy of the system
   double Virial;         // Total internal virial of the system

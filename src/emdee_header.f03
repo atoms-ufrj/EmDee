@@ -28,6 +28,7 @@ type, bind(C) :: tEmDee
   real(c_double) :: pairTime       ! Time taken in force calculations
   real(c_double) :: totalTime      ! Total time since initialization
   real(c_double) :: Potential      ! Total potential energy of the system
+  real(c_double) :: Coulombic      ! Coulombic potential energy of the system
   real(c_double) :: Kinetic        ! Total kinetic energy of the system
   real(c_double) :: Rotational     ! Rotational kinetic energy of the system
   real(c_double) :: Virial         ! Total internal virial of the system
