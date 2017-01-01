@@ -195,7 +195,7 @@ contains
           inert = .true.
           do while (inert .and. (k < me%nlayers))
             k = k + 1
-            no_interaction = .not.(pair(k)%model%vdw .or. pair(k)%model%vdw)
+            no_interaction = .not.(pair(k)%model%vdw .or. pair(k)%model%coulomb)
             coulomb_only = pair(k)%model%coulomb .and. (.not. pair(k)%model%vdw)
             inert = no_interaction .or. (coulomb_only .and. neutral(i) .and. neutral(j))
           end do

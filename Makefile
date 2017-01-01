@@ -88,22 +88,20 @@ uninstall:
 	rm -f $(addprefix $(PREFIX)/include/,emdee.h emdee.f03 libemdee.jl) 
 	ldconfig
 
-runtests: test
-	cd $(TSTDIR) && bash runtests.sh
-
 # Executables:
 
 test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
+	cd $(TSTDIR) && bash runtests.sh
 
-$(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 lib
+$(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 $(LIBDIR)/libemdee.so
 	mkdir -p $(TSTDIR)
 	$(FORT) $(F_OPTS) -o $@ $(LN_OPTS) -J$(OBJDIR) $< $(EMDEELIB)
 
-$(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h lib
+$(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
 	$(CC) $(C_OPTS) -o $@ $(LN_OPTS) $< $(EMDEELIB) -lm
 
-$(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl $(INCDIR)/libemdee.jl lib
+$(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl $(INCDIR)/libemdee.jl $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
 	(echo '#!/usr/bin/env julia' && echo 'DIR="${CURDIR}"' && cat $<) > $@
 	chmod +x $@
