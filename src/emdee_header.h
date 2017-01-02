@@ -8,12 +8,12 @@ typedef struct {
   double Virial;         // Total internal virial of the system
   int    DOF;            // Total number of degrees of freedom
   int    RDOF;           // Number of rotational degrees of freedom
-  _Bool  UpToDate;       // Flag to attest whether energy and virial have been computated
+  _Bool  UpToDate;       // Flag to attest whether energies have been computed
   void*  Data;           // Pointer to system data
   struct {
     _Bool translate;     // Flag to activate/deactivate translations
     _Bool rotate;        // Flag to activate/deactivate rotations
-    _Bool computeProps;  // Flag to activate/deactivate energy and virial computations
+    _Bool computeProps;  // Flag to activate/deactivate energy computations
     int   rotationMode;  // Algorithm used for free rotation of rigid bodies
   } Options;
 } tEmDee;

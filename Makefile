@@ -71,12 +71,17 @@ TESTS = $(patsubst %.f90,%,$(wildcard $(TSTDIR)/*.f90))
 
 .DEFAULT_GOAL := all
 
+# Phony targets:
+
 all: lib include
+
+test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
+	cd $(TSTDIR) && bash run_tests.sh
 
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
 	rm -rf $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral) models)
-	rm -rf $(TESTS)
+	rm -rf $(TESTS) *.gcda *.gcno
 
 install:
 	cp $(LIBDIR)/libemdee.* $(PREFIX)/lib/
@@ -88,10 +93,11 @@ uninstall:
 	rm -f $(addprefix $(PREFIX)/include/,emdee.h emdee.f03 libemdee.jl) 
 	ldconfig
 
-# Executables:
+lib: $(LIBDIR)/libemdee.so
 
-test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
-	cd $(TSTDIR) && bash runtests.sh
+include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/libemdee.jl
+
+# Executables:
 
 $(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 $(LIBDIR)/libemdee.so
 	mkdir -p $(TSTDIR)
@@ -106,11 +112,7 @@ $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl $(INCDIR)/libemdee.jl $(LIBDIR)/libe
 	(echo '#!/usr/bin/env julia' && echo 'DIR="${CURDIR}"' && cat $<) > $@
 	chmod +x $@
 
-# Static and shared libraries:
-
-lib: $(LIBDIR)/libemdee.so
-
-include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/libemdee.jl
+# Shared library and includes:
 
 $(LIBDIR)/libemdee.so: $(OBJECTS)
 	mkdir -p $(LIBDIR)

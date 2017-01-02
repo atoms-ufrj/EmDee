@@ -30,12 +30,12 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "01 Jan 2017"
+character(11), parameter :: VERSION = "02 Jan 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
   logical(lb) :: rotate         ! Flag to activate/deactivate rotations
-  logical(lb) :: computeProps   ! Flag to activate/deactivate energy and virial computations
+  logical(lb) :: computeProps   ! Flag to activate/deactivate energy computations
   integer(ib) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
 end type tOpts
 
@@ -49,7 +49,7 @@ type, bind(C) :: tEmDee
   real(rb)    :: Virial         ! Total internal virial of the system
   integer(ib) :: DOF            ! Total number of degrees of freedom
   integer(ib) :: rotationDOF    ! Number of rotational degrees of freedom
-  logical(lb) :: UpToDate       ! Flag to attest whether energy and virial have been computated
+  logical(lb) :: UpToDate       ! Flag to attest whether energies have been computed
   type(c_ptr) :: Data           ! Pointer to system data
   type(tOpts) :: Options        ! List of options to change EmDee's behavior
 end type tEmDee
@@ -865,11 +865,14 @@ contains
     !$omp end parallel
 
     me%F = me%Lbox*sum(Fs,3)
-    md%Potential = E
     md%Virial = third*W
-    me%layer_energy = sum(Elayer,2)
-    me%layer_virial = third*sum(Wlayer,2)
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
+
+    if (md%UpToDate) then
+      md%Potential = E
+      me%layer_energy = sum(Elayer,2)
+      me%layer_virial = third*sum(Wlayer,2)
+    end if
 
     time = omp_get_wtime()
     md%pairTime = md%pairTime + time

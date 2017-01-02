@@ -43,6 +43,7 @@ if (r2 < Rc2) then
     select type ( model => partner(jtype)%model )
       include "compute_pair_virial.f90"
     end select
+    Virial = Virial + Wij
     Fij = Wij*invR2*Rij
   end if
   Fi = Fi + Fij
