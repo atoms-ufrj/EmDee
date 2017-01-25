@@ -152,13 +152,14 @@ Therefore,
 
 \subsection{Fourier Part}
 
-Let $\rho(\vt r)$ be the charge density at a point $\vt r$ inside an orthorhombic box with side lengths $L_1$, $L_2$, and $L_3$ under periodic boundary conditions. Considering three-dimensional Gaussian distributions at atomic positions with standard deviation $\sigma$, we have:
+Let $\rho(\vt r)$ be the charge density at a point $\vt r$ inside an orthorhombic box with side lengths $L_1$, $L_2$, and $L_3$ under periodic boundary conditions. Considering three-dimensional Gaussian distributions with standard deviation $\sigma$ and centered at atomic positions, we have
 \begin{equation*}
 \rho(\vt r) = \sum_{j=1}^N \sum_{\vt n} \frac{q_j}{(2\pi\sigma^2)^{3/2}}\exp\left[-\frac{\|\vt r - (\vt r_j + \mt L\vt n)\|^2}{2\sigma^2}\right],
 \end{equation*}
-where $\mt L = \text{diag}(L_1,L_2,L_3)$. Applying Fourier transform with integer wave-vectors $\vt k$:
-\begin{equation*}
-\rho(\vt k) = \int \exp\left(-2\pi i \tr{\vt k} {\mt L}^{-1}{\vt r} \right) \rho(\vt r) d\vt r
-\end{equation*}
+where $\mt L = \text{diag}(L_1,L_2,L_3)$ and the inner sum runs over all integer lattice vectors $\vt n$. Applying Fourier transform with integer wave-vectors $\vt k$:
+\begin{align*}
+\rho(\vt k) &= \int_V \exp\left(-2\pi i \tr{\vt k} {\mt L}^{-1}{\vt r} \right) \rho(\vt r) d\vt r \\
+&= \sum_{j=1}^N \frac{q_j}{(2\pi\sigma^2)^{3/2}} \int_{\mathbb{R}^3} \exp\left(-2\pi i \tr{\vt k} {\mt L}^{-1}{\vt r} \right) \exp\left(-\frac{\|\vt r - \vt r_j\|^2}{2\sigma^2}\right) d\vt r
+\end{align*}
 
 \end{document}

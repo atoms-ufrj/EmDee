@@ -26,69 +26,79 @@ implicit none
 
 !> An abstract class for kspace interaction models:
 type, abstract, extends(cModel) :: cKspaceModel
-  integer :: nthreads
+
+  real(rb) :: alpha
+  integer  :: nthreads
+  logical  :: verbose
+
+  real(rb) :: E_self
+
+  integer :: natoms
+  integer,  allocatable :: index(:)
+  real(rb), allocatable :: Q(:)
+
+  integer :: atoms_per_thread
+
   contains
-    procedure(cKspaceModel_initialize), deferred :: initialize
+    procedure :: initialize => cKspaceModel_initialize
+    procedure(cKspaceModel_set_parameters), deferred :: set_parameters
+    procedure(cKspaceModel_update), deferred :: update
     procedure(cKspaceModel_compute), deferred :: compute
 end type cKspaceModel
 
 abstract interface
 
-  subroutine cKspaceModel_initialize( model, nthreads, Rc, invL, q )
+  subroutine cKspaceModel_set_parameters( model, Rc, L, Q )
     import
     class(cKspaceModel), intent(inout) :: model
-    integer,             intent(in)    :: nthreads
-    real(rb),            intent(in)    :: Rc, invL(3), q(:)
-  end subroutine cKspaceModel_initialize
+    real(rb),            intent(in)    :: Rc, L(3), Q(:)
+  end subroutine cKspaceModel_set_parameters
 
-  subroutine cKspaceModel_compute( me, nthreads, q, Rs, V, E )
+  ! This procedure must be invoked whenever the box geometry or atoms charges change: 
+  subroutine cKspaceModel_update( model, L )
     import
-    class(cKspaceModel), intent(in)  :: me
-    integer,             intent(in)  :: nthreads
-    real(rb),            intent(in)  :: q(:), Rs(3,size(q)), V
+    class(cKspaceModel), intent(inout) :: model
+    real(rb),            intent(in)    :: L(3)
+  end subroutine cKspaceModel_update
+
+  ! This procedure computes the reciprocal part of Ewald-type electrostatics:
+  subroutine cKspaceModel_compute( model, R, E )
+    import
+    class(cKspaceModel), intent(in)  :: model
+    real(rb),            intent(in)  :: R(:,:)
     real(rb),            intent(out) :: E
   end subroutine cKspaceModel_compute
 
 end interface
 
-!> A class for no-interaction kspace model:
-!type, extends(cKspaceModel) :: kspace_none
-!  contains
-!    procedure :: setup => kspace_none_setup
-!    procedure :: compute => kspace_none_compute
-!end type kspace_none
-
 contains
 
-!===================================================================================================
-!                                   K S P A C E     N O N E
-!===================================================================================================
+!---------------------------------------------------------------------------------------------------
 
-!  type(c_ptr) function EmDee_kspace_none() bind(C,name="EmDee_kspace_none")
-!    type(kspace_none), pointer :: model
-!    allocate(model)
-!    call model % setup()
-!    EmDee_kspace_none = model % deliver()
-!  end function EmDee_kspace_none
+  subroutine cKspaceModel_initialize( model, nthreads, Rc, L, Q, verbose )
+    class(cKspaceModel), intent(inout) :: model
+    integer,             intent(in)    :: nthreads
+    real(rb),            intent(in)    :: Rc, L(3), Q(:)
+    logical,             intent(in)    :: verbose
 
-!!---------------------------------------------------------------------------------------------------
+    integer :: i
 
-!  subroutine kspace_none_setup( model, params, iparams )
-!    class(kspace_none), intent(inout) :: model
-!    real(rb), intent(in), optional :: params(:)
-!    integer,  intent(in), optional :: iparams(:)
-!    model%name = "none"
-!  end subroutine kspace_none_setup
+    model%nthreads = nthreads
+    model%verbose = verbose
 
-!!---------------------------------------------------------------------------------------------------
+    model%index = pack( [(i,i=1,size(Q))], Q /= zero )
+    model%natoms = size(model%index)
+    model%Q = Q(model%index)
 
-!  subroutine kspace_none_compute( me, nthreads, q, Rs, V, E )
-!    class(kspace_none), intent(in)  :: me
-!    integer,            intent(in)  :: nthreads
-!    real(rb),           intent(in)  :: q(:), Rs(3,size(q)), V
-!    real(rb),           intent(out) :: E
-!    E = zero
-!  end subroutine kspace_none_compute
+    model%atoms_per_thread = (model%natoms + nthreads - 1)/nthreads
+
+    call model % set_parameters( Rc, L, Q )
+
+    call model % update( L )
+
+    model%E_self = sqrt(model%alpha/Pi)*sum(model%Q**2)
+
+  end subroutine cKspaceModel_initialize
 
 !---------------------------------------------------------------------------------------------------
 

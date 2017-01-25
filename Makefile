@@ -136,6 +136,7 @@ $(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode inner_loop) \
                        $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral)) \
                        $(call obj,EmDeeData ArBee structs models $(KSPACEMODES) lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+# DELETE $(KSPACEMODES) above after implementation has been finished
 
 $(OBJDIR)/EmDeeData.o: $(SRCDIR)/EmDeeData.f90 $(call obj,ArBee structs models lists math global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
@@ -182,7 +183,7 @@ $(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(OBJDIR)/dihedralModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/kspaceModelClass.o
-	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<

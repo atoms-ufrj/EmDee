@@ -17,12 +17,10 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazilmodule lists
 
-! TODO: Enter a wave-vector length cutoff and use it to obtain kxmax, kymax, and kzmax. Then
-!       split G in q_exp_ik_dot_r into Gx, Gy, and Gz.
-
 module kspace_ewald_module
 
 use global
+use math !, only : inverse_of_x_plus_ln_x, normSq
 use omp_lib
 use kspaceModelClass
 
@@ -31,16 +29,25 @@ implicit none
 !> Abstract class for kspace model ewald
 !! NOTE: model parameters must be declared individually and tagged with comment mark "!<>"
 type, extends(cKspaceModel) :: kspace_ewald
-  real(rb) :: alpha  !<> Damping parameter
-  integer(ib) :: kmax   !<> Wave-vector length cutoff
+  real(rb) :: accuracy !<> Expected accuracy in energy calculations
 
-  integer :: nvectors
-  integer,  allocatable :: k(:,:)
-  real(rb), allocatable :: ksq(:)
+  real(rb) :: kmax
+
+  real(rb) :: unit(3)
+  integer  :: nmax(3)
+  real(rb) :: kmaxSq
+
+  integer  :: nvecs
   real(rb), allocatable :: prefac(:)
+  integer,  allocatable :: n(:,:)
+
+  integer :: vecs_per_thread
+  real(rb) :: volume
+
   contains
     procedure :: setup => kspace_ewald_setup
-    procedure :: initialize => kspace_ewald_initialize
+    procedure :: set_parameters => kspace_ewald_set_parameters
+    procedure :: update => kspace_ewald_update
     procedure :: compute => kspace_ewald_compute
 end type
 
@@ -57,125 +64,159 @@ contains
     model%name = "ewald"
 
     ! Model parameters:
-    model%alpha = params(1)
-    model%kmax = iparams(1)
+    model%accuracy = params(1)
+
+    ! Initialize empty arrays:
+    allocate( model%n(0,0), model%prefac(0) )
 
   end subroutine kspace_ewald_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine kspace_ewald_initialize( model, nthreads, Rc, invL, q )
+  subroutine kspace_ewald_set_parameters( model, Rc, L, Q )
     class(kspace_ewald), intent(inout) :: model
-    integer,             intent(in)    :: nthreads
-    real(rb),            intent(in)    :: Rc, invL(3), q(:)
+    real(rb),            intent(in)    :: Rc, L(3), Q(:)
 
-    integer  :: kmax, ksqmax, n, ksq, kx, ky, kz
-    real(rb) :: B, factor
+    real(rb) :: s
 
-    kmax = model%kmax
-    ksqmax = kmax*kmax + 2
-    n = 0
-    do kx = 0, kmax
-      do ky = -kmax, kmax
-        do kz = -kmax, kmax
-          ksq = kx*kx + ky*ky + kz*kz
-          if ((ksq < ksqmax).and.(ksq /= 0)) n = n + 1
-        end do
-      end do
-    end do
+    ! For simplicity, parameters alpha and kmax are calculated from the desired accuracy
+    ! independently of the box geometry, such as explained in Frenkel and Smit. That is:
+    !     accuracy = exp(-s^2)/s^2
+    !     alpha = s/Rc
+    !     kmax = 2*alpha*s
+    s = sqrt(inverse_of_x_plus_ln_x(-log(model%accuracy)))
+    model%alpha = s/Rc
+    model%kmax = two*model%alpha*s
 
-    model%nvectors = n
-    model%nthreads = nthreads
-    allocate( model%k(n,3), model%ksq(n), model%prefac(n) )
+model%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
+model%kmax = sqrt(27.0_rb) ! DELETE THIS LINE
 
-    B = -0.25_rb/model%alpha
-    n = 0
-    do kx = 0, kmax
-      factor = merge(4.0_rb,8.0_rb,kx == 0)*pi
-      do ky = -kmax, kmax
-        do kz = -kmax, kmax
-          ksq = kx*kx + ky*ky + kz*kz
-          if ((ksq < ksqmax).and.(ksq /= 0)) then
-            n = n + 1
-            model%k(n,:) = [kx, ky, kz]
-            model%ksq(n) = twoPi**2*kx*kx + ky*ky + kz*kz
+  end subroutine kspace_ewald_set_parameters
 
-            model%prefac(n) = factor*exp(B*ksq)/ksq
-print*,             model%prefac(n)
+!---------------------------------------------------------------------------------------------------
 
+  subroutine kspace_ewald_update( model, L )
+    class(kspace_ewald), intent(inout) :: model
+    real(rb),            intent(in)    :: L(3)
+
+    integer  :: maxnvecs, nvecs, n1, n2, n3
+    real(rb) :: unitSq(3), B, factor, k1sq, k12sq, ksq
+
+    model%unit = twoPi/L
+    unitSq = model%unit**2
+    model%nmax = ceiling(model%kmax/model%unit)
+    model%kmaxSq = 1.0001_rb*maxval(unitSq*model%nmax**2)
+
+    maxnvecs = (model%nmax(1) + 1)*product(2*model%nmax(2:3) + 1)
+    if (size(model%prefac) < maxnvecs) then
+      deallocate( model%prefac, model%n )
+      allocate( model%prefac(maxnvecs), model%n(maxnvecs,3) )
+    end if
+
+    B = -0.25_rb/model%alpha**2
+    nvecs = 0
+    do n1 = 0, model%nmax(1)
+      factor = merge(1,2,n1 == 0)*twoPi
+      k1sq = unitSq(1)*n1*n1
+      do n2 = -model%nmax(2), model%nmax(2)
+        k12sq = k1sq + unitSq(2)*n2*n2
+        do n3 = -model%nmax(3), model%nmax(3)
+          if ((n1 /= 0).or.(n2 /= 0).or.(n3 /= 0)) then
+            ksq = k12sq + unitSq(3)*n3*n3
+            if (ksq <= model%kmaxSq) then
+              nvecs = nvecs + 1
+              model%n(nvecs,:) = [n1, n2, n3]
+              model%prefac(nvecs) = factor*exp(ksq*B)/ksq
+            end if
           end if
         end do
       end do
     end do
-stop
-  end subroutine kspace_ewald_initialize
+
+    model%nvecs = nvecs
+    model%vecs_per_thread = (nvecs + model%nthreads - 1)/model%nthreads
+    model%volume = product(L)
+
+  end subroutine kspace_ewald_update
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine kspace_ewald_compute( me, nthreads, q, Rs, V, E )
-    class(kspace_ewald), intent(in)  :: me
-    integer,       intent(in)  :: nthreads
-    real(rb),      intent(in)  :: q(:), Rs(3,size(q)), V
-    real(rb),      intent(out) :: E
+  subroutine kspace_ewald_compute( model, R, E )
+    class(kspace_ewald), intent(in)  :: model
+    real(rb),            intent(in)  :: R(:,:)
+    real(rb),            intent(out) :: E
 
-    integer :: natoms
-    complex(rb) :: rho(me%nvectors)
+    complex(rb) :: S(model%nvecs,model%nthreads)
 
-    natoms = size(q)
-print*, natoms
-print*, q
-print*, Rs
-stop
-    !$omp parallel num_threads(nthreads) reduction(+:rho)
+    !$omp parallel num_threads(model%nthreads) reduction(+:E)
     block
-      integer :: thread, per_thread, first, last
+      integer :: thread, first, last
+
       thread = omp_get_thread_num() + 1
-      per_thread = natoms/nthreads
-      first = (thread - 1)*per_thread
-      last = min(thread*per_thread, natoms)
-      rho = kspace_charge_density( me, Q(first:last), Rs(:,first:last) )
-      print*, rho
+
+      first = (thread - 1)*model%atoms_per_thread + 1
+      last = min(thread*model%atoms_per_thread, model%natoms)
+      call structure_factor( model, model%Q(first:last), model%index(first:last), R, S(:,thread) )
+      !$omp barrier
+
+      first = (thread - 1)*model%vecs_per_thread + 1
+      last = min(thread*model%vecs_per_thread, model%nvecs)
+      E = sum(model%prefac(first:last)*normSq(sum(S(first:last,:),2)))
     end block
     !$omp end parallel
-    E = sum(me%prefac*(realpart(rho)**2 + imagpart(rho)**2))
+
+    E = E/model%volume
 
     contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure function q_exp_ik_dot_r( me, Q, Rs ) result( F )
-        class(kspace_ewald), intent(in) :: me
-        real(rb),      intent(in) :: Q, Rs(3)
-        complex(rb)               :: F(me%nvectors)
-    
-        integer  :: j
-        real(rb) :: twoPiRs(3)
-        complex(rb) :: G(3,-me%kmax:me%kmax)
 
-        twoPiRs = twoPi*Rs
-        G(:,0) = (one,zero)
-        G(:,1) = cmplx( cos(twoPiRs), sin(twoPiRs), kind = rb )
-        do j = 2, me%kmax
-          G(:,j) = G(:,j-1)*G(:,1)
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      pure function exp_ik_dot_r( me, R ) result( F )
+        class(kspace_ewald), intent(in) :: me
+        real(rb),            intent(in) :: R(3)
+        complex(rb)                     :: F(me%nvecs)
+
+        integer     :: j
+        real(rb)    :: theta(3)
+        complex(rb) :: Z(3)
+        complex(rb) :: G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
+
+        theta = me%unit*R
+        Z = cmplx( cos(theta), sin(theta), kind = rb )
+        G1(0:1) = [(one,zero), Z(1)]
+        G2(0:1) = [(one,zero), Z(2)]
+        G3(0:1) = [(one,zero), Z(3)]
+        do j = 2, me%nmax(1)
+          G1(j) = G1(j-1)*Z(1)
         end do
-        forall (j=1:me%kmax) G(2:3,-j) = conjg(G(2:3,j))
-        F = Q*G(1,me%k(:,1))*G(2,me%k(:,2))*G(3,me%k(:,3))
+        do j = 2, me%nmax(2)
+          G2( j) = G2(j-1)*Z(2)
+        end do
+        do j = 2, me%nmax(3)
+          G3( j) = G3(j-1)*Z(3)
+        end do
+        forall (j=1:me%nmax(2)) G2(-j) = conjg(G2(j))
+        forall (j=1:me%nmax(3)) G3(-j) = conjg(G3(j))
+        forall (j=1:me%nvecs) F(j) = G1(me%n(j,1))*G2(me%n(j,2))*G3(me%n(j,3))
 
-      end function q_exp_ik_dot_r
+      end function exp_ik_dot_r
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure function kspace_charge_density( me, Q, Rs ) result( rho )
-        class(kspace_ewald), intent(in) :: me
-        real(rb),      intent(in) :: Q(:)
-        real(rb),      intent(in) :: Rs(3,size(Q))
-        complex(rb)               :: rho(me%nvectors)
+      pure subroutine structure_factor( me, Q, index, R, S )
+        class(kspace_ewald), intent(in)  :: me
+        real(rb),            intent(in)  :: Q(:)
+        integer,             intent(in)  :: index(size(Q))
+        real(rb),            intent(in)  :: R(3,size(Q))
+        complex(rb),         intent(out) :: S(me%nvecs)
 
         integer :: i
 
-        rho = (zero,zero)
-        do i = 1, size(Q)
-          rho = rho + q_exp_ik_dot_r( me, Q(i), Rs(:,i) )
+        S = Q(1)*exp_ik_dot_r( me, R(:,index(1)) )
+        do i = 2, size(Q)
+          S = S + Q(i)*exp_ik_dot_r( me, R(:,index(i)) )
         end do
 
-      end function kspace_charge_density
+      end subroutine structure_factor
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
   end subroutine kspace_ewald_compute
 
 !---------------------------------------------------------------------------------------------------

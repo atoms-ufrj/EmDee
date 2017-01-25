@@ -87,14 +87,17 @@ do i = 1, Nmol
   call EmDee_ignore_pair( md, (i-1)*NperMol+2, (i-1)*NperMol+3 )
 end do
 
+Q = sqrt(kCoul)*Q
+!Q(1:99) = zero
+
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 print*, md%Potential/kB, md%Virial/kB
 
-call kspace%setup( [5.6_rb], [5] )
-call kspace%initialize( 1, Rc, Q )
-call kspace%compute( 1, Q, R/L(1), L(1)**3, Elong )
+call kspace%setup( [1.0e-4_rb] )
+call kspace%initialize( threads, Rc, L, Q, verbose = .false. )
+call kspace%compute( R, Elong )
 print*, Elong/kB
 
 contains
