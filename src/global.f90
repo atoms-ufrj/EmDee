@@ -39,4 +39,17 @@ real(rb), parameter :: zero   = 0.0_rb,                 &
                        piBy2  = 0.5_rb*pi,              &
                        invSqrt3 = one/sqrt(3.0_rb)
 
+contains
+
+!===================================================================================================
+
+  subroutine error( task, msg )
+    use, intrinsic :: iso_fortran_env
+    character(*), intent(in) :: task, msg
+    write(ERROR_UNIT,'("Error in EmDee_",A,": ",A,".")') trim(task), trim(msg)
+    stop
+  end subroutine error
+
+!===================================================================================================
+
 end module global

@@ -88,6 +88,7 @@ contains
 
     model%index = pack( [(i,i=1,size(Q))], Q /= zero )
     model%natoms = size(model%index)
+    if (model%natoms == 0) call error( "kspace model initialization", "no charged atoms" )
     model%Q = Q(model%index)
 
     model%atoms_per_thread = (model%natoms + nthreads - 1)/nthreads
@@ -96,7 +97,7 @@ contains
 
     call model % update( L )
 
-    model%E_self = sqrt(model%alpha/Pi)*sum(model%Q**2)
+    model%E_self = model%alpha*sum(model%Q**2)/sqrt(Pi)
 
   end subroutine cKspaceModel_initialize
 

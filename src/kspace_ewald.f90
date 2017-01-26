@@ -53,7 +53,7 @@ end type
 
 contains
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine kspace_ewald_setup( model, params, iparams )
     class(kspace_ewald),  intent(inout) :: model
@@ -71,7 +71,7 @@ contains
 
   end subroutine kspace_ewald_setup
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine kspace_ewald_set_parameters( model, Rc, L, Q )
     class(kspace_ewald), intent(inout) :: model
@@ -88,12 +88,12 @@ contains
     model%alpha = s/Rc
     model%kmax = two*model%alpha*s
 
-model%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
-model%kmax = sqrt(27.0_rb) ! DELETE THIS LINE
+!model%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
+!model%kmax = sqrt(27.0_rb) ! DELETE THIS LINE
 
   end subroutine kspace_ewald_set_parameters
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine kspace_ewald_update( model, L )
     class(kspace_ewald), intent(inout) :: model
@@ -123,7 +123,7 @@ model%kmax = sqrt(27.0_rb) ! DELETE THIS LINE
         do n3 = -model%nmax(3), model%nmax(3)
           if ((n1 /= 0).or.(n2 /= 0).or.(n3 /= 0)) then
             ksq = k12sq + unitSq(3)*n3*n3
-            if (ksq <= model%kmaxSq) then
+            if (ksq < model%kmaxSq) then
               nvecs = nvecs + 1
               model%n(nvecs,:) = [n1, n2, n3]
               model%prefac(nvecs) = factor*exp(ksq*B)/ksq
@@ -139,86 +139,88 @@ model%kmax = sqrt(27.0_rb) ! DELETE THIS LINE
 
   end subroutine kspace_ewald_update
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
   subroutine kspace_ewald_compute( model, R, E )
     class(kspace_ewald), intent(in)  :: model
     real(rb),            intent(in)  :: R(:,:)
     real(rb),            intent(out) :: E
 
-    complex(rb) :: S(model%nvecs,model%nthreads)
+    complex(rb) :: X(model%nvecs,model%natoms), TS(model%nvecs,model%nthreads), S(model%nvecs)
 
     !$omp parallel num_threads(model%nthreads) reduction(+:E)
     block
-      integer :: thread, first, last
+      integer :: thread, first, last, v1, vN
 
+      ! Split atoms and wave-vectors among threads:
       thread = omp_get_thread_num() + 1
-
       first = (thread - 1)*model%atoms_per_thread + 1
       last = min(thread*model%atoms_per_thread, model%natoms)
-      call structure_factor( model, model%Q(first:last), model%index(first:last), R, S(:,thread) )
-      !$omp barrier
+      v1 = (thread - 1)*model%vecs_per_thread + 1
+      vN = min(thread*model%vecs_per_thread, model%nvecs)
 
-      first = (thread - 1)*model%vecs_per_thread + 1
-      last = min(thread*model%vecs_per_thread, model%nvecs)
-      E = sum(model%prefac(first:last)*normSq(sum(S(first:last,:),2)))
+      call compute_q_exp_ik_dot_r( model, first, last, R, X(:,first:last) )
+
+      TS(:,thread) = sum(X(:,first:last),2)
+      !$omp barrier
+      S(v1:vN) = sum(TS(v1:vN,:),2)
+
+      E = sum(model%prefac(v1:vN)*normSq(S(v1:vN)))
     end block
     !$omp end parallel
 
     E = E/model%volume
 
-    contains
-
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure function exp_ik_dot_r( me, R ) result( F )
-        class(kspace_ewald), intent(in) :: me
-        real(rb),            intent(in) :: R(3)
-        complex(rb)                     :: F(me%nvecs)
-
-        integer     :: j
-        real(rb)    :: theta(3)
-        complex(rb) :: Z(3)
-        complex(rb) :: G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
-
-        theta = me%unit*R
-        Z = cmplx( cos(theta), sin(theta), kind = rb )
-        G1(0:1) = [(one,zero), Z(1)]
-        G2(0:1) = [(one,zero), Z(2)]
-        G3(0:1) = [(one,zero), Z(3)]
-        do j = 2, me%nmax(1)
-          G1(j) = G1(j-1)*Z(1)
-        end do
-        do j = 2, me%nmax(2)
-          G2( j) = G2(j-1)*Z(2)
-        end do
-        do j = 2, me%nmax(3)
-          G3( j) = G3(j-1)*Z(3)
-        end do
-        forall (j=1:me%nmax(2)) G2(-j) = conjg(G2(j))
-        forall (j=1:me%nmax(3)) G3(-j) = conjg(G3(j))
-        forall (j=1:me%nvecs) F(j) = G1(me%n(j,1))*G2(me%n(j,2))*G3(me%n(j,3))
-
-      end function exp_ik_dot_r
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure subroutine structure_factor( me, Q, index, R, S )
-        class(kspace_ewald), intent(in)  :: me
-        real(rb),            intent(in)  :: Q(:)
-        integer,             intent(in)  :: index(size(Q))
-        real(rb),            intent(in)  :: R(3,size(Q))
-        complex(rb),         intent(out) :: S(me%nvecs)
-
-        integer :: i
-
-        S = Q(1)*exp_ik_dot_r( me, R(:,index(1)) )
-        do i = 2, size(Q)
-          S = S + Q(i)*exp_ik_dot_r( me, R(:,index(i)) )
-        end do
-
-      end subroutine structure_factor
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
   end subroutine kspace_ewald_compute
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
+
+  pure subroutine compute_q_exp_ik_dot_r( me, first, last, R, F )
+    class(kspace_ewald), intent(in)  :: me
+    integer,             intent(in)  :: first, last
+    real(rb),            intent(in)  :: R(:,:)
+    complex(rb),         intent(out) :: F(me%nvecs,first:last)
+
+    integer :: i
+    complex(rb) :: Z(3)
+    complex(rb) :: G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
+
+    G1(0) = (one,zero)
+    G2(0) = (one,zero)
+    G3(0) = (one,zero)
+    do i = first, last
+      Z = exp(cmplx(zero,me%unit*R(:,me%index(i)),rb))
+      G1(1:me%nmax(1)) = recursion( Z(1), me%nmax(1) )
+      G2(1:me%nmax(2)) = recursion( Z(2), me%nmax(2) )
+      G3(1:me%nmax(3)) = recursion( Z(3), me%nmax(3) )
+      G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
+      G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
+      F(:,i) = me%Q(i)*G1(me%n(1:me%nvecs,1))*G2(me%n(1:me%nvecs,2))*G3(me%n(1:me%nvecs,3))
+    end do
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      pure function recursion( Z, n ) result( G )
+        complex(rb), intent(in) :: Z
+        integer,     intent(in) :: n
+        complex(rb)             :: G(n)
+
+        integer :: j
+        complex(rb) :: B
+
+        B = Z
+        j = 1
+        do while (j < n)
+          G(j) = B
+          B = B*Z
+          j = j + 1
+        end do
+        G(j) = B
+        
+      end function recursion
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_q_exp_ik_dot_r
+
+!===================================================================================================
 
 end module kspace_ewald_module

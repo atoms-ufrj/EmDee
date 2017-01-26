@@ -30,7 +30,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "25 Jan 2017"
+character(11), parameter :: VERSION = "26 Jan 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -933,15 +933,6 @@ contains
     Kr = half*Kr
 
   end subroutine EmDee_Rotational_Energies
-
-!===================================================================================================
-
-  subroutine error( routine, msg )
-    use, intrinsic :: iso_fortran_env
-    character(*), intent(in) :: routine, msg
-    write(ERROR_UNIT,'("Error in EmDee_",A,": ",A,".")') trim(routine), trim(msg)
-    stop
-  end subroutine error
 
 !===================================================================================================
 
