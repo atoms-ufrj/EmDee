@@ -58,6 +58,10 @@ type, extends(i32rng) :: kiss
     procedure :: i32  => kiss_i32
 end type kiss
 
+interface operator (.op.)
+  module procedure operation
+end interface
+
 contains
 
 !---------------------------------------------------------------------------------------------------
@@ -663,6 +667,15 @@ contains
     real(rb)                :: y
     y = realpart(x)**2 + imagpart(x)**2
   end function normSq
+
+!---------------------------------------------------------------------------------------------------
+
+  elemental function operation( a, b ) result( c )
+    complex(rb), intent(in) :: a, b
+    real(rb)                :: c
+    c = realpart(a)*imagpart(b) - realpart(b)*imagpart(a)
+  end function operation
+
 !---------------------------------------------------------------------------------------------------
 
 end module math

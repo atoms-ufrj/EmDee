@@ -152,14 +152,43 @@ Therefore,
 
 \subsection{Fourier Part}
 
-Let $\rho(\vt r)$ be the charge density at a point $\vt r$ inside an orthorhombic box with side lengths $L_1$, $L_2$, and $L_3$ under periodic boundary conditions. Considering three-dimensional Gaussian distributions with standard deviation $\sigma$ and centered at atomic positions, we have
+The Fourier part of the system energy is:
 \begin{equation*}
-\rho(\vt r) = \sum_{j=1}^N \sum_{\vt n} \frac{q_j}{(2\pi\sigma^2)^{3/2}}\exp\left[-\frac{\|\vt r - (\vt r_j + \mt L\vt n)\|^2}{2\sigma^2}\right],
+U = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} |S(\vt k)|^2,
 \end{equation*}
-where $\mt L = \text{diag}(L_1,L_2,L_3)$ and the inner sum runs over all integer lattice vectors $\vt n$. Applying Fourier transform with integer wave-vectors $\vt k$:
+where $\vt n$ is a vector in $\mathbb Z^3$ (integer lattice), $\vt k = 2\pi{\mt D}^{-1}(\vt L){\vt n}$, and $k = \|\vt k\|$. The function $S(\vt k)$ is the structure factor, defined as
+\begin{equation*}
+S(\vt k) = \sum_{j=1}^N q_j e^{i\tr{\vt k}{\vt r}_j}.
+\end{equation*}
+
+If we define $a_j = q_j \cos(\tr{\vt k}{\vt r}_j)$ and $b_j = q_j \sin(\tr{\vt k}{\vt r}_j)$, then we have
+\begin{equation*}
+S(\vt k) = \sum_{j=1}^N \left[a_j + i b_j\right] = A + i B,
+\end{equation*}
+where $A = \sum_j a_j$ and $B = \sum_{j=1}^N b_j$, so that $|S(\vt k)|^2 = A^2 + B^2$. The force over an atom $j$ is
+\begin{equation*}
+F_j = -\frac{\partial U}{\partial \vt r_j} = -\frac{4\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left( A \frac{\partial A}{\partial \vt r_j} + B \frac{\partial B}{\partial \vt r_j} \right).
+\end{equation*}
+
+The needed derivatives are
 \begin{align*}
-\rho(\vt k) &= \int_V \exp\left(-2\pi i \tr{\vt k} {\mt L}^{-1}{\vt r} \right) \rho(\vt r) d\vt r \\
-&= \sum_{j=1}^N \frac{q_j}{(2\pi\sigma^2)^{3/2}} \int_{\mathbb{R}^3} \exp\left(-2\pi i \tr{\vt k} {\mt L}^{-1}{\vt r} \right) \exp\left(-\frac{\|\vt r - \vt r_j\|^2}{2\sigma^2}\right) d\vt r
+\frac{\partial A}{\partial \vt r_j} &= \frac{\partial a_j}{\partial \vt r_j} = -q_j \sin(\tr{\vt k}{\vt r}_j){\vt k} = -b_j{\vt k} \\
+\frac{\partial B}{\partial \vt r_j} &= \frac{\partial b_j}{\partial \vt r_j} = q_j \cos(\tr{\vt k}{\vt r}_j){\vt k} = a_j{\vt k}
 \end{align*}
+
+Therefore,
+\begin{equation*}
+F_j = \frac{4\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left( A b_j - B a_j \right){\vt k}.
+\end{equation*}
+
+We define an operation between two complex number as
+\begin{equation*}
+(a_1 + i b_1)\circ(a_2 + i b_2) = a_1 b_2 - b_1 a_2.
+\end{equation*}
+
+In this manner,
+\begin{equation*}
+F_j = \frac{4\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left[ S(\vt k) \circ e^{i\tr{\vt k}{\vt r}_j} \right]{\vt k}.
+\end{equation*}
 
 \end{document}

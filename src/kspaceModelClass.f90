@@ -62,11 +62,11 @@ abstract interface
   end subroutine cKspaceModel_update
 
   ! This procedure computes the reciprocal part of Ewald-type electrostatics:
-  subroutine cKspaceModel_compute( model, R, E )
+  subroutine cKspaceModel_compute( model, R, F, Potential, Virial )
     import
-    class(cKspaceModel), intent(in)  :: model
-    real(rb),            intent(in)  :: R(:,:)
-    real(rb),            intent(out) :: E
+    class(cKspaceModel), intent(in)    :: model
+    real(rb),            intent(in)    :: R(:,:)
+    real(rb),            intent(inout) :: F(:,:), Potential, Virial
   end subroutine cKspaceModel_compute
 
 end interface

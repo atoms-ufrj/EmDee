@@ -20,7 +20,7 @@
 module kspace_ewald_module
 
 use global
-use math !, only : inverse_of_x_plus_ln_x, normSq
+use math
 use omp_lib
 use kspaceModelClass
 
@@ -40,9 +40,9 @@ type, extends(cKspaceModel) :: kspace_ewald
   integer  :: nvecs
   real(rb), allocatable :: prefac(:)
   integer,  allocatable :: n(:,:)
+  real(rb), allocatable :: vec(:,:)
 
   integer :: vecs_per_thread
-  real(rb) :: volume
 
   contains
     procedure :: setup => kspace_ewald_setup
@@ -67,7 +67,7 @@ contains
     model%accuracy = params(1)
 
     ! Initialize empty arrays:
-    allocate( model%n(0,0), model%prefac(0) )
+    allocate( model%n(0,0), model%prefac(0), model%vec(0,0) )
 
   end subroutine kspace_ewald_setup
 
@@ -99,8 +99,8 @@ contains
     class(kspace_ewald), intent(inout) :: model
     real(rb),            intent(in)    :: L(3)
 
-    integer  :: maxnvecs, nvecs, n1, n2, n3
-    real(rb) :: unitSq(3), B, factor, k1sq, k12sq, ksq
+    integer  :: maxnvecs, nvecs, n1, n2, n3, n(3)
+    real(rb) :: unitSq(3), B, factor, k1sq, k12sq, ksq, twoPiByV, prefac
 
     model%unit = twoPi/L
     unitSq = model%unit**2
@@ -109,14 +109,15 @@ contains
 
     maxnvecs = (model%nmax(1) + 1)*product(2*model%nmax(2:3) + 1)
     if (size(model%prefac) < maxnvecs) then
-      deallocate( model%prefac, model%n )
-      allocate( model%prefac(maxnvecs), model%n(maxnvecs,3) )
+      deallocate( model%prefac, model%n, model%vec )
+      allocate( model%prefac(maxnvecs), model%n(maxnvecs,3), model%vec(3,maxnvecs) )
     end if
 
     B = -0.25_rb/model%alpha**2
+    twoPiByV = twoPi/product(L)
     nvecs = 0
     do n1 = 0, model%nmax(1)
-      factor = merge(1,2,n1 == 0)*twoPi
+      factor = merge(1,2,n1 == 0)*twoPiByV
       k1sq = unitSq(1)*n1*n1
       do n2 = -model%nmax(2), model%nmax(2)
         k12sq = k1sq + unitSq(2)*n2*n2
@@ -125,8 +126,11 @@ contains
             ksq = k12sq + unitSq(3)*n3*n3
             if (ksq < model%kmaxSq) then
               nvecs = nvecs + 1
-              model%n(nvecs,:) = [n1, n2, n3]
-              model%prefac(nvecs) = factor*exp(ksq*B)/ksq
+              n = [n1, n2, n3]
+              prefac = factor*exp(ksq*B)/ksq
+              model%n(nvecs,:) = n
+              model%prefac(nvecs) = prefac
+              model%vec(:,nvecs) = two*prefac*model%unit*n
             end if
           end if
         end do
@@ -135,22 +139,22 @@ contains
 
     model%nvecs = nvecs
     model%vecs_per_thread = (nvecs + model%nthreads - 1)/model%nthreads
-    model%volume = product(L)
 
   end subroutine kspace_ewald_update
 
 !===================================================================================================
 
-  subroutine kspace_ewald_compute( model, R, E )
-    class(kspace_ewald), intent(in)  :: model
-    real(rb),            intent(in)  :: R(:,:)
-    real(rb),            intent(out) :: E
+  subroutine kspace_ewald_compute( model, R, F, Potential, Virial )
+    class(kspace_ewald), intent(in)    :: model
+    real(rb),            intent(in)    :: R(:,:)
+    real(rb),            intent(inout) :: F(:,:), Potential, Virial
 
-    complex(rb) :: X(model%nvecs,model%natoms), TS(model%nvecs,model%nthreads), S(model%nvecs)
+    real(rb) :: E
+    complex(rb) :: qeikr(model%nvecs,model%natoms), S(model%nvecs)
 
     !$omp parallel num_threads(model%nthreads) reduction(+:E)
     block
-      integer :: thread, first, last, v1, vN
+      integer :: thread, first, last, v1, vN, i, j, k
 
       ! Split atoms and wave-vectors among threads:
       thread = omp_get_thread_num() + 1
@@ -159,29 +163,42 @@ contains
       v1 = (thread - 1)*model%vecs_per_thread + 1
       vN = min(thread*model%vecs_per_thread, model%nvecs)
 
-      call compute_q_exp_ik_dot_r( model, first, last, R, X(:,first:last) )
-
-      TS(:,thread) = sum(X(:,first:last),2)
+      ! Compute qj*exp(i*k*Rj) for local atoms:
+      call compute_q_exp_ik_dot_r( model, first, last, R, qeikr(:,first:last) )
       !$omp barrier
-      S(v1:vN) = sum(TS(v1:vN,:),2)
 
-      E = sum(model%prefac(v1:vN)*normSq(S(v1:vN)))
+      ! Compute structure factors for local vectors:
+      S(v1:vN) = sum(qeikr(v1:vN,:),2)
+      !$omp barrier
+
+      ! Compute forces of local atoms:
+      do j = first, last
+        i = model%index(j)
+        do k = 1, model%nvecs
+          F(:,i) = F(:,i) + ( S(k) .op. qeikr(k,j) )*model%vec(:,k)
+        end do
+      end do
+
+      ! Compute part of energy related to local vectors:
+      E = sum(model%prefac(v1:vN)*normSq(S(v1:vn)))
     end block
     !$omp end parallel
 
-    E = E/model%volume
+    Potential = Potential + E
+    Virial = Virial + E
 
   end subroutine kspace_ewald_compute
 
 !===================================================================================================
 
-  pure subroutine compute_q_exp_ik_dot_r( me, first, last, R, F )
+  pure subroutine compute_q_exp_ik_dot_r( me, first, last, R, X )
     class(kspace_ewald), intent(in)  :: me
     integer,             intent(in)  :: first, last
     real(rb),            intent(in)  :: R(:,:)
-    complex(rb),         intent(out) :: F(me%nvecs,first:last)
+    complex(rb),         intent(out) :: X(me%nvecs,first:last)
 
     integer :: i
+    real(rb) :: theta(3)
     complex(rb) :: Z(3)
     complex(rb) :: G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
 
@@ -189,13 +206,14 @@ contains
     G2(0) = (one,zero)
     G3(0) = (one,zero)
     do i = first, last
-      Z = exp(cmplx(zero,me%unit*R(:,me%index(i)),rb))
+      theta = me%unit*R(:,me%index(i))
+      Z = cmplx(cos(theta),sin(theta),rb)
       G1(1:me%nmax(1)) = recursion( Z(1), me%nmax(1) )
       G2(1:me%nmax(2)) = recursion( Z(2), me%nmax(2) )
       G3(1:me%nmax(3)) = recursion( Z(3), me%nmax(3) )
       G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
       G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
-      F(:,i) = me%Q(i)*G1(me%n(1:me%nvecs,1))*G2(me%n(1:me%nvecs,2))*G3(me%n(1:me%nvecs,3))
+      X(:,i) = me%Q(i)*G1(me%n(1:me%nvecs,1))*G2(me%n(1:me%nvecs,2))*G3(me%n(1:me%nvecs,3))
     end do
 
     contains
@@ -204,10 +222,8 @@ contains
         complex(rb), intent(in) :: Z
         integer,     intent(in) :: n
         complex(rb)             :: G(n)
-
         integer :: j
         complex(rb) :: B
-
         B = Z
         j = 1
         do while (j < n)
@@ -216,7 +232,6 @@ contains
           j = j + 1
         end do
         G(j) = B
-        
       end function recursion
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_q_exp_ik_dot_r

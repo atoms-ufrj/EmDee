@@ -38,9 +38,10 @@ real(rb),    pointer :: atomMass(:), Q(:)
 real(rb),    allocatable :: mass(:), eps(:), sigma(:), charge(:)
 
 integer(ib) :: i, Nsteps, Nprop
-real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2, Elong
+real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2, Elong, Wlong
 real(rb), target  :: L(3)
 real(rb), pointer :: R(:,:)
+real(rb), allocatable :: F(:,:)
 
 type(tEmDee), target  :: md
 type(c_ptr),  pointer :: pair(:)
@@ -97,7 +98,12 @@ print*, md%Potential/kB, md%Virial/kB
 
 call kspace%setup( [1.0e-4_rb] )
 call kspace%initialize( threads, Rc, L, Q, verbose = .false. )
-call kspace%compute( R, Elong )
+allocate( F(3,N) )
+
+F = zero
+Elong = zero
+Wlong = zero
+call kspace%compute( R, F, Elong, Wlong )
 print*, Elong/kB
 
 contains
