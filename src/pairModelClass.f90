@@ -30,6 +30,7 @@ type, abstract, extends(cModel) :: cPairModel
   logical  :: coulomb = .false.
   logical  :: shifted_force_vdw = .false.
   logical  :: shifted_force_coul = .false.
+  logical  :: requires_kspace = .false.
   real(rb) :: eshift_vdw = zero
   real(rb) :: fshift_vdw = zero
   real(rb) :: eshift_coul = zero
@@ -40,6 +41,7 @@ type, abstract, extends(cModel) :: cPairModel
     procedure(cPairModel_mix),     deferred :: mix
 
     procedure :: shifting_setup => cPairModel_shifting_setup
+    procedure :: kspace_setup => cPairModel_kspace_setup
 end type cPairModel
 
 abstract interface
@@ -120,6 +122,13 @@ contains
     if (model%shifted_force_coul) model%eshift_coul = model%eshift_coul - Wcoul
 
   end subroutine cPairModel_shifting_setup
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cPairModel_kspace_setup( model, alpha )
+    class(cPairModel), intent(inout) :: model
+    real(rb),          intent(in)    :: alpha
+  end subroutine cPairModel_kspace_setup
 
 !===================================================================================================
 !                         P A I R     M O D E L    C O N T A I N E R

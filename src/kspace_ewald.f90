@@ -149,72 +149,63 @@ contains
     real(rb),            intent(in)    :: R(:,:)
     real(rb),            intent(inout) :: F(:,:), Potential, Virial
 
-    real(rb) :: E
-    complex(rb) :: qeikr(model%nvecs,model%natoms), S(model%nvecs)
+    real(rb) :: E = zero
+    complex(rb) :: S(model%nvecs)
+    complex(rb), allocatable :: qeikr(:,:)
 
-    !$omp parallel num_threads(model%nthreads) reduction(+:E)
-    block
-      integer :: thread, first, last, v1, vN, i, j, k
+    allocate( qeikr(model%nvecs,model%natoms) )
 
-      ! Split atoms and wave-vectors among threads:
-      thread = omp_get_thread_num() + 1
-      first = (thread - 1)*model%atoms_per_thread + 1
-      last = min(thread*model%atoms_per_thread, model%natoms)
-      v1 = (thread - 1)*model%vecs_per_thread + 1
-      vN = min(thread*model%vecs_per_thread, model%nvecs)
+    associate( nmax => model%nmax, n => model%n(1:model%nvecs,:) )
+      !$omp parallel num_threads(model%nthreads) reduction(+:E)
+      block
+        integer :: thread, first, last, v1, vN, i, j, k
+        real(rb) :: theta(3)
+        complex(rb) :: Z(3)
+        complex(rb) :: G1(0:nmax(1)), G2(-nmax(2):nmax(2)), G3(-nmax(3):nmax(3))
 
-      ! Compute qj*exp(i*k*Rj) for local atoms:
-      call compute_q_exp_ik_dot_r( model, first, last, R, qeikr(:,first:last) )
-      !$omp barrier
+        ! Split atoms and wave-vectors among threads:
+        thread = omp_get_thread_num() + 1
+        first = (thread - 1)*model%atoms_per_thread + 1
+        last = min(thread*model%atoms_per_thread, model%natoms)
+        v1 = (thread - 1)*model%vecs_per_thread + 1
+        vN = min(thread*model%vecs_per_thread, model%nvecs)
 
-      ! Compute structure factors for local vectors:
-      S(v1:vN) = sum(qeikr(v1:vN,:),2)
-      !$omp barrier
-
-      ! Compute forces of local atoms:
-      do j = first, last
-        i = model%index(j)
-        do k = 1, model%nvecs
-          F(:,i) = F(:,i) + ( S(k) .op. qeikr(k,j) )*model%vec(:,k)
+        ! Compute qj*exp(i*k*Rj) for local atoms:
+        G1(0) = (one,zero)
+        G2(0) = (one,zero)
+        G3(0) = (one,zero)
+        do i = first, last
+          theta = model%unit*R(:,model%index(i))
+          Z = cmplx(cos(theta),sin(theta),rb)
+          G1(1:nmax(1)) = recursion( Z(1), nmax(1) )
+          G2(1:nmax(2)) = recursion( Z(2), nmax(2) )
+          G3(1:nmax(3)) = recursion( Z(3), nmax(3) )
+          G2(-nmax(2):-1) = conjg(G2(nmax(2):1:-1))
+          G3(-nmax(2):-1) = conjg(G3(nmax(2):1:-1))
+          qeikr(:,i) = model%Q(i)*G1(n(:,1))*G2(n(:,2))*G3(n(:,3))
         end do
-      end do
+        !$omp barrier
 
-      ! Compute part of energy related to local vectors:
-      E = sum(model%prefac(v1:vN)*normSq(S(v1:vn)))
-    end block
-    !$omp end parallel
+        ! Compute structure factors for local vectors:
+        S(v1:vN) = sum(qeikr(v1:vN,:),2)
+        !$omp barrier
+
+        ! Compute forces of local atoms:
+        do j = first, last
+          i = model%index(j)
+          do k = 1, model%nvecs
+            F(:,i) = F(:,i) + ( S(k) .op. qeikr(k,j) )*model%vec(:,k)
+          end do
+        end do
+
+        ! Compute part of energy related to local vectors:
+        E = sum(model%prefac(v1:vN)*normSq(S(v1:vn)))
+      end block
+      !$omp end parallel
+    end associate
 
     Potential = Potential + E
     Virial = Virial + E
-
-  end subroutine kspace_ewald_compute
-
-!===================================================================================================
-
-  pure subroutine compute_q_exp_ik_dot_r( me, first, last, R, X )
-    class(kspace_ewald), intent(in)  :: me
-    integer,             intent(in)  :: first, last
-    real(rb),            intent(in)  :: R(:,:)
-    complex(rb),         intent(out) :: X(me%nvecs,first:last)
-
-    integer :: i
-    real(rb) :: theta(3)
-    complex(rb) :: Z(3)
-    complex(rb) :: G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
-
-    G1(0) = (one,zero)
-    G2(0) = (one,zero)
-    G3(0) = (one,zero)
-    do i = first, last
-      theta = me%unit*R(:,me%index(i))
-      Z = cmplx(cos(theta),sin(theta),rb)
-      G1(1:me%nmax(1)) = recursion( Z(1), me%nmax(1) )
-      G2(1:me%nmax(2)) = recursion( Z(2), me%nmax(2) )
-      G3(1:me%nmax(3)) = recursion( Z(3), me%nmax(3) )
-      G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
-      G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
-      X(:,i) = me%Q(i)*G1(me%n(1:me%nvecs,1))*G2(me%n(1:me%nvecs,2))*G3(me%n(1:me%nvecs,3))
-    end do
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -234,7 +225,7 @@ contains
         G(j) = B
       end function recursion
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine compute_q_exp_ik_dot_r
+  end subroutine kspace_ewald_compute
 
 !===================================================================================================
 

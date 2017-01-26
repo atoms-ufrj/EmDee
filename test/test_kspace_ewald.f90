@@ -98,12 +98,12 @@ print*, md%Potential/kB, md%Virial/kB
 
 call kspace%setup( [1.0e-4_rb] )
 call kspace%initialize( threads, Rc, L, Q, verbose = .false. )
-allocate( F(3,N) )
 
+allocate( F(3,N) )
 F = zero
 Elong = zero
 Wlong = zero
-call kspace%compute( R, F, Elong, Wlong )
+call kspace % compute( R, F, Elong, Wlong )
 print*, Elong/kB
 
 contains
