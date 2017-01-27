@@ -120,7 +120,7 @@ contains
     invR = sqrt(invR2)
     alphaR = model%alpha/invR
     Wij = model%eps24*(sr12 + sr12 - sr6) + &
-          Qi*Qj*(erfc(alphaR)*invR + model%beta*exp(alphaR*alphaR))
+          Qi*Qj*(erfc(alphaR)*invR + model%beta*exp(-alphaR*alphaR))
 
   end function pair_lj_cut_coul_long_virial
 

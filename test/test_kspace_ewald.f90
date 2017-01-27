@@ -104,6 +104,7 @@ F = zero
 Elong = zero
 Wlong = zero
 call kspace % compute( R, F, Elong, Wlong )
+
 print*, Elong/kB
 
 contains

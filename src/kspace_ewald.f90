@@ -175,14 +175,15 @@ contains
         G2(0) = (one,zero)
         G3(0) = (one,zero)
         do i = first, last
-          theta = model%unit*R(:,model%index(i))
+          j = model%index(i)
+          theta = model%unit*R(:,j)
           Z = cmplx(cos(theta),sin(theta),rb)
           G1(1:nmax(1)) = recursion( Z(1), nmax(1) )
           G2(1:nmax(2)) = recursion( Z(2), nmax(2) )
           G3(1:nmax(3)) = recursion( Z(3), nmax(3) )
           G2(-nmax(2):-1) = conjg(G2(nmax(2):1:-1))
           G3(-nmax(2):-1) = conjg(G3(nmax(2):1:-1))
-          qeikr(:,i) = model%Q(i)*G1(n(:,1))*G2(n(:,2))*G3(n(:,3))
+          qeikr(:,i) = model%Q(j)*G1(n(:,1))*G2(n(:,2))*G3(n(:,3))
         end do
         !$omp barrier
 

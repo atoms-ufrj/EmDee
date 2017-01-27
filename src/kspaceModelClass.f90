@@ -21,6 +21,8 @@ module kspaceModelClass
 
 use global
 use modelClass
+use lists
+use omp_lib
 
 implicit none
 
@@ -31,16 +33,19 @@ type, abstract, extends(cModel) :: cKspaceModel
   integer  :: nthreads
   logical  :: verbose
 
+  real(rb) :: beta
   real(rb) :: E_self
 
   integer :: natoms
   integer,  allocatable :: index(:)
+  logical,  allocatable :: charged(:)
   real(rb), allocatable :: Q(:)
 
   integer :: atoms_per_thread
 
   contains
     procedure :: initialize => cKspaceModel_initialize
+    procedure :: discount => cKspaceModel_discount
     procedure(cKspaceModel_set_parameters), deferred :: set_parameters
     procedure(cKspaceModel_update), deferred :: update
     procedure(cKspaceModel_compute), deferred :: compute
@@ -86,20 +91,61 @@ contains
     model%nthreads = nthreads
     model%verbose = verbose
 
-    model%index = pack( [(i,i=1,size(Q))], Q /= zero )
+    model%charged = Q /= zero
+    model%index = pack( [(i,i=1,size(Q))], model%charged )
     model%natoms = size(model%index)
     if (model%natoms == 0) call error( "kspace model initialization", "no charged atoms" )
-    model%Q = Q(model%index)
+    model%Q = Q
 
     model%atoms_per_thread = (model%natoms + nthreads - 1)/nthreads
 
     call model % set_parameters( Rc, L, Q )
-
     call model % update( L )
 
+    model%beta = two*model%alpha/sqrt(Pi)
     model%E_self = model%alpha*sum(model%Q**2)/sqrt(Pi)
 
   end subroutine cKspaceModel_initialize
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cKspaceModel_discount( model, thread, excluded, R, F, Potential, Virial )
+    class(cKspaceModel), intent(inout) :: model
+    integer,             intent(in)    :: thread
+    type(tList),         intent(in)    :: excluded
+    real(rb),            intent(in)    :: R(:,:)
+    real(rb),            intent(inout) :: F(:,:), Potential, Virial
+
+    integer  :: first, last, ii, jj, i, j
+    real(rb) :: Qi, Ri(3), Rij(3), R2, Rd, QiQj, alphaRd, Eij, Wij, Fij(3)
+
+    first = (thread - 1)*model%atoms_per_thread + 1
+    last = min(thread*model%atoms_per_thread, model%natoms)
+
+    do ii = first, last
+      i = model%index(i)
+      Qi = model%Q(ii)
+      Ri = R(:,i)
+      do jj = excluded%first(i), excluded%last(i)
+        j = excluded%item(jj)
+        if (model%charged(j)) then
+          Rij = Ri - R(:,j)
+          R2 = sum(Rij*Rij)
+          Rd = sqrt(R2)
+          QiQj = Qi*model%Q(j)
+          alphaRd = model%alpha*Rd
+          Eij = QiQj*erf(alphaRd)/Rd
+          Wij = Eij - QiQj*model%beta*exp(-alphaRd*alphaRd)
+          Fij = Wij*Rij/R2
+          F(:,i) = F(:,i) - Fij
+          F(:,j) = F(:,j) + Fij
+          Potential = Potential - Eij
+          Virial = Virial - Wij
+        end if
+      end do
+    end do
+
+ end subroutine cKspaceModel_discount
 
 !---------------------------------------------------------------------------------------------------
 
