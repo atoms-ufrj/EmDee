@@ -30,7 +30,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "26 Jan 2017"
+character(11), parameter :: VERSION = "31 Jan 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -494,6 +494,8 @@ contains
         !$omp parallel num_threads(me%nthreads) reduction(+:TwoKEt,TwoKEr)
         call assign_momenta( me, omp_get_thread_num() + 1, Matrix, twoKEt, twoKEr )
         !$omp end parallel
+        md%Kinetic = half*(twoKEt + twoKEr)
+        md%Rotational = half*twoKEr
 
       case ("forces")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )

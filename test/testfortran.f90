@@ -71,10 +71,10 @@ md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 !pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_cut_coul_sf( 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_softcore_cut( 1.0_rb, 1.0_rb, 1.0_rb )
-pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
+!pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_softcore_sf_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_sf_old( 1.0_rb, 1.0_rb, Rc )
-!pair = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
+pair = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
 
 call EmDee_set_pair_model( md, 1, 1, pair )
 call EmDee_set_pair_model( md, 2, 2, pair )
@@ -97,12 +97,13 @@ call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 call EmDee_upload( md, "momenta"//c_null_char, c_loc(V(1,1)) )
 
+print*, 0, md%Potential, md%Virial, md%Potential + md%Kinetic
 do step = 1, Nsteps
   md%options%computeProps = mod(step,Nprop) == 0
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
   call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )
   call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
-  if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial
+  if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial, md%Potential + md%Kinetic
 end do
 print*, "neighbor list builds = ", md%builds
 print*, "pair time = ", md%pairTime, " s."

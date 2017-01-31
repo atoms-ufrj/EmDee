@@ -36,34 +36,13 @@ integer,  pointer :: types(:)
 type(tEmDee), target :: md
 type(c_ptr),  target :: pair
 
-integer :: argcount, threads
-character(256) :: line
+integer :: threads
+character(256) :: filename
 
-argcount = command_argument_count()
-if (argcount == 1) then
-  threads = 1
-  call get_command_argument( 1, line )
-else if (argcount == 2) then
-  call get_command_argument( 1, line )
-  read(line,*) threads
-  call get_command_argument( 2, line )
-else
-  write(0,'("Usage: testfortran [number-of-threads] input-file")')
-  stop
-end if
-
-call read_data( file = line )
+call command_line_arguments( filename, threads )
+call read_data( filename )
 call create_configuration
-
-if (mod(N,2) /= 0) stop "PLEASE ENTER AN EVEN NUMBER OF ATOMS"
-allocate( types(N), Q(N) )
-types(1:N/2) = 1
-types(N/2+1:N) = 2
-where (types == 1)
-  Q = 1.0_rb
-elsewhere
-  Q = -1.0_rb
-end where
+call set_charges( types, Q )
 
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 pair = EmDee_pair_softcore_cut( 1.0_rb, 1.0_rb, 1.0_rb )
@@ -74,55 +53,10 @@ call EmDee_set_pair_model( md, 2, 2, pair )
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
-print*, md%Potential, md%Virial
+
+call run( 0, Nprop )
 
 contains
-!---------------------------------------------------------------------------------------------------
-  subroutine read_data( file )
-    character(*), intent(in) :: file
-    integer  :: inp, i, nseeds, seed
-    open( newunit = inp, file = file, status = "old" )
-    read(inp,*); read(inp,*) N
-    read(inp,*); read(inp,*) Rc
-    read(inp,*); read(inp,*) Rs
-    read(inp,*); read(inp,*) seed
-    read(inp,*); read(inp,*) Dt
-    read(inp,*); read(inp,*) Nsteps
-    read(inp,*); read(inp,*) Nprop
-    read(inp,*); read(inp,*) rho
-    read(inp,*); read(inp,*) Temp
-    close(inp)
-    call random_seed( size = nseeds )
-    call random_seed( put = seed + 37*[(i-1,i=1,nseeds)] )
-    Rc2 = Rc**2
-    L = (N/rho)**(1.0_8/3.0_8)
-    Dt_2 = 0.5_8*Dt
-    allocate( R(3,N), V(3,N) )
-  end subroutine read_data
-!---------------------------------------------------------------------------------------------------
-  real(rb) function random_normal()
-    real(rb) :: uni(2)
-    call random_number( uni )
-    random_normal = sqrt(-2.0_rb*log(uni(1)))*cos(6.283185307179586_rb*uni(2))
-  end function random_normal
-!---------------------------------------------------------------------------------------------------
-subroutine create_configuration
-  integer :: Nd, m, ind, i, j, k
-  real(8) :: Vcm(3)
-  Nd = ceiling(real(N,8)**(1.0_8/3.0_8))
-  do ind = 1, N
-    m = ind - 1
-    k = m/(Nd*Nd)
-    j = (m - k*Nd*Nd)/Nd
-    i = m - j*Nd - k*Nd*Nd
-    R(:,ind) = (L/real(Nd,8))*(real([i,j,k],8) + 0.5_8)
-    V(:,ind) = [random_normal(), random_normal(), random_normal()]
-  end do
-  Vcm = sum(V,2)/N
-  forall (i=1:N) V(:,i) = V(:,i) - Vcm
-  V = sqrt(Temp*(3*N-3)/sum(V*V))*V
-  Vcm = sum(V,2)/N
-end subroutine create_configuration
-!---------------------------------------------------------------------------------------------------
+  include "common_routines.inc"
 end program test
 

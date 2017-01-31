@@ -336,7 +336,7 @@ contains
         integer, intent(in)  :: thread
         integer, intent(out) :: maxNatoms
 
-        integer :: i, k, icell, ix, iy, iz, first, last, atoms_per_thread
+        integer :: i, k, icell, ix, iy, iz, first, last
         integer :: icoord(3)
         integer, allocatable :: head(:)
 
@@ -357,8 +357,7 @@ contains
           last = me%threadCell%last(thread)
         end if
 
-        atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
-        do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
+        do i = (thread - 1)*me%threadAtoms + 1, min( thread*me%threadAtoms, me%natoms )
           icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
           me%atomCell(i) = 1 + icoord(1) + M*icoord(2) + MM*icoord(3)
         end do

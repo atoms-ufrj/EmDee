@@ -73,7 +73,8 @@ TESTS = $(patsubst %.f90,%,$(wildcard $(TSTDIR)/*.f90))
 
 # Phony targets:
 
-all: lib include
+all: lib include $(TSTDIR)/testfortran
+# DELETE $(TSTDIR)/testfortran above
 
 test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
 	cd $(TSTDIR) && bash run_tests.sh
@@ -100,7 +101,6 @@ include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/libemdee.jl
 # Executables:
 
 $(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 $(LIBDIR)/libemdee.so
-	mkdir -p $(TSTDIR)
 	$(FORT) $(F_OPTS) -o $@ $(LN_OPTS) -J$(OBJDIR) $< $(EMDEELIB)
 
 $(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
@@ -185,6 +185,9 @@ $(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(OBJDIR)/dihedralModelClass.o
 $(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/kspaceModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
+$(OBJDIR)/kspaceModelClass.o: $(SRCDIR)/kspaceModelClass.f90 $(OBJDIR)/modelClass.o $(OBJDIR)/lists.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
 $(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
@@ -192,6 +195,7 @@ $(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/lists.o: $(SRCDIR)/lists.f90
+	mkdir -p $(OBJDIR)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/global.o: $(SRCDIR)/global.f90

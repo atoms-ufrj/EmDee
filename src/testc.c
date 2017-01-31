@@ -5,7 +5,7 @@
 #include <time.h>
 
 typedef struct {
-  int N, seed, Npassos, Nprop;
+  int N, seed, Nsteps, Nprop;
   double rho, L, Rc, Rs, Rc2, Temp, Press, Dt, InvL, Ws, SixWs, Ec, Dt_2;
   double *R, *V, *F;
 } simpar;
@@ -46,7 +46,7 @@ void read_data( simpar *par, char *filename )
     readline; sscanf( line, "%lf", &par->Rs );
     readline; sscanf( line, "%d",  &par->seed );
     readline; sscanf( line, "%lf", &par->Dt );
-    readline; sscanf( line, "%d",  &par->Npassos );
+    readline; sscanf( line, "%d",  &par->Nsteps );
     readline; sscanf( line, "%d",  &par->Nprop );
     readline; sscanf( line, "%lf", &par->rho );
     readline; sscanf( line, "%lf", &par->Temp );
@@ -103,6 +103,16 @@ void create_configuration( simpar *par )
 
 //--------------------------------------------------------------------------------------------------
 
+double kinetic( simpar *par )
+{
+  double K = 0.0;
+  for (int i = 0; i < 3*par->N; i++)
+    K += par->V[i]*par->V[i];
+  return 0.5*K;
+}
+
+//--------------------------------------------------------------------------------------------------
+
 int main( int argc, char *argv[] )  {
   int threads;
   char *filename;
@@ -130,9 +140,10 @@ int main( int argc, char *argv[] )  {
   EmDee_upload( &md, "momenta", par.V );
   EmDee_random_momenta( &md, par.Temp, 1, par.seed );
 
-  printf("%d %lf %lf\n", 0, md.Potential, md.Virial);
-  for (int passo = 1; passo <= par.Npassos; passo++) {
-    if (passo % par.Nprop == 0) printf("%d %lf %lf\n", passo, md.Potential, md.Virial);
+  printf("%d %lf %lf %lf\n", 0, md.Potential, md.Virial, md.Potential + kinetic( &par ));
+  for (int step = 1; step <= par.Nsteps; step++) {
+    if (step % par.Nprop == 0)
+        printf("%d %lf %lf %lf\n", step, md.Potential, md.Virial, md.Potential + kinetic( &par ));
     EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
     EmDee_move( &md, 1.0, 0.0, par.Dt );
     EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
