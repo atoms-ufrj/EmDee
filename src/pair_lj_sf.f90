@@ -68,13 +68,18 @@ contains
     ! Activate shifted-force status:
     model%shifted_force_vdw = .true.
 
+!TEMP:
+    model%noSqrt = .false.
+    model%coulomb = .true.
+    model%shifted_force_coul = .true.
+
   end subroutine pair_lj_sf_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_sf_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine pair_lj_sf_compute( model, Eij, Wij, invR, invR2, Qi, Qj )
     class(pair_lj_sf), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij
+    real(rb),          intent(out) :: Eij, Wij, invR
     real(rb),          intent(in)  :: invR2, Qi, Qj
 
     real(rb) :: sr2, sr6, sr12, rFc
@@ -82,7 +87,8 @@ contains
     sr2 = model%sigSq*invR2
     sr6 = sr2*sr2*sr2
     sr12 = sr6*sr6
-    rFc = model%fshift_vdw/sqrt(invR2)
+    invR = sqrt(invR2)
+    rFc = model%fshift_vdw/invR
     Eij = model%eps4*(sr12 - sr6) + model%eshift_vdw + rFc
     Wij = model%eps24*(sr12 + sr12 - sr6) - rFc
 
@@ -90,19 +96,20 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_lj_sf_virial( model, invR2, Qi, Qj ) result( Wij )
-    class(pair_lj_sf), intent(in) :: model
-    real(rb),          intent(in) :: invR2, Qi, Qj
-    real(rb)                      :: Wij
+  subroutine pair_lj_sf_virial( model, Wij, invR, invR2, Qi, Qj )
+    class(pair_lj_sf), intent(in)  :: model
+    real(rb),          intent(out) :: Wij, invR
+    real(rb),          intent(in)  :: invR2, Qi, Qj
 
     real(rb) :: sr2, sr6, sr12
 
     sr2 = model%sigSq*invR2
     sr6 = sr2*sr2*sr2
     sr12 = sr6*sr6
-    Wij = model%eps24*(sr12 + sr12 - sr6) - model%fshift_vdw/sqrt(invR2)
+    invR = sqrt(invR2)
+    Wij = model%eps24*(sr12 + sr12 - sr6) - model%fshift_vdw/invR
 
-  end function pair_lj_sf_virial
+  end subroutine pair_lj_sf_virial
 
 !---------------------------------------------------------------------------------------------------
 

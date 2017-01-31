@@ -17,35 +17,52 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-if (r2 < Rc2) then
-  invR2 = me%invL2/r2
-  jtype = me%atomType(j)
-  Qj = me%charge(j)
-  if (compute) then
-    select type ( model => partner(jtype)%model )
-      include "compute_pair.f90"
-    end select
-    Potential = Potential + Eij
-    Virial = Virial + Wij
-    Fij = Wij*invR2*Rij
-    if (multilayer(jtype)) then
-      associate( pair => me%pair(itype,jtype,:) )
-        do layer = 1, me%nlayers
-          select type ( model => pair(layer)%model )
-            include "compute_pair.f90"
-          end select
-          Elayer(layer) = Elayer(layer) + Eij
-          Wlayer(layer) = Wlayer(layer) + Wij
-        end do
+  if (r2 < Rc2) then
+    invR2 = me%invL2/r2
+    jtype = me%atomType(j)
+    Qj = me%charge(j)
+    if (compute) then
+      associate( model => partner(jtype)%model )
+        select type ( model )
+          include "compute_pair.f90"
+        end select
+        if (icharged.and.me%charged(j)) then
+          if (model%noSqrt) invR = sqrt(invR2)
+          QiQj = Qi*Qj
+          QiQjbyR = QiQj*invR
+          rFc = QiQj*me%fshift/invR
+          Eij = Eij + QiQjbyR + QiQj*me%eshift + rFc
+          Wij = Wij + QiQjbyR - rFc
+        end if
       end associate
+      Potential = Potential + Eij
+      Virial = Virial + Wij
+      Fij = Wij*invR2*Rij
+      if (multilayer(jtype)) then
+        associate( pair => me%pair(itype,jtype,:) )
+          do layer = 1, me%nlayers
+            select type ( model => pair(layer)%model )
+              include "compute_pair.f90"
+            end select
+            Elayer(layer) = Elayer(layer) + Eij
+            Wlayer(layer) = Wlayer(layer) + Wij
+          end do
+        end associate
+      end if
+    else
+      associate( model => partner(jtype)%model )
+        select type ( model )
+          include "compute_pair_virial.f90"
+        end select
+        if (icharged.and.me%charged(j)) then
+          if (model%noSqrt) invR = sqrt(invR2)
+          Wij = Wij + Qi*Qj*(invR - me%fshift/invR)
+        end if
+      end associate
+      Virial = Virial + Wij
+      Fij = Wij*invR2*Rij
     end if
-  else
-    select type ( model => partner(jtype)%model )
-      include "compute_pair_virial.f90"
-    end select
-    Virial = Virial + Wij
-    Fij = Wij*invR2*Rij
+    Fi = Fi + Fij
+    F(:,j) = F(:,j) - Fij
   end if
-  Fi = Fi + Fij
-  F(:,j) = F(:,j) - Fij
-end if
+

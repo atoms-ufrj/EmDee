@@ -101,6 +101,7 @@ type :: tData
   real(rb), allocatable :: mass(:)        ! Masses of all atoms
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
+  logical,  allocatable :: charged(:)     ! Flag to determine if a particle is charged
 
   type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
   type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
@@ -489,7 +490,7 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: m, ndihedrals, i, j
-    real(rb) :: Rc2, Ed, Fd, r2, invR2, Eij, Wij, Qi, Qj
+    real(rb) :: Rc2, Ed, Fd, r2, invR2, invR, Eij, Wij, Qi, Qj
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi, factor14
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
@@ -579,8 +580,8 @@ contains
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
     integer  :: nlocal, ntotal, first, last
-    real(rb) :: xRc2, Rc2, r2, invR2, Eij, Wij, Qi, Qj
-    logical  :: include(0:me%maxpairs)
+    real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, Qj, QiQj, QiQjbyR, rFc
+    logical  :: icharged, include(0:me%maxpairs)
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
     integer,  allocatable :: xlist(:)
@@ -625,6 +626,7 @@ contains
           neighbor%first(i) = npairs + 1
           itype = me%atomType(i)
           Qi = me%charge(i)
+          icharged = me%charged(i)
           Ri = Rs(:,i)
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
@@ -669,8 +671,9 @@ contains
     real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, &
                                 Elayer(me%nlayers), Wlayer(me%nlayers)
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
-    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
+    real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, Qj, QiQj, QiQjbyR, rFc
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    logical  :: icharged
 
     Rc2 = me%RcSq*me%invL2
 
@@ -687,6 +690,7 @@ contains
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
         Qi = me%charge(i)
+        icharged = me%charged(i)
         Ri = Rs(:,i)
         Fi = zero
         associate (partner => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
@@ -713,7 +717,7 @@ contains
     real(rb),    intent(out) :: DF(3,me%natoms), DE, DW
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, new_Eij, new_Wij, Eij, Wij, Qi, Qj
+    real(rb) :: Rc2, r2, invR2, invR, new_Eij, new_Wij, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
     logical  :: participant(me%ntypes)
 

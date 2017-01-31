@@ -67,9 +67,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_cut_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine pair_lj_cut_compute( model, Eij, Wij, invR, invR2, Qi, Qj )
     class(pair_lj_cut), intent(in)  :: model
-    real(rb),           intent(out) :: Eij, Wij
+    real(rb),           intent(out) :: Eij, Wij, invR
     real(rb),           intent(in)  :: invR2, Qi, Qj
 
     real(rb) :: sr2, sr6, sr12
@@ -84,10 +84,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_lj_cut_virial( model, invR2, Qi, Qj ) result( Wij )
-    class(pair_lj_cut), intent(in) :: model
-    real(rb),           intent(in) :: invR2, Qi, Qj
-    real(rb)                       :: Wij
+  subroutine pair_lj_cut_virial( model, Wij, invR, invR2, Qi, Qj )
+    class(pair_lj_cut), intent(in)  :: model
+    real(rb),           intent(out) :: Wij, invR
+    real(rb),           intent(in)  :: invR2, Qi, Qj
 
     real(rb) :: sr2, sr6, sr12
 
@@ -96,7 +96,7 @@ contains
     sr12 = sr6*sr6
     Wij = model%eps24*(sr12 + sr12 - sr6)
 
-  end function pair_lj_cut_virial
+  end subroutine pair_lj_cut_virial
 
 !---------------------------------------------------------------------------------------------------
 

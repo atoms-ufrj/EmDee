@@ -5,6 +5,9 @@ equations/build/
 tools/
 test/*
 !test/*.f90
+!test/*.inp
+!test/*.inc
+!test/*.cfg
 src/compute_*.f90
 src/models.f90
 include/

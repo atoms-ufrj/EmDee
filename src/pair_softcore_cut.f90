@@ -80,9 +80,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_softcore_cut_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine pair_softcore_cut_compute( model, Eij, Wij, invR, invR2, Qi, Qj )
     class(pair_softcore_cut), intent(in)  :: model
-    real(rb),                 intent(out) :: Eij, Wij
+    real(rb),                 intent(out) :: Eij, Wij, invR
     real(rb),                 intent(in)  :: invR2, Qi, Qj
 
     real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
@@ -99,10 +99,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_softcore_cut_virial( model, invR2, Qi, Qj ) result( Wij )
-    class(pair_softcore_cut), intent(in) :: model
-    real(rb),                 intent(in) :: invR2, Qi, Qj
-    real(rb)                             :: Wij
+  subroutine pair_softcore_cut_virial( model, Wij, invR, invR2, Qi, Qj )
+    class(pair_softcore_cut), intent(in)  :: model
+    real(rb),                 intent(out) :: Wij, invR
+    real(rb),                 intent(in)  :: invR2, Qi, Qj
 
     real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
 
@@ -113,7 +113,7 @@ contains
     sinvCb = sinv*sinvSq
     Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq)
 
-  end function pair_softcore_cut_virial
+  end subroutine pair_softcore_cut_virial
 
 !---------------------------------------------------------------------------------------------------
 

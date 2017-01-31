@@ -35,6 +35,8 @@ type, abstract, extends(cModel) :: cPairModel
   real(rb) :: fshift_vdw = zero
   real(rb) :: eshift_coul = zero
   real(rb) :: fshift_coul = zero
+  logical  :: noSqrt = .true.
+  real(rb) :: invR = zero
   contains
     procedure(cPairModel_compute), deferred :: compute
     procedure(cPairModel_virial),  deferred :: virial
@@ -46,19 +48,19 @@ end type cPairModel
 
 abstract interface
 
-  subroutine cPairModel_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine cPairModel_compute( model, Eij, Wij, invR, invR2, Qi, Qj )
     import
     class(cPairModel), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij
+    real(rb),          intent(out) :: Eij, Wij, invR
     real(rb),          intent(in)  :: invR2, Qi, Qj
   end subroutine cPairModel_compute
 
-  function cPairModel_virial( model, invR2, Qi, Qj ) result( Wij )
+  subroutine cPairModel_virial( model, Wij, invR, invR2, Qi, Qj )
     import
     class(cPairModel), intent(in)  :: model
+    real(rb),          intent(out) :: Wij, invR
     real(rb),          intent(in)  :: invR2, Qi, Qj
-    real(rb)                       :: Wij
-  end function cPairModel_virial
+  end subroutine cPairModel_virial
 
   function cPairModel_mix( this, other ) result( mixed )
     import
@@ -96,7 +98,7 @@ contains
     class(cPairModel), intent(inout) :: model
     real(rb),          intent(in)    :: cutoff
 
-    real(rb) :: invR2, Evdw, Wvdw, Etot, Wtot, Ecoul, Wcoul
+    real(rb) :: invR2, Evdw, Wvdw, Etot, Wtot, Ecoul, Wcoul, invR
 
     ! Zero van der Waals and Coulombic energy and force shifts:
     model%fshift_vdw = zero
@@ -106,8 +108,8 @@ contains
 
     ! Compute van der Waals and Coulombic energies and virials at cutoff:
     invR2 = one/cutoff**2
-    call model%compute( Evdw, Wvdw, invR2, zero, zero )
-    call model%compute( Etot, Wtot, invR2, one, one )
+    call model%compute( Evdw, Wvdw, invR, invR2, zero, zero )
+    call model%compute( Etot, Wtot, invR, invR2, one, one )
     Ecoul = Etot - Evdw
     Wcoul = Wtot - Wvdw
 
@@ -195,9 +197,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine pair_none_compute( model, Eij, Wij, invR, invR2, Qi, Qj )
     class(pair_none), intent(in)  :: model
-    real(rb),         intent(out) :: Eij, Wij
+    real(rb),         intent(out) :: Eij, Wij, invR
     real(rb),         intent(in)  :: invR2, Qi, Qj
     Eij = zero
     Wij = zero
@@ -205,12 +207,12 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_none_virial( model, invR2, Qi, Qj ) result( Wij )
-    class(pair_none), intent(in) :: model
-    real(rb),         intent(in) :: invR2, Qi, Qj
-    real(rb)                     :: Wij
+  subroutine pair_none_virial( model, Wij, invR, invR2, Qi, Qj )
+    class(pair_none), intent(in)  :: model
+    real(rb),         intent(out) :: Wij, invR
+    real(rb),         intent(in)  :: invR2, Qi, Qj
     Wij = zero
-  end function pair_none_virial
+  end subroutine pair_none_virial
 
 !---------------------------------------------------------------------------------------------------
 

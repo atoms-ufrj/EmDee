@@ -116,6 +116,7 @@ contains
     me%startTime = omp_get_wtime()
     allocate( me%P(3,N), me%F(3,N), me%R0(3,N), source = zero )
     allocate( me%charge(N), source = zero )
+    allocate( me%charged(N), source = .false. )
     allocate( me%cell(0) )
     allocate( me%atomCell(N) )
 
@@ -540,6 +541,7 @@ contains
         first = (thread - 1)*me%threadAtoms + 1
         last = min(thread*me%threadAtoms, me%natoms)
         me%charge(first:last) = Qext(first:last)
+        me%charged(first:last) = Qext(first:last) /= zero
       end subroutine assign_charges
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
