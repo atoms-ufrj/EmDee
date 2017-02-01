@@ -70,7 +70,8 @@ contains
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
-    type(pairModelContainer) :: none
+    type(pairModelContainer) :: noPair
+    type(modelContainer)     :: noCoul
 
     write(*,'("EmDee (version: ",A11,")")') VERSION
 
@@ -86,8 +87,6 @@ contains
     me%xRcSq = me%xRc**2
     me%skinSq = skin*skin
     me%natoms = N
-    me%fshift = one/me%RcSq
-    me%eshift = -two/me%Rc
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -136,18 +135,30 @@ contains
     ! Allocate memory for the list of pairs excluded from the neighbor lists:
     call me % excluded % allocate( extra, N )
 
-    ! Allocate memory for pair models:
-    allocate( pair_none :: none%model )
-    call none % model % setup()
-    allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
+    ! Allocate memory for variables regarding pair models:
+    allocate( pair_none :: noPair%model )
+    call noPair % model % setup()
+    allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = noPair )
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
     allocate( me%interact(me%ntypes,me%ntypes), source = .false. )
 
+    ! Allocate memory for variables regarding Coulomb models:
+!    allocate( coul_none :: noCoul%model )
+!    call noCoul % model % setup()
+
+allocate( coul_sf :: noCoul%model )
+call noCoul % model % setup()
+select type (m=>noCoul % model)
+  class is (cCoulModel)
+    call m % shifting_setup( me%Rc )
+end select
+
+    allocate( me%coul(me%nlayers), source = noCoul )
+
     ! Allocate variables related to model layers:
     allocate( me%layer_energy(me%nlayers), source = zero )
     allocate( me%layer_virial(me%nlayers), source = zero )
-    allocate( me%layer_kspace(me%nlayers), source = .false. )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -185,14 +196,15 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
+  subroutine EmDee_set_pair_model( md, itype, jtype, model, kCoul ) bind(C,name="EmDee_set_pair_model")
     type(tEmDee), value :: md
     integer(ib),  value :: itype, jtype
     type(c_ptr),  value :: model
+    real(rb),     value :: kCoul
 
     integer :: layer, ktype
     type(tData), pointer :: me
-    type(modelContainer), pointer :: container
+    type(pairModelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
     if (me%initialized) &
@@ -202,7 +214,7 @@ contains
 
     call c_f_pointer( model, container )
     do layer = 1, me%nlayers
-      call set_pair_type( me, itype, jtype, layer, container )
+      call set_pair_type( me, itype, jtype, layer, container, kCoul )
     end do
 
     me%multilayer(itype,jtype) = .false.
@@ -231,7 +243,7 @@ contains
     integer :: layer, ktype
     character(5) :: C
     type(tData), pointer :: me
-    type(modelContainer), pointer :: container
+    type(pairModelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
 
@@ -245,7 +257,7 @@ contains
         write(C,'(I5)') me%nlayers
         call error( "set_pair_multimodel", trim(adjustl(C))//" valid pair models must be provided" )
       end if
-      call set_pair_type( me, itype, jtype, layer, container )
+      call set_pair_type( me, itype, jtype, layer, container, 1.0_rb ) !!!!! CHANGE HERE
     end do
 
     me%multilayer(itype,jtype) = .true.

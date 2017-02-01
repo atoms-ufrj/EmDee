@@ -34,10 +34,10 @@ function system( threads::Integer, layers::Integer, rc::Real, skin::Real, N::Int
                 threads, layers, rc, skin, N, Vector{Int32}(types), Vector{Float64}(masses) )
 end
 #---------------------------------------------------------------------------------------------------
-function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel )
+function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel, kCoul::Real )
   ccall( (:EmDee_set_pair_model,"libemdee"), Void,
-         (tEmDee, Int32, Int32, tModel),
-         md, itype, jtype, model )
+         (tEmDee, Int32, Int32, tModel, Float64),
+         md, itype, jtype, model, kCoul )
 end
 #---------------------------------------------------------------------------------------------------
 function set_pair_multimodel( md::tEmDee, itype::Integer, jtype::Integer, model::Array{tModel} )

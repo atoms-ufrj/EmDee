@@ -23,6 +23,8 @@ use global
 use pairModelClass
 use pair_lj_cut_module
 
+implicit none
+
 real(rb), parameter, private :: alpha      = half, &
                                 exponent_n = one,  &
                                 exponent_p = one

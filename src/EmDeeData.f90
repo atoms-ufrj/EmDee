@@ -75,8 +75,6 @@ type :: tData
   real(rb) :: skinSq                      ! Square of the neighbor list skin width
   real(rb) :: totalMass                   ! Sum of the masses of all atoms
   real(rb) :: startTime                   ! Time recorded at initialization
-  real(rb) :: eshift                      ! Potential shifting factor for Coulombic interactions
-  real(rb) :: fshift                      ! Force shifting factor for Coulombic interactions
 
   logical :: initialized = .false.        ! Flag for checking coordinates initialization
 
@@ -108,12 +106,12 @@ type :: tData
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
+  type(modelContainer),     allocatable :: coul(:)
 
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
 
-  logical,  allocatable :: layer_kspace(:)
   real(rb), allocatable :: layer_energy(:)
   real(rb), allocatable :: layer_virial(:)
 
@@ -200,7 +198,9 @@ contains
           inert = .true.
           do while (inert .and. (k < me%nlayers))
             k = k + 1
-            no_interaction = .not.me%layer_kspace(k) .and. same_type_as( pair(k)%model, none )
+
+!!!!!!! CHANGE HERE
+            no_interaction = .not.pair(k)%coulomb .and. same_type_as( pair(k)%model, none )
             coulomb_only = same_type_as( pair(k)%model, coul )
             inert = no_interaction .or. (coulomb_only .and. neutral(i) .and. neutral(j))
           end do
@@ -214,10 +214,11 @@ contains
 
 !===================================================================================================
 
-  subroutine set_pair_type( me, itype, jtype, layer, container )
-    type(tData),          intent(inout) :: me
-    integer(ib),          intent(in)    :: itype, jtype, layer
-    type(modelContainer), intent(in)    :: container
+  subroutine set_pair_type( me, itype, jtype, layer, container, kCoul )
+    type(tData),              intent(inout) :: me
+    integer(ib),              intent(in)    :: itype, jtype, layer
+    type(pairModelContainer), intent(in)    :: container
+    real(rb),                 intent(in)    :: kCoul
 
     integer :: ktype
 
@@ -226,16 +227,20 @@ contains
         associate (pair => me%pair(:,:,layer))
           if (itype == jtype) then
             pair(itype,itype) = container
+            pair(itype,itype)%coulomb = kCoul /= zero
+            if (pair(itype,itype)%coulomb) pair(itype,itype)%kCoul = kCoul
             call pair(itype,itype) % model % shifting_setup( me%Rc )
             do ktype = 1, me%ntypes
               if ((ktype /= itype).and.me%overridable(itype,ktype)) then
-                pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
+                pair(itype,ktype) = pair(ktype,ktype) % mix( pair(itype,itype) )
                 call pair(itype,ktype) % model % shifting_setup( me%Rc )
                 pair(ktype,itype) = pair(itype,ktype)
               end if
             end do
           else
             pair(itype,jtype) = container
+            pair(itype,jtype)%coulomb = kCoul /= zero
+            if (pair(itype,jtype)%coulomb) pair(itype,jtype)%kCoul = kCoul
             call pair(itype,jtype) % model % shifting_setup( me%Rc )
             pair(jtype,itype) = pair(itype,jtype)
           end if
@@ -584,8 +589,8 @@ contains
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
     integer  :: nlocal, ntotal, first, last
-    real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, Qj, QiQj, QiQjbyR, rFc
-    logical  :: icharged, include(0:me%maxpairs)
+    real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
+    logical  :: icharged, ijcharged, include(0:me%maxpairs)
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
 
@@ -676,9 +681,9 @@ contains
     real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, &
                                 Elayer(me%nlayers), Wlayer(me%nlayers)
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
-    real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, Qj, QiQj, QiQjbyR, rFc
+    real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: icharged
+    logical  :: icharged, ijcharged
 
     Rc2 = me%RcSq*me%invL2
 

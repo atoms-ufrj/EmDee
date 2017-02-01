@@ -21,15 +21,21 @@ module coul_sf_module
 
 use coulModelClass
 
+implicit none
+
 !> Abstract class for coul model sf
+!!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
-!!        2) allocatable parameters are permitted only for rank=1
-!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
-!!           which will contain their (common) size after allocation
+!!        2) recognizable parameter types are real(rb) and integer(ib)
+!!        3) allocatable one-dimensional arrays (i.e. vectors) are permitted as parameters
+!!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
+!!           parameter or series of equally-sized allocatable parameters.
+
 type, extends(cCoulModel) :: coul_sf
   contains
     procedure :: setup => coul_sf_setup
     procedure :: compute => coul_sf_compute
+    procedure :: virial => coul_sf_virial
 end type coul_sf
 
 contains
@@ -37,7 +43,7 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   subroutine coul_sf_setup( model, params, iparams )
-    class(coul_sf), intent(inout) :: model
+    class(coul_sf),  intent(inout) :: model
     real(rb), intent(in), optional :: params(:)
     integer,  intent(in), optional :: iparams(:)
 
@@ -51,21 +57,35 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_compute( model, Eij, Wij, invR2, Qi, Qj )
-    class(coul_sf), intent(in)  :: model
-    real(rb),       intent(out) :: Eij, Wij
-    real(rb),       intent(in)  :: invR2, Qi, Qj
+  subroutine coul_sf_compute( model, ECij, WCij, invR, invR2, QiQj, noInvR )
+    class(coul_sf), intent(in)    :: model
+    real(rb),       intent(out)   :: ECij, WCij
+    real(rb),       intent(inout) :: invR
+    real(rb),       intent(in)    :: invR2, QiQj
+    logical,        intent(in)    :: noInvR
 
-    real(rb) :: rFc, invR, QiQj, QiQjbyR
+    real(rb) :: rFc, QiQjbyR
 
-    invR = sqrt(invR2)
-    QiQj = Qi*Qj
+    if (noInvR) invR = sqrt(invR2)
     QiQjbyR = QiQj*invR
     rFc = QiQj*model%fshift/invR
-    Eij = QiQjbyR + QiQj*model%eshift + rFc
-    Wij = QiQjbyR - rFc
+    ECij = QiQjbyR + QiQj*model%eshift + rFc
+    WCij = QiQjbyR - rFc
 
   end subroutine coul_sf_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine coul_sf_virial( model, Wij, invR, invR2, QiQj, noInvR )
+    class(coul_sf), intent(in)    :: model
+    real(rb),       intent(inout) :: Wij, invR
+    real(rb),       intent(in)    :: invR2, QiQj
+    logical,        intent(in)    :: noInvR
+
+    if (noInvR) invR = sqrt(invR2)
+    Wij = Wij + QiQj*(invR - model%fshift/invR)
+
+  end subroutine coul_sf_virial
 
 !---------------------------------------------------------------------------------------------------
 

@@ -68,9 +68,11 @@ end interface
 !> Container structure for pair models
 type pairModelContainer
   class(cPairModel), allocatable :: model
+  logical  :: coulomb = .false.
+  real(rb) :: kCoul = zero
   contains
-    procedure :: pairModelContainer_assign
-    generic :: assignment(=) => pairModelContainer_assign
+    procedure :: assign => pairModelContainer_assign
+    generic :: assignment(=) => assign
     procedure :: mix => pairModelContainer_mix
 end type pairModelContainer
 
@@ -139,7 +141,7 @@ contains
 
   subroutine pairModelContainer_assign( new, old )
     class(pairModelContainer), intent(inout) :: new
-    type(modelContainer), intent(in)    :: old
+    type(modelContainer),      intent(in)    :: old
 
     if (allocated(new%model)) deallocate( new%model )
 
@@ -157,21 +159,24 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   function pairModelContainer_mix( a, b ) result( c )
-    class(pairModelContainer), intent(in) :: a
-    class(cPairModel),         intent(in) :: b
+    class(pairModelContainer), intent(in) :: a, b
+!    class(cPairModel),         intent(in) :: b
     type(pairModelContainer)              :: c
 
     class(cPairModel), pointer :: mixed
 
-    mixed => b % mix( a%model )
-    if (.not.associated(mixed)) mixed => a % model % mix( b )
+    mixed => b % model % mix( a%model )
+    if (.not.associated(mixed)) mixed => a % model % mix( b%model )
     if (associated(mixed)) then
       allocate( c%model, source = mixed )
       deallocate( mixed )
     else
       allocate( c%model, source = pair_none(name="none") )
-      call warning( "no mixing rule found for models "//trim(a%model%name)//" and "//trim(b%name) )
+      call warning( "no mixing rule found for models "//trim(a%model%name)//" and "//trim(b%model%name) )
     end if
+
+    c%Coulomb = a%Coulomb .and. b%Coulomb
+    if (c%Coulomb) c%kCoul = sqrt(a%kCoul*b%kCoul)
 
   end function pairModelContainer_mix
 

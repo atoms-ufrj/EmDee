@@ -26,22 +26,34 @@ implicit none
 
 !> Abstract class for coul interaction models
 type, abstract, extends(cModel) :: cCoulModel
+  logical  :: shifted
   logical  :: shifted_force = .false.
   real(rb) :: eshift = zero
   real(rb) :: fshift = zero
   contains
     procedure(cCoulModel_compute), deferred :: compute
+    procedure(cCoulModel_virial), deferred :: virial
     procedure :: shifting_setup => cCoulModel_shifting_setup
 end type cCoulModel
 
 abstract interface
 
-  subroutine cCoulModel_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine cCoulModel_compute( model, ECij, WCij, invR, invR2, QiQj, noInvR )
     import
-    class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij
-    real(rb),          intent(in)  :: invR2, Qi, Qj
+    class(cCoulModel), intent(in)    :: model
+    real(rb),          intent(out)   :: ECij, WCij
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2, QiQj
+    logical,           intent(in)    :: noInvR
   end subroutine cCoulModel_compute
+
+  subroutine cCoulModel_virial( model, Wij, invR, invR2, QiQj, noInvR )
+    import
+    class(cCoulModel), intent(in)    :: model
+    real(rb),          intent(inout) :: Wij, invR
+    real(rb),          intent(in)    :: invR2, QiQj
+    logical,           intent(in)    :: noInvR
+  end subroutine cCoulModel_virial
 
 end interface
 
@@ -58,6 +70,7 @@ type, extends(cCoulModel) :: coul_none
   contains
     procedure :: setup => coul_none_setup
     procedure :: compute => coul_none_compute
+    procedure :: virial => coul_none_virial
 end type coul_none
 
 contains
@@ -70,20 +83,28 @@ contains
     class(cCoulModel), intent(inout) :: model
     real(rb),          intent(in)    :: cutoff
 
-    real(rb) :: invR2, E, W
+    real(rb) :: invR, invR2, E, W
 
     ! Zero energy and force shifts:
     model%fshift = zero
     model%eshift = zero
 
-    ! Compute energies and virials at cutoff:
-    invR2 = one/cutoff**2
-    call model%compute( E, W, invR2, one, one )
+    if (model%shifted .or. model%shifted_force) then
 
-    ! Update van der Waals energy and force shifts:
-    model%fshift = W/cutoff
-    model%eshift = -E
-    if (model%shifted_force) model%eshift = model%eshift - W
+      ! Compute energies and virials at cutoff:
+      invR = one/cutoff
+      invR2 = invR*invR
+      call model % compute( E, W, invR, invR2, one, .false. )
+
+      ! Update van der Waals energy and force shifts:
+      if (model%shifted_force) then
+        model%fshift = W/cutoff
+        model%eshift = -(E + W)
+      else
+        model%eshift = -E
+      end if
+
+    end if
 
   end subroutine cCoulModel_shifting_setup
 
@@ -130,13 +151,24 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_compute( model, Eij, Wij, invR2, Qi, Qj )
-    class(coul_none), intent(in)  :: model
-    real(rb),         intent(out) :: Eij, Wij
-    real(rb),         intent(in)  :: invR2, Qi, Qj
-    Eij = zero
-    Wij = zero
+  subroutine coul_none_compute( model, ECij, WCij, invR, invR2, QiQj, noInvR )
+    class(coul_none), intent(in)    :: model
+    real(rb),         intent(out)   :: ECij, WCij
+    real(rb),         intent(inout) :: invR
+    real(rb),         intent(in)    :: invR2, QiQj
+    logical,          intent(in)    :: noInvR
+    ECij = zero
+    WCij = zero
   end subroutine coul_none_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine coul_none_virial( model, Wij, invR, invR2, QiQj, noInvR )
+    class(coul_none), intent(in)    :: model
+    real(rb),         intent(inout) :: Wij, invR
+    real(rb),         intent(in)    :: invR2, QiQj
+    logical,          intent(in)    :: noInvR
+  end subroutine coul_none_virial
 
 !---------------------------------------------------------------------------------------------------
 

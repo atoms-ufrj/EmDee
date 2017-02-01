@@ -22,6 +22,8 @@ module pair_lj_cut_module
 use global
 use pairModelClass
 
+implicit none
+
 !> Abstract class for pair model lj_cut
 !!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"

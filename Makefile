@@ -144,7 +144,8 @@ $(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode inner_loop) \
                        $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/EmDeeData.o: $(SRCDIR)/EmDeeData.f90 $(call obj,ArBee structs models lists math global)
+$(OBJDIR)/EmDeeData.o: $(call src,EmDeeData inner_loop) \
+                       $(call obj,ArBee structs models lists math global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/ArBee.o: $(SRCDIR)/ArBee.f90 $(call obj,math global)

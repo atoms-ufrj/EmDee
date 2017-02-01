@@ -55,11 +55,12 @@ interface
     integer(c_int), value :: layer
   end subroutine EmDee_switch_model_layer
 
-  subroutine EmDee_set_pair_model( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_model")
-    import :: c_int, c_ptr, tEmDee
+  subroutine EmDee_set_pair_model( md, itype, jtype, model, kCoul ) bind(C,name="EmDee_set_pair_model")
+    import :: c_int, c_ptr, c_double, tEmDee
     type(tEmDee),   value :: md
     integer(c_int), value :: itype, jtype
     type(c_ptr),    value :: model
+    real(c_double), value :: kCoul
   end subroutine EmDee_set_pair_model
 
   subroutine EmDee_set_pair_multimodel( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_multimodel")
