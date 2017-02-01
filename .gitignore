@@ -9,6 +9,7 @@ test/*
 !test/*.inc
 !test/*.cfg
 src/compute_*.f90
+src/virial_compute_*.f90
 src/models.f90
 include/
 *.gcno

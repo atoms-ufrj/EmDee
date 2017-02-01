@@ -27,11 +27,11 @@ DEBUG_C_OPTS = --coverage -g -Og -fstack-check -fsanitize=null -fbounds-check -D
 
 # Checks chosen option:
 ifeq ($(DEBUG), 1)
-F_OPTS = $(BASIC_F_OPTS) $(DEBUG_F_OPTS)
-C_OPTS = $(BASIC_C_OPTS) $(DEBUG_C_OPTS)
+  F_OPTS = $(BASIC_F_OPTS) $(DEBUG_F_OPTS)
+  C_OPTS = $(BASIC_C_OPTS) $(DEBUG_C_OPTS)
 else
-F_OPTS = $(BASIC_F_OPTS) $(FAST_F_OPTS)
-C_OPTS = $(BASIC_C_OPTS) $(FAST_C_OPTS)
+  F_OPTS = $(BASIC_F_OPTS) $(FAST_F_OPTS)
+  C_OPTS = $(BASIC_C_OPTS) $(FAST_C_OPTS)
 endif
 
 LN_INC_OPT = -I$(INCDIR)
@@ -51,19 +51,26 @@ EMDEELIB = -L$(LIBDIR) -lemdee
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
 src = $(addprefix $(SRCDIR)/, $(addsuffix .f90, $(1)))
 
-# Force-field models (from source files starting with pair_, bond_, angle_, and dihedral_):
+# Force-field models (from source files starting with pair_, coul_, bond_, angle_, and dihedral_):
+MODELTERMS  = pair coul bond angle dihedral
 PAIRMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/pair_*.f90))
+COULMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/coul_*.f90))
 BONDMODELS  = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/bond_*.f90))
 ANGLEMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/angle_*.f90))
 DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
-KSPACEMODES = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
 
 ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
-              $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS) $(KSPACEMODES)
+              $(COULMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
+
+#KSPACESOLVERS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
 
 OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
-                     $(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral kspace) \
+                     $(ALLMODELS) $(addsuffix ModelClass,$(MODELTERMS)) \
                      modelClass lists global)
+
+COMPUTES = $(addprefix compute_,$(MODELTERMS))
+#VIRIALCOMPUTES = $(addprefix virial_,$(COMPUTES))
+VIRIALCOMPUTES = $(addprefix virial_,compute_pair compute_coul)
 
 TESTS = $(patsubst %.f90,%,$(wildcard $(TSTDIR)/*.f90))
 
@@ -81,7 +88,7 @@ test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
 
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
-	rm -rf $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral) models)
+	rm -rf $(call src,$(COMPUTES) $(VIRIALCOMPUTES) models)
 	rm -rf $(TESTS) *.gcda *.gcno
 
 install:
@@ -133,10 +140,9 @@ $(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl
 # Object files:
 
 $(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode inner_loop) \
-                       $(call src,$(addprefix compute_,pair pair_virial bond angle dihedral)) \
-                       $(call obj,EmDeeData ArBee structs models $(KSPACEMODES) lists global)
+                       $(call src,$(COMPUTES) $(VIRIALCOMPUTES)) \
+                       $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
-# DELETE $(KSPACEMODES) above after implementation has been finished
 
 $(OBJDIR)/EmDeeData.o: $(SRCDIR)/EmDeeData.f90 $(call obj,ArBee structs models lists math global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
@@ -153,8 +159,11 @@ $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 $(SRCDIR)/compute_pair.f90: $(call src,$(PAIRMODELS))
 	bash $(SRCDIR)/make_compute.sh pair $(PAIRMODELS) > $@
 
-$(SRCDIR)/compute_pair_virial.f90: $(call src,$(PAIRMODELS))
-	bash $(SRCDIR)/make_compute_virial.sh pair $(PAIRMODELS) > $@
+$(SRCDIR)/compute_coul.f90: $(call src,$(COULMODELS))
+	bash $(SRCDIR)/make_compute.sh coul $(COULMODELS) > $@
+
+$(SRCDIR)/compute_coul_virial.f90: $(call src,$(COULMODELS))
+	bash $(SRCDIR)/make_compute_virial.sh coul $(COULMODELS) > $@
 
 $(SRCDIR)/compute_bond.f90: $(call src,$(BONDMODELS))
 	bash $(SRCDIR)/make_compute.sh bond $(BONDMODELS) > $@
@@ -165,12 +174,21 @@ $(SRCDIR)/compute_angle.f90: $(call src,$(ANGLEMODELS))
 $(SRCDIR)/compute_dihedral.f90: $(call src,$(DIHEDMODELS))
 	bash $(SRCDIR)/make_compute.sh dihedral $(DIHEDMODELS) > $@
 
-$(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,pair bond angle dihedral kspace)) \
+$(SRCDIR)/virial_compute_pair.f90: $(call src,$(PAIRMODELS))
+	bash $(SRCDIR)/make_virial_compute.sh pair $(PAIRMODELS) > $@
+
+$(SRCDIR)/virial_compute_coul.f90: $(call src,$(COULMODELS))
+	bash $(SRCDIR)/make_virial_compute.sh coul $(COULMODELS) > $@
+
+$(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,$(MODELTERMS))) \
                     $(SRCDIR)/make_models_module.sh
 	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $(SRCDIR)/models.f90
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $(SRCDIR)/models.f90
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(OBJDIR)/pairModelClass.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/coul_%.o: $(SRCDIR)/coul_%.f90 $(OBJDIR)/coulModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(OBJDIR)/bondModelClass.o
@@ -182,11 +200,11 @@ $(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(OBJDIR)/angleModelClass.o
 $(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(OBJDIR)/dihedralModelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/kspaceModelClass.o
-	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+#$(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/kspaceModelClass.o
+#	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/kspaceModelClass.o: $(SRCDIR)/kspaceModelClass.f90 $(OBJDIR)/modelClass.o $(OBJDIR)/lists.o
-	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+#$(OBJDIR)/kspaceModelClass.o: $(SRCDIR)/kspaceModelClass.f90 $(OBJDIR)/modelClass.o $(OBJDIR)/lists.o
+#	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<

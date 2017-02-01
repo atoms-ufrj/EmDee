@@ -52,7 +52,7 @@
     else
       associate( model => partner(jtype)%model )
         select type ( model )
-          include "compute_pair_virial.f90"
+          include "virial_compute_pair.f90"
         end select
         if (icharged.and.me%charged(j)) then
           if (model%noInvR_virial) invR = sqrt(invR2)
