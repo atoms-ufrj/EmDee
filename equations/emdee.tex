@@ -148,15 +148,86 @@ Therefore,
 \end{align}
 \end{subequations}
 
-\section{Ewald Sum}
+\section{Ewald Sum with Type-Pair-Specific Scaling}
 
 \subsection{Fourier Part}
+
+Conventionally, for a simulation box with periodic boundary conditions, the long-range electrostatic part of the potential energy is written as
+\begin{equation*}
+U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_j \sum_k q_j q_k e^{i \tr{\vt g}({\vt r}_j - {\vt r}_k)},
+\end{equation*}
+where $k_e$ is Coulomb's constant ($k_e = \frac{1}{4\pi\epsilon_0}$), $\epsilon$ is a dielectric constant, $V$ is the box volume, $\vt n$ is a vector in $\mathbb Z^3$ (integer lattice), $\vt g = 2\pi \vt L^{-1}{\vt n}$ is a reciprocal space vector, and $g = \|\vt k\|$ is the norm of $\vt g$. 
+\begin{equation*}
+U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \left(\sum_j q_j e^{i \tr{\vt g}{\vt r}_j} \right) \left(\sum_k q_k e^{-i \tr{\vt g}{\vt r}_k}\right),
+\end{equation*}
+
+Given that $S(\vt g) = \sum_j q_j e^{i \tr{\vt g}{\vt r}_j}$ is defined as the structure factor of the system, we observe that $\overline{S(\vt g)} = \sum_j q_j e^{-i \tr{\vt g}{\vt r}_j}$ is the complex conjugate of $S(\vt g)$ and, therefore,
+\begin{equation*}
+U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} |S(\vt g)|^2.
+\end{equation*}
+
+Now consider that electrostatic interactions between atoms of types $J$ and $K$ are scaled by a prefactor $\lambda_{JK} = \lambda_{KJ} = k_e/\epsilon_{JK}$. In this case, one can express the long-range part of the box energy as
+\begin{equation*}
+U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} \sum_{j \in J} \sum_{k \in K} q_j q_k e^{i \tr{\vt g}({\vt r}_j - {\vt r}_k)},
+\end{equation*}
+
+If we now define $S_J(\vt g) = \sum_{j \in J} q_j e^{i \tr{\vt g}{\vt r}_j}$ as the structure factor resulting from the atoms of type $J$ alone, we have
+\begin{equation}
+\label{eq:U_long_by_types_1}
+U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} S_J(\vt g) \overline{S_K(\vt g)}.
+\end{equation}
+
+In order the further develop equation above, let us define $a_j = q_j \cos(\tr{\vt g}{\vt r}_j)$ and $b_j = q_j \sin(\tr{\vt g}{\vt r}_j)$, so that $q_j e^{i \tr{\vt g}{\vt r}_j} = a_j + ib_j$. Thus,
+\begin{equation*}
+S_J(\vt g) = \sum_{j \in J} (a_j + i b_j) = A_J + i B_J,
+\end{equation*}
+where $A_J = \sum_{j \in J} a_j$ and $B_J = \sum_{j \in J} b_j$. The complex conjugate of $S_J(\vt g)$ is $\overline{S_J(\vt g)} = A_J - i B_J$, which allows us to write
+\begin{equation*}
+S_J(\vt g)\overline{S_K(\vt g)} = A_J A_K + i(B_J A_K - A_J B_K) + B_J B_K,
+\end{equation*}
+
+It is clear that the imaginary term above vanishes if $K = J$. Moreover, $\lambda_{JK}$ and $\lambda_{KJ}$ being equal implies that all imaginary terms cancel out in the double sum of Eq.~\ref{eq:U_long_by_types_1}, which thus becomes
+\begin{equation*}
+U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} (A_J A_K + B_J B_K).
+\end{equation*}
+
+This can also be rewritten as
+\begin{equation*}
+U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \left[\lambda_{JJ} |S_J|^2 + 2 \sum_{K>J} \lambda_{JK} S_J \cdot S_K\right],
+\end{equation*}
+where $|S_J|^2 = A_J^2 + B_J^2$
+
+
+The force exerted on an atom $j$ is
+\begin{equation*}
+F_j^\text{long} = -\frac{\partial U_\text{long}}{\partial \vt r_j} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} (A_J A_K + B_J B_K).
+\end{equation*}
+
+The needed derivatives are
+\begin{align*}
+\frac{\partial A}{\partial \vt r_j} &= \frac{\partial a_j}{\partial \vt r_j} = -q_j \sin(\tr{\vt k}{\vt r}_j){\vt k} = -b_j{\vt k} \\
+\frac{\partial B}{\partial \vt r_j} &= \frac{\partial b_j}{\partial \vt r_j} = q_j \cos(\tr{\vt k}{\vt r}_j){\vt k} = a_j{\vt k}
+\end{align*}
+
+Therefore,
+\begin{equation*}
+F_j = \frac{4\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left( A b_j - B a_j \right){\vt k}.
+\end{equation*}
+
+\section{DRAFT}
+
+
+where $S_J = \sum_{j \in J} q_j e^{i \tr{\vt g}{\vt r}_j}$ is the structure factor resulting from the atoms of type $J$ alone. If we define $a_j = q_j \cos(\tr{\vt g}{\vt r}_j)$ and $b_j = q_j \sin(\tr{\vt g}{\vt r}_j)$, so that $q_j e^{i \tr{\vt g}{\vt r}_j} = a_j + ib_j$, then we have
+\begin{equation*}
+S_J(\vt g) = \sum_{j \in J} (a_j + i b_j) = A_J + i B_J,
+\end{equation*}
+where $A_J = \sum_{j \in J} a_j$ and $B_J = \sum_{j \in J} b_j$. Thus, $|S(\vt g)|^2 = A^2 + B^2$.
 
 The Fourier part of the system energy is:
 \begin{equation*}
 U = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} |S(\vt k)|^2,
 \end{equation*}
-where $\vt n$ is a vector in $\mathbb Z^3$ (integer lattice), $\vt k = 2\pi{\mt D}^{-1}(\vt L){\vt n}$, and $k = \|\vt k\|$. The function $S(\vt k)$ is the structure factor, defined as
+where $\vt n$ is a vector in $\mathbb Z^3$ (integer lattice), $\vt k = 2\pi \vt L^{-1}{\vt n}$ is a reciprocal space vector, and $k = \|\vt k\|$ is the norm of $\vt k$. The function $S(\vt k)$ is the structure factor, defined as
 \begin{equation*}
 S(\vt k) = \sum_{j=1}^N q_j e^{i\tr{\vt k}{\vt r}_j}.
 \end{equation*}

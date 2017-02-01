@@ -30,7 +30,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "31 Jan 2017"
+character(11), parameter :: VERSION = "01 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -92,7 +92,7 @@ contains
     ! Set up atom types:
     if (c_associated(types)) then
       call c_f_pointer( types, ptype, [N] )
-      if (minval(ptype) /= 1) call error( "system", "wrong specification of atom types" )
+      if (minval(ptype) /= 1) call error( "EmDee.system", "wrong specification of atom types" )
       me%ntypes = maxval(ptype)
       allocate( me%atomType(N), source = ptype )
     else
@@ -137,12 +137,17 @@ contains
     call me % excluded % allocate( extra, N )
 
     ! Allocate memory for pair models:
-    allocate( none%model, source = pair_none(name="none") )
+    allocate( pair_none :: none%model )
+    call none % model % setup()
     allocate( me%pair(me%ntypes,me%ntypes,me%nlayers), source = none )
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
     allocate( me%interact(me%ntypes,me%ntypes), source = .false. )
-    allocate( me%layer_energy(me%nlayers), me%layer_virial(me%nlayers), source = zero )
+
+    ! Allocate variables related to model layers:
+    allocate( me%layer_energy(me%nlayers), source = zero )
+    allocate( me%layer_virial(me%nlayers), source = zero )
+    allocate( me%layer_kspace(me%nlayers), source = .false. )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0

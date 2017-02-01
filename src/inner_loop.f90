@@ -27,7 +27,7 @@
           include "compute_pair.f90"
         end select
         if (icharged.and.me%charged(j)) then
-          if (model%noSqrt) invR = sqrt(invR2)
+          if (model%noInvR) invR = sqrt(invR2)
           QiQj = Qi*Qj
           QiQjbyR = QiQj*invR
           rFc = QiQj*me%fshift/invR
@@ -55,7 +55,7 @@
           include "compute_pair_virial.f90"
         end select
         if (icharged.and.me%charged(j)) then
-          if (model%noSqrt) invR = sqrt(invR2)
+          if (model%noInvR_virial) invR = sqrt(invR2)
           Wij = Wij + Qi*Qj*(invR - me%fshift/invR)
         end if
       end associate

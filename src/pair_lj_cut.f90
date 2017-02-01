@@ -23,13 +23,16 @@ use global
 use pairModelClass
 
 !> Abstract class for pair model lj_cut
+!!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
-!!        2) allocatable parameters are permitted only for rank=1
-!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
-!!           which will contain their (common) size after allocation
+!!        2) recognizable parameter types are real(rb) and integer(ib)
+!!        3) allocatable one-dimensional arrays (i.e. vectors) are permitted as parameters
+!!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
+!!           parameter or series of equally-sized allocatable parameters.
+
 type, extends(cPairModel) :: pair_lj_cut
-  real(rb) :: epsilon !<> Lennard-Jones parameter epsilon
-  real(rb) :: sigma   !<> Lennard-Jones parameter sigma
+  real(rb) :: epsilon !<> Depth of the potential well
+  real(rb) :: sigma   !<> Distance at which the potential is zero
 
   real(rb) :: eps4, eps24, sigsq
   contains
@@ -60,17 +63,14 @@ contains
     model%eps24 = 24.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
-    ! Mark active contributions:
-    model%vdw = .true.
-
   end subroutine pair_lj_cut_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_cut_compute( model, Eij, Wij, invR, invR2, Qi, Qj )
+  subroutine pair_lj_cut_compute( model, Eij, Wij, invR, invR2 )
     class(pair_lj_cut), intent(in)  :: model
     real(rb),           intent(out) :: Eij, Wij, invR
-    real(rb),           intent(in)  :: invR2, Qi, Qj
+    real(rb),           intent(in)  :: invR2
 
     real(rb) :: sr2, sr6, sr12
 
@@ -84,10 +84,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_cut_virial( model, Wij, invR, invR2, Qi, Qj )
+  subroutine pair_lj_cut_virial( model, Wij, invR, invR2 )
     class(pair_lj_cut), intent(in)  :: model
     real(rb),           intent(out) :: Wij, invR
-    real(rb),           intent(in)  :: invR2, Qi, Qj
+    real(rb),           intent(in)  :: invR2
 
     real(rb) :: sr2, sr6, sr12
 
@@ -101,16 +101,19 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   function pair_lj_cut_mix( this, other ) result( mixed )
-    class(pair_lj_cut),    intent(in) :: this
-    class(cPairModel), intent(in) :: other
-    class(cPairModel), pointer :: mixed
+    class(pair_lj_cut), intent(in) :: this
+    class(cPairModel),  intent(in) :: other
+    class(cPairModel),  pointer    :: mixed
 
     select type (other)
+
       class is (pair_lj_cut)
         allocate(pair_lj_cut :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
+
       class default
         mixed => null()
+
     end select
 
   end function pair_lj_cut_mix

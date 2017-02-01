@@ -108,9 +108,12 @@ type :: tData
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
+
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
+
+  logical,  allocatable :: layer_kspace(:)
   real(rb), allocatable :: layer_energy(:)
   real(rb), allocatable :: layer_virial(:)
 
@@ -185,19 +188,20 @@ contains
     type(tData), intent(inout) :: me
 
     integer :: i, j, k
-    logical :: no_interaction, coulomb_only, neutral(me%ntypes)
-    logical :: inert
+    logical :: no_interaction, coulomb_only, neutral(me%ntypes), inert
+    type(pair_none) :: none
+    type(pair_coul) :: coul
 
     do i = 1, me%ntypes
-      neutral(i) = count((me%atomType == i).and.(me%charge /= zero)) == 0
+      neutral(i) = count((me%atomType == i) .and. me%charged) == 0
       do j = 1, i
         associate( pair => me%pair(i,j,:) )
           k = 0
           inert = .true.
           do while (inert .and. (k < me%nlayers))
             k = k + 1
-            no_interaction = .not.(pair(k)%model%vdw .or. pair(k)%model%coulomb)
-            coulomb_only = pair(k)%model%coulomb .and. (.not. pair(k)%model%vdw)
+            no_interaction = .not.me%layer_kspace(k) .and. same_type_as( pair(k)%model, none )
+            coulomb_only = same_type_as( pair(k)%model, coul )
             inert = no_interaction .or. (coulomb_only .and. neutral(i) .and. neutral(j))
           end do
           me%interact(i,j) = .not.inert
@@ -237,7 +241,7 @@ contains
           end if
         end associate
       class default
-        stop "ERROR: a valid pair model must be provided"
+        call error( "pair model setup", "a valid pair model must be provided" )
     end select
 
   end subroutine set_pair_type
@@ -302,7 +306,7 @@ contains
 
   subroutine distribute_atoms( me, M, Rs )
     type(tData), intent(inout) :: me
-    integer, intent(in)    :: M
+    integer,     intent(in)    :: M
     real(rb),    intent(in)    :: Rs(3,me%natoms)
 
     integer :: MM, cells_per_thread, maxNatoms, threadNatoms(me%nthreads), next(me%natoms)
@@ -584,6 +588,7 @@ contains
     logical  :: icharged, include(0:me%maxpairs)
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
+
     integer,  allocatable :: xlist(:)
 
     xRc2 = me%xRcSq*me%invL2

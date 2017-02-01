@@ -46,9 +46,17 @@ contains
   subroutine error( task, msg )
     use, intrinsic :: iso_fortran_env
     character(*), intent(in) :: task, msg
-    write(ERROR_UNIT,'("Error in EmDee_",A,": ",A,".")') trim(task), trim(msg)
-    stop
+    write(ERROR_UNIT,'("Error in ",A,": ",A,".")') trim(task), trim(msg)
+    call exit(1)
   end subroutine error
+
+!===================================================================================================
+
+  subroutine warning( msg )
+    use, intrinsic :: iso_fortran_env
+    character(*), intent(in) :: msg
+    write(ERROR_UNIT,'("WARNING: ",A,".")') trim(msg)
+  end subroutine warning
 
 !===================================================================================================
 
