@@ -511,6 +511,8 @@ contains
     call c_f_pointer( indexes, atom, [N] )
     call c_f_pointer( md%data, me )
 
+    if (.not.allocated(me%R)) call error( "add_rigid_body", "coordinates have not been defined" )
+
     allocate( isFree(me%natoms) )
     isFree = .false.
     isFree(me%free(1:me%nfree)) = .true.
@@ -540,6 +542,7 @@ contains
       md%DOF = md%DOF + b%dof
       md%rotationDOF = md%rotationDOF + b%dof - 3
     end associate
+
     do i = 1, N-1
       do j = i+1, N
         call EmDee_ignore_pair( md, atom(i), atom(j) )
@@ -969,13 +972,13 @@ contains
     !$omp end parallel
 
     me%F = me%Lbox*sum(Fs,3)
-    md%Virial = third*W
+    md%Virial = W
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     if (md%UpToDate) then
       md%Potential = E
       me%layer_energy = sum(Elayer,2)
-      me%layer_virial = third*sum(Wlayer,2)
+      me%layer_virial = sum(Wlayer,2)
     end if
 
     time = omp_get_wtime()
@@ -1010,7 +1013,7 @@ contains
 
     me%F = me%F + me%Lbox*sum(DFs,3)
     md%Potential = md%Potential + DE
-    md%Virial = md%Virial + third*DW
+    md%Virial = md%Virial + DW
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     time = omp_get_wtime()

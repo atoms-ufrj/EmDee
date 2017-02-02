@@ -30,7 +30,7 @@ integer(ib) :: Nsteps, Nprop, i
 real(rb)    :: Rc, Rs, Rc2, Temp, Dt, Dt_2
 
 type(tEmDee), target :: md
-type(c_ptr), allocatable :: pair(:)
+type(c_ptr) :: pair
 
 integer :: threads
 character(256) :: filename, configFile
@@ -39,12 +39,15 @@ call command_line_arguments( filename, threads )
 call read_data( filename )
 call read_configuration( configFile )
 
-allocate( pair(ntypes) )
+md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass) )
 do i = 1, ntypes
-  pair(i) = EmDee_pair_lj_sf( epsilon(i), sigma(i) )
+  pair = EmDee_pair_lj_sf( epsilon(i), sigma(i) )
+  call EmDee_set_pair_model( md, i, i, pair, kCoul )
 end do
+call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
+call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
+call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 
-call initialize_system( 1, pair )
 call run( 0, Nprop )
 
 contains

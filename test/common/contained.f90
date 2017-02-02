@@ -43,56 +43,33 @@
     Dt_2 = 0.5_8*Dt
   end subroutine read_data
 !---------------------------------------------------------------------------------------------------
-  subroutine initialize_system( nlayers, pair )
-    integer,     intent(in) :: nlayers
-    type(c_ptr), intent(in) :: pair(ntypes)
+  subroutine define_rigid_bodies
 
-    integer :: i
+    integer :: i, j, seq(NperMol)
+    integer, target :: indices(NperMol)
 
-    md = EmDee_system( threads, nlayers, Rc, Rs, N, c_loc(atomType), c_loc(mass) )
-    do i = 1, ntypes
-      call EmDee_set_pair_model( md, i, i, pair(i), kCoul )
+    seq = [(j,j=1,NperMol)]
+    do i = 1, N/NperMol
+      indices = (i-1)*NperMol + seq
+      call EmDee_add_rigid_body( md, NperMol, c_loc(indices) )
     end do
-    call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
-    call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
-    call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 
-  end subroutine initialize_system
-!---------------------------------------------------------------------------------------------------
-  real(rb) function random_normal()
-    real(rb) :: uni(2)
-
-    call random_number( uni )
-    random_normal = sqrt(-2.0_rb*log(uni(1)))*cos(6.283185307179586_rb*uni(2))
-
-  end function random_normal
-!---------------------------------------------------------------------------------------------------
-  subroutine set_charges( types, Q )
-    integer,  intent(in)  :: types(:)
-    real(rb), intent(out) :: Q(:)
-
-    if (mod(N,2) /= 0) stop "PLEASE ENTER AN EVEN NUMBER OF ATOMS"
-    where (types == 1)
-      Q = 1.0_rb
-    elsewhere
-      Q = -1.0_rb
-    end where
-    if (mod(N,2) /= 0) Q(N) = 0.0_rb
-
-  end subroutine set_charges
+  end subroutine define_rigid_bodies
 !---------------------------------------------------------------------------------------------------
   subroutine run( Nsteps, Nprop )
     integer, intent(in) :: Nsteps, Nprop
 
     integer :: step
 
-    print*, 0, md%Potential, md%Virial, md%Potential + md%Kinetic
+    print*, 0, mvv2e*md%Potential, mvv2e*md%Virial, mvv2e*(md%Potential + md%Kinetic)
     do step = 1, Nsteps
       md%options%computeProps = mod(step,Nprop) == 0
       call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
       call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )
       call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
-      if (mod(step,Nprop) == 0) print*, step, md%Potential, md%Virial, md%Potential + md%Kinetic
+      if (mod(step,Nprop) == 0) then
+        print*, step, mvv2e*md%Potential, mvv2e*md%Virial, mvv2e*(md%Potential + md%Kinetic)
+      end if
     end do
     if (Nsteps > 0) then
       print*, "neighbor list builds = ", md%builds

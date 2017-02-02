@@ -9,7 +9,7 @@ NIST_lj_sample.mol
 [Integration time step]
 0.002
 [Number of integration steps]
-10
+50
 [Interval for property printing]
 10
 [Temperature]

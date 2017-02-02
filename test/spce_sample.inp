@@ -1,5 +1,5 @@
 [Configuration file name]
-NIST_lj_sample.mol
+NIST_spce_sample.mol
 [Cutoff distance]
 10.0
 [Skin for neighbor lists]

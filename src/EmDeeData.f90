@@ -267,7 +267,7 @@ contains
       call compute_body_forces( thread, Wrb(thread) )
     end block
     !$omp end parallel
-    Virial = Virial - third*sum(Wrb)
+    Virial = Virial - sum(Wrb)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
