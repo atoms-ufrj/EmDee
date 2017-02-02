@@ -107,8 +107,8 @@ include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/libemdee.jl
 
 # Executables:
 
-$(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 $(LIBDIR)/libemdee.so
-	$(FORT) $(F_OPTS) -o $@ $(LN_OPTS) -J$(OBJDIR) $< $(EMDEELIB)
+$(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 $(TSTDIR)/common/contained.f90 $(OBJDIR)/mConfig.o
+	$(FORT) $(F_OPTS) -o $@ $(LN_OPTS) -J$(OBJDIR) $< $(OBJDIR)/mConfig.o $(EMDEELIB)
 
 $(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
@@ -118,6 +118,9 @@ $(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl $(INCDIR)/libemdee.jl $(LIBDIR)/libe
 	mkdir -p $(BINDIR)
 	(echo '#!/usr/bin/env julia' && echo 'DIR="${CURDIR}"' && cat $<) > $@
 	chmod +x $@
+
+$(OBJDIR)/mConfig.o: $(TSTDIR)/common/mConfig.f90 $(LIBDIR)/libemdee.so
+	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 # Shared library and includes:
 

@@ -17,6 +17,12 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+module EmDee
+
+use iso_c_binding
+
+implicit none
+
 type, bind(C) :: tOptions
   logical(c_bool) :: translate      ! Flag to activate/deactivate translations
   logical(c_bool) :: rotate         ! Flag to activate/deactivate rotations
@@ -212,3 +218,4 @@ interface
   end function EmDee_dihedral_none
 
 end interface
+end module

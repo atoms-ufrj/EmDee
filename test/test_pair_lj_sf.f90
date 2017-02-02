@@ -17,46 +17,37 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+#include "emdee.f03"
+
 program test
 
-use iso_c_binding
+use EmDee
+use mConfig
 
 implicit none
 
-#include "emdee.f03"
-
-integer, parameter :: ib = 4, rb = 8
-
-integer(ib) :: N, Nsteps, Nprop
-real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2
-real(rb), target  :: L
-real(rb), pointer :: R(:,:), V(:,:), Q(:)
-integer,  pointer :: types(:)
+integer(ib) :: Nsteps, Nprop, i
+real(rb)    :: Rc, Rs, Rc2, Temp, Dt, Dt_2
 
 type(tEmDee), target :: md
-type(c_ptr),  target :: pair
+type(c_ptr), allocatable :: pair(:)
 
 integer :: threads
-character(256) :: filename
+character(256) :: filename, configFile
 
 call command_line_arguments( filename, threads )
 call read_data( filename )
-call create_configuration
-call set_charges( types, Q )
+call read_configuration( configFile )
 
-md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
-pair = EmDee_pair_lj_sf( 1.0_rb, 1.0_rb )
+allocate( pair(ntypes) )
+do i = 1, ntypes
+  pair(i) = EmDee_pair_lj_sf( epsilon(i), sigma(i) )
+end do
 
-call EmDee_set_pair_model( md, 1, 1, pair, 0.0_rb )
-call EmDee_set_pair_model( md, 2, 2, pair, 0.0_rb )
-
-call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
-call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
-call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
-
+call initialize_system( 1, pair )
 call run( 0, Nprop )
 
 contains
-  include "common_routines.inc"
+  include "common/contained.f90"
 end program test
 

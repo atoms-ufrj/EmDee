@@ -6,8 +6,7 @@ tools/
 test/*
 !test/*.f90
 !test/*.inp
-!test/*.inc
-!test/*.cfg
+!test/*.mol
 src/compute_*.f90
 src/virial_compute_*.f90
 src/models.f90

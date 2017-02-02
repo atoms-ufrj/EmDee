@@ -62,8 +62,7 @@ contains
       call move_alloc( new, struct%item )
     end if
     struct%number = struct%number + 1
-    struct%item(struct%number) = tStruct( i, j, k, l )
-    allocate( struct%item(struct%number)%model, source = model )
+    struct%item(struct%number) = tStruct( i, j, k, l, model )
 
   end subroutine structList_add
 
