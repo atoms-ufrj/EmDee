@@ -17,6 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Include coulomb multimodels in multilayer energy and virial computations
 ! TODO: Change name of exported Julia wrapper
 ! TODO: Add option of automatic versus manual force calculations
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
@@ -30,7 +31,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "01 Feb 2017"
+character(11), parameter :: VERSION = "02 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -91,7 +92,7 @@ contains
     ! Set up atom types:
     if (c_associated(types)) then
       call c_f_pointer( types, ptype, [N] )
-      if (minval(ptype) /= 1) call error( "EmDee.system", "wrong specification of atom types" )
+      if (minval(ptype) /= 1) call error( "system setup", "wrong specification of atom types" )
       me%ntypes = maxval(ptype)
       allocate( me%atomType(N), source = ptype )
     else
@@ -144,16 +145,9 @@ contains
     allocate( me%interact(me%ntypes,me%ntypes), source = .false. )
 
     ! Allocate memory for variables regarding Coulomb models:
-!    allocate( coul_none :: noCoul%model )
-!    call noCoul % model % setup()
-
-allocate( coul_sf :: noCoul%model )
-call noCoul % model % setup()
-select type (m=>noCoul % model)
-  class is (cCoulModel)
-    call m % shifting_setup( me%Rc )
-end select
-
+    allocate( coul_none :: noCoul%model )
+    call noCoul % model % setup()
+    me%multilayer_coulomb = .false.
     allocate( me%coul(me%nlayers), source = noCoul )
 
     ! Allocate variables related to model layers:
@@ -196,26 +190,34 @@ end select
 
 !===================================================================================================
 
-  subroutine EmDee_set_pair_model( md, itype, jtype, model, kCoul ) bind(C,name="EmDee_set_pair_model")
+  subroutine EmDee_set_pair_model( md, itype, jtype, model, kCoul ) &
+    bind(C,name="EmDee_set_pair_model")
     type(tEmDee), value :: md
     integer(ib),  value :: itype, jtype
     type(c_ptr),  value :: model
     real(rb),     value :: kCoul
+
+    character(*), parameter :: task = "pair model setting"
 
     integer :: layer, ktype
     type(tData), pointer :: me
     type(pairModelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
-    if (me%initialized) &
-      call error( "set_pair_model", "cannot set model after coordinates have been defined" )
-    if (.not.c_associated(model)) &
-      call error( "set_pair_model", "a valid pair model must be provided" )
-
+    if (.not.ranged( [itype,jtype], me%ntypes )) then
+      call error( task, "provided type index is out of range" )
+    end if
+    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
+    if (.not.c_associated(model)) call error( task, "a valid pair model must be provided" )
     call c_f_pointer( model, container )
-    do layer = 1, me%nlayers
-      call set_pair_type( me, itype, jtype, layer, container, kCoul )
-    end do
+    select type ( pair_model => container%model )
+      class is (cPairModel)
+        do layer = 1, me%nlayers
+          call set_pair_type( me, itype, jtype, layer, container, kCoul )
+        end do
+      class default
+        call error( task, "a valid pair model must be provided" )
+    end select
 
     me%multilayer(itype,jtype) = .false.
     me%multilayer(jtype,itype) = .false.
@@ -235,10 +237,14 @@ end select
 
 !===================================================================================================
 
-  subroutine EmDee_set_pair_multimodel( md, itype, jtype, model ) bind(C,name="EmDee_set_pair_multimodel")
+  subroutine EmDee_set_pair_multimodel( md, itype, jtype, model, kCoul ) &
+    bind(C,name="EmDee_set_pair_multimodel")
     type(tEmDee), value      :: md
     integer(ib),  value      :: itype, jtype
     type(c_ptr),  intent(in) :: model(*)
+    real(rb),     intent(in) :: kCoul(*)
+
+    character(*), parameter :: task = "pair multimodel setting"
 
     integer :: layer, ktype
     character(5) :: C
@@ -246,18 +252,26 @@ end select
     type(pairModelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
+    if (.not.ranged( [itype,jtype], me%ntypes )) then
+      call error( task, "provided type index is out of range" )
+    end if
 
-    if (me%initialized) &
-      call error( "set_pair_multimodel", "cannot set model after coordinates have been defined" )
+    write(C,'(I5)') me%nlayers
+    C = adjustl(C)
 
+    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
     do layer = 1, me%nlayers
       if (c_associated(model(layer))) then
         call c_f_pointer( model(layer), container )
       else
-        write(C,'(I5)') me%nlayers
-        call error( "set_pair_multimodel", trim(adjustl(C))//" valid pair models must be provided" )
+        call error( task, trim(C)//" valid pair models must be provided" )
       end if
-      call set_pair_type( me, itype, jtype, layer, container, 1.0_rb ) !!!!! CHANGE HERE
+      select type (pair_model => container%model )
+        class is (cPairModel)
+          call set_pair_type( me, itype, jtype, layer, container, kCoul(layer) )
+        class default
+          call error( task, trim(C)//" valid pair models must be provided" )
+      end select
     end do
 
     me%multilayer(itype,jtype) = .true.
@@ -278,6 +292,72 @@ end select
 
 !===================================================================================================
 
+  subroutine EmDee_set_coul_model( md, model ) bind(C,name="EmDee_set_coul_model")
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: model
+
+    character(*), parameter :: task = "coulomb model setting"
+
+    integer :: layer
+    type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    call c_f_pointer( md%data, me )
+    call c_f_pointer( model, container )
+
+    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
+    if (.not.c_associated(model)) call error( task, "a valid coulomb model must be provided" )
+    do layer = 1, me%nlayers
+      me%coul(layer) = container
+      select type ( coul_model => me%coul(layer)%model )
+        class is (cCoulModel)
+          call coul_model % shifting_setup( me%Rc )
+        class default
+          call error( task, "a valid coulomb model must be provided" )
+      end select
+    end do
+    me % multilayer_coulomb = .false.
+
+  end subroutine EmDee_set_coul_model
+
+!===================================================================================================
+
+  subroutine EmDee_set_coul_multimodel( md, model ) bind(C,name="EmDee_set_coul_multimodel")
+    type(tEmDee), value :: md
+    type(c_ptr),  intent(in) :: model(*)
+
+    character(*), parameter :: task = "coulomb multimodel setting"
+
+    integer :: layer
+    character(5) :: C
+    type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    call c_f_pointer( md%data, me )
+
+    write(C,'(I5)') me%nlayers
+    C = adjustl(C)
+
+    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
+    do layer = 1, me%nlayers
+      if (.not.c_associated(model(layer))) then
+        call error( task, trim(C)//" valid coulomb models must be provided" )
+      end if
+      call c_f_pointer( model(layer), container )
+      me%coul(layer) = container
+      select type ( coul_model => me%coul(layer)%model )
+        class is (cCoulModel)
+          call coul_model % shifting_setup( me%Rc )
+        class default
+          call error( task, trim(C)//" valid coulomb models must be provided" )
+      end select
+    end do
+    me % multilayer_coulomb = .true.
+
+  end subroutine EmDee_set_coul_multimodel
+
+!===================================================================================================
+
   subroutine EmDee_ignore_pair( md, i, j ) bind(C,name="EmDee_ignore_pair")
     type(tEmDee), value :: md
     integer(ib),  value :: i, j
@@ -286,7 +366,7 @@ end select
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
-    if ((i > 0).and.(i <= me%natoms).and.(j > 0).and.(j <= me%natoms).and.(i /= j)) then
+    if ((i /= j).and.ranged([i,j],me%natoms)) then
       associate (excluded => me%excluded)
         n = excluded%count
         if (n == excluded%nitems) call excluded % resize( n + extra )
@@ -338,6 +418,7 @@ end select
 
     call c_f_pointer( md%data, me )
 
+    if (.not.ranged([i,j],me%natoms)) call error( "add_bond", "atom index out of range" )
     if (.not.c_associated(model)) call error( "add_bond", "a valid model must be provided" )
     call c_f_pointer( model, container )
 
@@ -363,6 +444,7 @@ end select
 
     call c_f_pointer( md%data, me )
 
+    if (.not.ranged([i,j,k],me%natoms)) call error( "add_angle", "atom index out of range" )
     if (.not.c_associated(model)) call error( "add_angle", "a valid model must be provided" )
     call c_f_pointer( model, container )
 
@@ -390,6 +472,7 @@ end select
 
     call c_f_pointer( md%data, me )
 
+    if (.not.ranged([i,j,k,l],me%natoms)) call error( "add_dihedral", "atom index out of range" )
     if (.not.c_associated(model)) call error( "add_dihedral", "a valid model must be provided" )
     call c_f_pointer( model, container )
 

@@ -112,6 +112,8 @@ type :: tData
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
 
+  logical :: multilayer_coulomb
+
   real(rb), allocatable :: layer_energy(:)
   real(rb), allocatable :: layer_virial(:)
 
@@ -186,9 +188,9 @@ contains
     type(tData), intent(inout) :: me
 
     integer :: i, j, k
-    logical :: no_interaction, coulomb_only, neutral(me%ntypes), inert
-    type(pair_none) :: none
-    type(pair_coul) :: coul
+    logical :: no_pair, no_coul, coul_only, neutral(me%ntypes), inert
+    type(pair_none) :: PairNone
+    type(coul_none) :: CoulNone
 
     do i = 1, me%ntypes
       neutral(i) = count((me%atomType == i) .and. me%charged) == 0
@@ -198,11 +200,10 @@ contains
           inert = .true.
           do while (inert .and. (k < me%nlayers))
             k = k + 1
-
-!!!!!!! CHANGE HERE
-            no_interaction = .not.pair(k)%coulomb .and. same_type_as( pair(k)%model, none )
-            coulomb_only = same_type_as( pair(k)%model, coul )
-            inert = no_interaction .or. (coulomb_only .and. neutral(i) .and. neutral(j))
+            no_pair = same_type_as( pair(k)%model, PairNone )
+            no_coul = same_type_as( me%coul(k)%model, CoulNone ) .or. (.not.pair(k)%coulomb)
+            coul_only = no_pair .and. (.not.no_coul)
+            inert = (no_pair .and. no_coul) .or. (coul_only .and. neutral(i) .and. neutral(j))
           end do
           me%interact(i,j) = .not.inert
           me%interact(j,i) = me%interact(i,j)

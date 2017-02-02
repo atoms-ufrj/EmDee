@@ -85,15 +85,6 @@ type, extends(cPairModel) :: pair_none
     procedure :: mix => pair_none_mix
 end type pair_none
 
-!> Class definition for pair model "coul"
-type, extends(cPairModel) :: pair_coul
-  contains
-    procedure :: setup => pair_coul_setup
-    procedure :: compute => pair_coul_compute
-    procedure :: virial => pair_coul_virial
-    procedure :: mix => pair_coul_mix
-end type pair_coul
-
 contains
 
 !===================================================================================================
@@ -233,64 +224,5 @@ contains
   end function pair_none_mix
 
 !===================================================================================================
-!                                   P A I R     C O U L
-!===================================================================================================
-
-  type(c_ptr) function EmDee_pair_coul() bind(C,name="EmDee_pair_coul")
-    type(pair_coul), pointer :: model
-    allocate(model)
-    call model % setup()
-    EmDee_pair_coul = model % deliver()
-  end function EmDee_pair_coul
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine pair_coul_setup( model, params, iparams )
-    class(pair_coul), intent(inout) :: model
-    real(rb), intent(in), optional :: params(:)
-    integer,  intent(in), optional :: iparams(:)
-    model%name = "coul"
-  end subroutine pair_coul_setup
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine pair_coul_compute( model, Eij, Wij, invR, invR2 )
-    class(pair_coul), intent(in)  :: model
-    real(rb),         intent(out) :: Eij, Wij, invR
-    real(rb),         intent(in)  :: invR2
-    Eij = zero
-    Wij = zero
-  end subroutine pair_coul_compute
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine pair_coul_virial( model, Wij, invR, invR2 )
-    class(pair_coul), intent(in)  :: model
-    real(rb),         intent(out) :: Wij, invR
-    real(rb),         intent(in)  :: invR2
-    Wij = zero
-  end subroutine pair_coul_virial
-
-!---------------------------------------------------------------------------------------------------
-
-  function pair_coul_mix( this, other ) result( mixed )
-    class(pair_coul),  intent(in) :: this
-    class(cPairModel), intent(in) :: other
-    class(cPairModel), pointer    :: mixed
-
-    select type (other)
-
-      type is (pair_none)
-        allocate(pair_none :: mixed)
-
-      class default
-        allocate(pair_coul :: mixed)
-
-    end select
-    call mixed % setup()
-
-  end function pair_coul_mix
-
-!---------------------------------------------------------------------------------------------------
 
 end module pairModelClass

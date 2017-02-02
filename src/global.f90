@@ -60,4 +60,18 @@ contains
 
 !===================================================================================================
 
+  function ranged( i, imax )
+    integer, intent(in) :: i(:), imax
+    logical             :: ranged
+    integer :: j
+    j = 0
+    ranged = .true.
+    do while (ranged.and.(j < size(i)))
+      j = j + 1
+      ranged = (i(j) > 0).and.(i(j) <= imax)
+    end do
+  end function ranged
+
+!===================================================================================================
+
 end module global

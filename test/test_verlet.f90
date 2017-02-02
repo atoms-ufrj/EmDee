@@ -48,8 +48,8 @@ md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 
 pair = EmDee_pair_lj_sf( 1.0_rb, 1.0_rb )
 
-call EmDee_set_pair_model( md, 1, 1, pair )
-call EmDee_set_pair_model( md, 2, 2, pair )
+call EmDee_set_pair_model( md, 1, 1, pair, 0.0_rb )
+call EmDee_set_pair_model( md, 2, 2, pair, 0.0_rb )
 
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 

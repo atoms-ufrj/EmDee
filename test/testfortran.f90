@@ -68,20 +68,18 @@ end where
 Q(1:N/5) = 0.0_rb
 Q(N/2+1:N/2+N/5) = 0.0_rb
 
+!md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
 
-!pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
-pair = EmDee_pair_lj_sf( 1.0_rb, 1.0_rb )
-!pair = EmDee_pair_lj_cut_coul_sf( 1.0_rb, 1.0_rb )
+pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
+!pair = EmDee_pair_lj_sf( 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_softcore_cut( 1.0_rb, 1.0_rb, 1.0_rb )
-!pair = EmDee_pair_softcore_cut_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
-!pair = EmDee_pair_softcore_sf_coul_sf( 1.0_rb, 1.0_rb, 1.0_rb )
-!pair = EmDee_pair_lj_sf_old( 1.0_rb, 1.0_rb, Rc )
-!pair = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
 
 call EmDee_set_pair_model( md, 1, 1, pair, 1.0_rb )
 call EmDee_set_pair_model( md, 2, 2, pair, 1.0_rb )
-!call EmDee_set_pair_model( md, 1, 2, pair )
+call EmDee_set_pair_model( md, 1, 2, pair, 1.0_rb )
+
+call EmDee_set_coul_model( md, EmDee_coul_sf() )
 
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 

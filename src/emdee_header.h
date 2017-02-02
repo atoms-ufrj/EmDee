@@ -21,7 +21,9 @@ typedef struct {
 tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, double* masses );
 void EmDee_switch_model_layer( tEmDee* md, int layer );
 void EmDee_set_pair_model( tEmDee md, int itype, int jtype, void* model, double kCoul );
-void EmDee_set_pair_multimodel( tEmDee md, int itype, int jtype, void* model[] );
+void EmDee_set_pair_multimodel( tEmDee md, int itype, int jtype, void* model[], double kCoul[] );
+void EmDee_set_coul_model( tEmDee md, void* model );
+void EmDee_set_coul_multimodel( tEmDee md, void* model[] );
 void EmDee_ignore_pair( tEmDee md, int i, int j );
 void EmDee_add_bond( tEmDee md, int i, int j, void* model );
 void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );
@@ -35,6 +37,7 @@ void EmDee_random_momenta( tEmDee* md, double kT, int adjust, int seed );
 void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_move( tEmDee* md, double lambda, double alpha, double dt );
 void* EmDee_pair_none();
+void* EmDee_coul_none();
 void* EmDee_bond_none();
 void* EmDee_angle_none();
 void* EmDee_dihedral_none();
