@@ -3,10 +3,8 @@ lib/
 src/obj/
 equations/build/
 tools/
-test/*
-!test/*.f90
-!test/*.inp
-!test/*.mol
+test/test*
+!test/test*.*
 src/compute_*.f90
 src/virial_compute_*.f90
 src/models.f90
