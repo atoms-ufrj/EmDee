@@ -60,6 +60,7 @@ type :: tData
   integer :: nfree                        ! Number of independent atoms
   integer :: nthreads                     ! Number of parallel openmp threads
   integer :: threadAtoms                  ! Number of atoms per parallel thread
+  integer :: threadFreeAtoms              ! Number of free atoms per parallel thread
   integer :: threadBodies = 0             ! Number of rigid bodies per parallel thread
   integer :: nlayers = 1                  ! Number of pair interaction model layers
   integer :: layer = 1                    ! Current layer of pair interaction models
@@ -90,6 +91,7 @@ type :: tData
 
   integer, allocatable :: atomType(:)     ! Type indexes of all atoms
   integer, allocatable :: atomCell(:)     ! Array containing the current cell of each atom
+  integer, allocatable :: atomBody(:)     ! Array containing the rigid body containing each atom
   integer, allocatable :: free(:)         ! Pointer to the list of independent atoms
 
   real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
@@ -123,31 +125,6 @@ contains
 
 !===================================================================================================
 
-  subroutine assign_coordinates( me, thread, Rext )
-    type(tData), intent(inout) :: me
-    integer,     intent(in)    :: thread
-    real(rb),    intent(in)    :: Rext(3,me%natoms)
-
-    integer :: i, j
-    real(rb), allocatable :: R(:,:)
-
-    do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
-      i = me%free(j)
-      me%R(:,i) = Rext(:,i)
-    end do
-    do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-      associate(b => me%body(i))
-        R = Rext(:,b%index)
-        forall (j=2:b%NP) R(:,j) = R(:,j) - me%Lbox*anint((R(:,j) - R(:,1))*me%invL)
-        call b % update( R )
-        me%R(:,b%index) = R
-      end associate
-    end do
-
-  end subroutine assign_coordinates
-
-!===================================================================================================
-
   subroutine assign_momenta( me, thread, P, twoKEt, twoKEr )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
@@ -159,7 +136,7 @@ contains
 
     twoKEt = zero
     twoKEr = zero
-    do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+    do j = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
       i = me%free(j)
       me%P(:,i) = P(:,i)
       twoKEt = twoKEt + me%invMass(i)*sum(P(:,i)**2)
@@ -251,6 +228,97 @@ contains
     end select
 
   end subroutine set_pair_type
+
+!===================================================================================================
+
+  subroutine allocate_rigid_bodies( me, bodies )
+    type(tData), intent(inout) :: me
+    type(c_ptr), intent(in)    :: bodies
+
+    integer :: i, j
+    integer, allocatable :: seq(:), indices(:)
+    integer,     pointer :: pbody(:)
+
+    seq = [(i,i=1,me%natoms)]
+    if (c_associated(bodies)) then
+      call c_f_pointer( bodies, pbody, [me%natoms] )
+      me%atomBody = clean_body_indices( pbody )
+      me%nbodies = maxval( me%atomBody )
+      me%free = pack( seq, me%atomBody == 0 )
+      me%nfree = size(me%free)
+      allocate( me%body(me%nbodies) )
+      do i = 1, me%nbodies
+        indices = pack( seq, me%atomBody == i )
+        call me % body(i) % setup( indices, me%mass(indices) )
+      end do
+      ! Replace zeros by distinct indices:
+      i = me%nbodies
+      do j = 1, me%natoms
+        if (me%atomBody(j) == 0) then
+          i = i + 1
+          me%atomBody(j) = i
+        end if
+      end do
+    else
+      me%nbodies = 0
+      me%free = seq
+      me%atomBody = seq
+      me%nfree = me%natoms
+      allocate( me%body(0) )
+    end if
+    me%threadFreeAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
+    me%threadBodies = (me%nbodies + me%nthreads - 1)/me%nthreads
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      function clean_body_indices( body ) result( index )
+        integer, intent(in) :: body(:)
+        integer             :: index(size(body))
+
+        ! If body(i) <= 0 or body(i) is unique, then index(i) = 0.
+        ! Otherwise, 1 <= index(i) <= number of distinct non-unique, positive entries in body.
+
+        integer :: i, j, n, ibody
+        logical :: not_found
+        integer :: saved(size(body)), amount(size(body)), first(size(body))
+
+        n = 0
+        do i = 1, size(body)
+          ibody = body(i)
+          if (ibody > 0) then
+            j = 0
+            not_found = .true.
+            do while (not_found.and.(j < n))
+              j = j + 1
+              not_found = saved(j) /= ibody
+            end do
+            if (not_found) then
+              n = n + 1
+              amount(n) = 1
+              saved(n) = ibody
+              first(n) = i
+              index(i) = 0
+            else
+              amount(j) = amount(j) + 1
+              index(i) = j
+              index(first(j)) = j
+            end if
+          else
+            index(i) = 0
+          end if
+        end do
+        i = 0
+        do j = 1, n
+          if (amount(j) > 1) then
+            i = i + 1
+            saved(j) = i
+          end if
+        end do
+        where (index > 0) index = saved(index)
+
+      end function clean_body_indices
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine allocate_rigid_bodies
 
 !===================================================================================================
 
@@ -347,7 +415,7 @@ contains
         integer, intent(in)  :: thread
         integer, intent(out) :: maxNatoms
 
-        integer :: i, k, icell, ix, iy, iz, first, last
+        integer :: i, k, icell, ix, iy, iz, first, last, atoms_per_thread
         integer :: icoord(3)
         integer, allocatable :: head(:)
 
@@ -368,7 +436,8 @@ contains
           last = me%threadCell%last(thread)
         end if
 
-        do i = (thread - 1)*me%threadAtoms + 1, min( thread*me%threadAtoms, me%natoms )
+        atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
+        do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
           icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
           me%atomCell(i) = 1 + icoord(1) + M*icoord(2) + MM*icoord(3)
         end do
@@ -588,7 +657,7 @@ contains
     real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial, &
                                   Elayer(me%nlayers), Wlayer(me%nlayers)
 
-    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
+    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer, ibody
     integer  :: nlocal, ntotal, first, last
     real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     logical  :: icharged, ijcharged, include(0:me%maxpairs)
@@ -636,6 +705,7 @@ contains
           i = atom(k)
           neighbor%first(i) = npairs + 1
           itype = me%atomType(i)
+          ibody = me%atomBody(i)
           Qi = me%charge(i)
           icharged = me%charged(i)
           Ri = Rs(:,i)
@@ -646,15 +716,17 @@ contains
             do m = k + 1, ntotal
               if (include(m)) then
                 j = atom(m)
-                jtype = me%atomType(j)
-                if (me%interact(itype,jtype)) then
-                  Rij = Ri - Rs(:,j)
-                  Rij = Rij - anint(Rij)
-                  r2 = sum(Rij*Rij)
-                  if (r2 < xRc2) then
-                    npairs = npairs + 1
-                    neighbor%item(npairs) = j
-                    include "inner_loop.f90"
+                if (me%atomBody(j) /= ibody ) then
+                  jtype = me%atomType(j)
+                  if (me%interact(itype,jtype)) then
+                    Rij = Ri - Rs(:,j)
+                    Rij = Rij - anint(Rij)
+                    r2 = sum(Rij*Rij)
+                    if (r2 < xRc2) then
+                      npairs = npairs + 1
+                      neighbor%item(npairs) = j
+                      include "inner_loop.f90"
+                    end if
                   end if
                 end if
               end if

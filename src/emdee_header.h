@@ -18,7 +18,8 @@ typedef struct {
   } Options;
 } tEmDee;
 
-tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, double* masses );
+tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, 
+                     double* masses, int* bodies );
 void EmDee_switch_model_layer( tEmDee* md, int layer );
 void EmDee_set_pair_model( tEmDee md, int itype, int jtype, void* model, double kCoul );
 void EmDee_set_pair_multimodel( tEmDee md, int itype, int jtype, void* model[], double kCoul[] );
@@ -28,7 +29,6 @@ void EmDee_ignore_pair( tEmDee md, int i, int j );
 void EmDee_add_bond( tEmDee md, int i, int j, void* model );
 void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );
 void EmDee_add_dihedral( tEmDee md, int i, int j, int k, int l, void* model );
-void EmDee_add_rigid_body( tEmDee md, int N, int* indexes );
 void EmDee_upload( tEmDee* md, char *option, double* address );
 void EmDee_download( tEmDee md, char *option, double* address );
 void EmDee_random_momenta( tEmDee* md, double kT, int adjust, int seed );

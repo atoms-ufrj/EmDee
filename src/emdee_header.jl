@@ -83,12 +83,6 @@ function add_dihedral( md::tEmDee, i::Integer, j::Integer, k::Integer, l::Intege
          md, i, j, k, l, model )
 end
 #---------------------------------------------------------------------------------------------------
-function add_rigid_body( md::tEmDee, N::Integer, indexes::IntegerArray )
-  ccall( (:EmDee_add_rigid_body,"libemdee"), Void,
-         (tEmDee, Int32, Ptr{Int32}),
-         md, N, Vector{Int32}(indexes) )
-end
-#---------------------------------------------------------------------------------------------------
 function ignore_pair( md::tEmDee, i::Integer, j::Integer )
   ccall( (:EmDee_ignore_pair,"libemdee"), Void,
          (tEmDee, Int32, Int32),

@@ -12,7 +12,6 @@ integer, parameter :: sl = 256
 character(*), parameter :: cform = '(A256)'
 
 integer(ib) :: ntypes
-integer(ib) :: NperMol
 integer(ib) :: N
 real(rb)    :: mvv2e         ! Energy conversion factor
 real(rb)    :: Pconv         ! Pressure conversion factor
@@ -21,11 +20,11 @@ real(rb)    :: kCoul         ! Coulomb's constant
 
 real(rb), allocatable :: epsilon(:)
 real(rb), allocatable :: sigma(:)
-real(rb), allocatable :: typeCharge(:)
 
 real(rb), target :: L
 
 integer(ib), allocatable, target :: atomType(:)
+integer(ib), allocatable, target :: molecule(:)
 real(rb),    allocatable, target :: mass(:)
 real(rb),    allocatable, target :: R(:,:)
 real(rb),    allocatable, target :: P(:,:)
@@ -38,7 +37,7 @@ contains
   subroutine read_configuration( configFile )
     character(*), intent(in) :: configFile
 
-    integer(ib) :: inp, i, id, Nmol
+    integer(ib) :: inp, i, id
     character(sl) :: Description
 
     open( newunit = inp, file = configFile, status = "old" )
@@ -49,24 +48,21 @@ contains
     read(inp,*); read(inp,*) kB
     read(inp,*); read(inp,*) kCoul
     read(inp,*); read(inp,*) ntypes
-    allocate( mass(ntypes), epsilon(ntypes), sigma(ntypes), typeCharge(ntypes) )
+    allocate( mass(ntypes), epsilon(ntypes), sigma(ntypes) )
     read(inp,*)
     do i = 1, ntypes
-      read(inp,*) id, mass(id), epsilon(id), sigma(id), typeCharge(id)
+      read(inp,*) id, mass(id), epsilon(id), sigma(id)
     end do
     epsilon = kB*epsilon
     read(inp,*); read(inp,*) L
-    read(inp,*); read(inp,*) NperMol
-    read(inp,*); read(inp,*) Nmol
-    N = NperMol*Nmol
-    allocate( R(3,N), P(3,N), atomType(N), Q(N) )
+    read(inp,*); read(inp,*) N
+    allocate( R(3,N), P(3,N), atomType(N), molecule(N), Q(N) )
     read(inp,*)
     do i = 1, N
-      read(inp,*) id, R(:,id), atomType(id)
+      read(inp,*) id, molecule(id), atomType(id), Q(id), R(:,id)
     end do
     close(inp)
     P = 0.0_rb
-    Q = typeCharge(atomType)
 
   end subroutine read_configuration
 

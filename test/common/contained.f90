@@ -25,7 +25,7 @@
   subroutine read_data( file )
     character(*), intent(in) :: file
 
-    integer  :: inp, i, nseeds, seed
+    integer  :: inp, i, nseeds
 
     open( newunit = inp, file = file, status = "old" )
     read(inp,*); read(inp,*) configFile
@@ -42,19 +42,6 @@
     Rc2 = Rc**2
     Dt_2 = 0.5_8*Dt
   end subroutine read_data
-!---------------------------------------------------------------------------------------------------
-  subroutine define_rigid_bodies
-
-    integer :: i, j, seq(NperMol)
-    integer, target :: indices(NperMol)
-
-    seq = [(j,j=1,NperMol)]
-    do i = 1, N/NperMol
-      indices = (i-1)*NperMol + seq
-      call EmDee_add_rigid_body( md, NperMol, c_loc(indices) )
-    end do
-
-  end subroutine define_rigid_bodies
 !---------------------------------------------------------------------------------------------------
   subroutine run( Nsteps, Nprop )
     integer, intent(in) :: Nsteps, Nprop
