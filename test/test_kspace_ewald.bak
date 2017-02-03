@@ -19,22 +19,35 @@
 
 program test
 
-use iso_c_binding
+use global
+use kspace_ewald_module
 
 implicit none
 
 #include "emdee.f03"
 
-integer, parameter :: ib = 4, rb = 8
+real(rb), parameter :: mvv2e = 2390.057364_rb         ! Da*A²/fs² to kcal/mol
+real(rb), parameter :: kB = 8.3144621455E-7_rb        ! Boltzmann constant in Da*A²/(fs²*K)
+real(rb), parameter :: Pconv = 1.6388244954E+8_rb     ! Da/(A*fs²) to atm
+real(rb), parameter :: kCoul = 0.13893545755135628_rb ! Coulomb constant in Da*A³/(fs*e)²
 
-integer(ib) :: N, Nsteps, Nprop
-real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2
-real(rb), target  :: L
-real(rb), pointer :: R(:,:), V(:,:), Q(:)
-integer,  pointer :: types(:)
+character(sl) :: configFile
+integer(ib)   :: ntypes, NperMol, N, Nmol
+integer(ib), pointer :: atomType(:)
+real(rb),    pointer :: atomMass(:), Q(:)
+real(rb),    allocatable :: mass(:), eps(:), sigma(:), charge(:)
 
-type(tEmDee), target :: md
-type(c_ptr),  target :: pair
+integer(ib) :: i, Nsteps, Nprop
+real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2, Elong, Wlong
+real(rb), target  :: L(3)
+real(rb), pointer :: R(:,:)
+real(rb), allocatable :: F(:,:)
+
+type(tEmDee), target  :: md
+type(c_ptr),  pointer :: pair(:)
+
+type(kspace_ewald) :: kspace
+!type(c_ptr) :: bond
 
 integer :: argcount, threads
 character(256) :: line
@@ -48,33 +61,51 @@ else if (argcount == 2) then
   read(line,*) threads
   call get_command_argument( 2, line )
 else
-  write(0,'("Usage: testfortran [number-of-threads] input-file")')
+  write(0,'("Usage: test_kspace_ewald [number-of-threads] input-file")')
   stop
 end if
 
 call read_data( file = line )
-call create_configuration
+call read_configuration
 
-if (mod(N,2) /= 0) stop "PLEASE ENTER AN EVEN NUMBER OF ATOMS"
-allocate( types(N), Q(N) )
-types(1:N/2) = 1
-types(N/2+1:N) = 2
-where (types == 1)
-  Q = 1.0_rb
-elsewhere
-  Q = -1.0_rb
-end where
+md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(atomMass) )
 
-md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(types), c_null_ptr )
-pair = EmDee_pair_lj_sf_coul_sf( 1.0_rb, 1.0_rb )
+allocate( pair(ntypes) )
+do i = 1, ntypes
+  if (eps(i) == zero) then
+    pair(i) = EmDee_pair_none()
+  else
+    pair(i) = EmDee_pair_lj_cut( eps(i), sigma(i) )
+  end if
+  call EmDee_set_pair_model( md, i, i, pair(i) )
+end do
 
-call EmDee_set_pair_model( md, 1, 1, pair )
-call EmDee_set_pair_model( md, 2, 2, pair )
+!bond = EmDee_bond_none( )
+do i = 1, Nmol
+!  call EmDee_add_bond( md, (i-1)*NperMol+1, (i-1)*NperMol+2, bond )
+!  call EmDee_add_bond( md, (i-1)*NperMol+2, (i-1)*NperMol+3, bond )
+  call EmDee_ignore_pair( md, (i-1)*NperMol+1, (i-1)*NperMol+2 )
+  call EmDee_ignore_pair( md, (i-1)*NperMol+2, (i-1)*NperMol+3 )
+end do
+
+Q = sqrt(kCoul)*Q
+!Q(1:99) = zero
 
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
-print*, md%Potential, md%Virial
+print*, md%Potential/kB, md%Virial/kB
+
+call kspace%setup( [1.0e-4_rb] )
+call kspace%initialize( threads, Rc, L, Q, verbose = .false. )
+
+allocate( F(3,N) )
+F = zero
+Elong = zero
+Wlong = zero
+call kspace % compute( R, F, Elong, Wlong )
+
+print*, Elong/kB
 
 contains
 !---------------------------------------------------------------------------------------------------
@@ -82,7 +113,14 @@ contains
     character(*), intent(in) :: file
     integer  :: inp, i, nseeds, seed
     open( newunit = inp, file = file, status = "old" )
-    read(inp,*); read(inp,*) N
+    read(inp,*); read(inp,*) configFile
+    read(inp,*); read(inp,*) ntypes
+    allocate( mass(ntypes), eps(ntypes), sigma(ntypes), charge(ntypes) )
+    read(inp,*)
+    do i = 1, ntypes
+      read(inp,*) mass(i), eps(i), sigma(i), charge(i)
+    end do
+    eps = kB*eps
     read(inp,*); read(inp,*) Rc
     read(inp,*); read(inp,*) Rs
     read(inp,*); read(inp,*) seed
@@ -95,9 +133,8 @@ contains
     call random_seed( size = nseeds )
     call random_seed( put = seed + 37*[(i-1,i=1,nseeds)] )
     Rc2 = Rc**2
-    L = (N/rho)**(1.0_8/3.0_8)
     Dt_2 = 0.5_8*Dt
-    allocate( R(3,N), V(3,N) )
+    allocate( R(3,N) )
   end subroutine read_data
 !---------------------------------------------------------------------------------------------------
   real(rb) function random_normal()
@@ -106,23 +143,22 @@ contains
     random_normal = sqrt(-2.0_rb*log(uni(1)))*cos(6.283185307179586_rb*uni(2))
   end function random_normal
 !---------------------------------------------------------------------------------------------------
-subroutine create_configuration
-  integer :: Nd, m, ind, i, j, k
-  real(8) :: Vcm(3)
-  Nd = ceiling(real(N,8)**(1.0_8/3.0_8))
-  do ind = 1, N
-    m = ind - 1
-    k = m/(Nd*Nd)
-    j = (m - k*Nd*Nd)/Nd
-    i = m - j*Nd - k*Nd*Nd
-    R(:,ind) = (L/real(Nd,8))*(real([i,j,k],8) + 0.5_8)
-    V(:,ind) = [random_normal(), random_normal(), random_normal()]
+subroutine read_configuration
+  integer :: inp, i, id
+  open( newunit = inp, file = configFile, status = "old" )
+  read(inp,*); read(inp,*) L
+  read(inp,*); read(inp,*) NperMol
+  read(inp,*); read(inp,*) Nmol
+  N = NperMol*Nmol
+  allocate( R(3,N), atomType(N), atomMass(N), Q(N) )
+  read(inp,*)
+  do i = 1, N
+    read(inp,*) id, R(:,id), atomType(id)
   end do
-  Vcm = sum(V,2)/N
-  forall (i=1:N) V(:,i) = V(:,i) - Vcm
-  V = sqrt(Temp*(3*N-3)/sum(V*V))*V
-  Vcm = sum(V,2)/N
-end subroutine create_configuration
+  close(inp)
+  atomMass = mass(atomType)
+  Q = charge(atomType)
+end subroutine read_configuration
 !---------------------------------------------------------------------------------------------------
 end program test
 

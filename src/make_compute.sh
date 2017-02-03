@@ -27,6 +27,11 @@ if [[ $kind == "pair" ]]; then
   echo "  Eij = zero"
   echo "  Wij = zero"
   echo
+elif [[ $kind == "coul" ]]; then
+  echo "type is (coul_none)"
+  echo "  ECij = zero"
+  echo "  WCij = zero"
+  echo
 fi
 
 for model in "${@:2}"; do

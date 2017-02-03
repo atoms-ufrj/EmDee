@@ -31,9 +31,9 @@ fi
 for model in "${@:2}"; do
   echo "type is ($model)"
   echo "  block"
-  grep -i -A100 -e "^\s*function\s*${model}_virial" src/$model.f90 |
-  grep -i -m1 -B100 "^\s*end\s*function" |
-  grep -v -i -e "function" -e "intent(.*)" -e "::\s*Wij"
+  grep -i -A100 -e "^\s*subroutine\s*${model}_virial" src/$model.f90 |
+  grep -i -m1 -B100 "^\s*end\s*subroutine" |
+  grep -v -i -e "subroutine" -e "intent(.*)"
   echo "  end block"
   echo
 done

@@ -26,7 +26,7 @@ function get_definitions {
   sed "s/^\s*//"
 }
 
-grep -v -e "end\s*interface" src/emdee_header.f03
+grep -v -e "end\s*interface" -e "end\s*module" src/emdee_header.f03
 
 for model in "$@"; do
 
@@ -88,4 +88,5 @@ for model in "$@"; do
 done
 
 echo "end interface"
+echo "end module"
 

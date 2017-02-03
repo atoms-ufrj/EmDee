@@ -17,14 +17,13 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-module bond_harmonic_module
+module coul_sf_module
 
-use global
-use bondModelClass
+use coulModelClass
 
 implicit none
 
-!> Abstract class for angle model harmonic
+!> Abstract class for coul model sf
 !!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
 !!        2) recognizable parameter types are real(rb) and integer(ib)
@@ -32,54 +31,62 @@ implicit none
 !!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
 !!           parameter or series of equally-sized allocatable parameters.
 
-type, extends(cBondModel) :: bond_harmonic
-  real(rb) :: k   !<> Force constant
-  real(rb) :: r0  !<> Equilibrium distance
-
-  real(rb) :: minus_k, half_k
+type, extends(cCoulModel) :: coul_sf
   contains
-    procedure :: setup => bond_harmonic_setup
-    procedure :: compute => bond_harmonic_compute
-end type bond_harmonic
+    procedure :: setup => coul_sf_setup
+    procedure :: compute => coul_sf_compute
+    procedure :: virial => coul_sf_virial
+end type coul_sf
 
 contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_harmonic_setup( model, params, iparams )
-    class(bond_harmonic), intent(inout) :: model
+  subroutine coul_sf_setup( model, params, iparams )
+    class(coul_sf),  intent(inout) :: model
     real(rb), intent(in), optional :: params(:)
     integer,  intent(in), optional :: iparams(:)
 
     ! Model name:
-    model%name = "harmonic"
+    model%name = "sf"
 
-    ! Model parameters:
-    model%k = params(1)
-    model%r0 = params(2)
+    ! Activate shifted-force status:
+    model%shifted_force = .true.
 
-    ! Pre-computed quantities:
-    model%minus_k = -model%k
-    model%half_k = half*model%k
-
-  end subroutine bond_harmonic_setup
+  end subroutine coul_sf_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine bond_harmonic_compute( model, E, W, invR2 )
-    class(bond_harmonic), intent(in)  :: model
-    real(rb),             intent(out) :: E, W
-    real(rb),             intent(in)  :: invR2
+  subroutine coul_sf_compute( model, ECij, WCij, invR, invR2, QiQj, noInvR )
+    class(coul_sf), intent(in)    :: model
+    real(rb),       intent(out)   :: ECij, WCij
+    real(rb),       intent(inout) :: invR
+    real(rb),       intent(in)    :: invR2, QiQj
+    logical,        intent(in)    :: noInvR
 
-    real(rb) :: delta, r
+    real(rb) :: rFc, QiQjbyR
 
-    r = one/sqrt(invR2)
-    delta = r - model%r0
-    E = model%half_k*delta**2
-    W = model%minus_k*delta*r
+    if (noInvR) invR = sqrt(invR2)
+    QiQjbyR = QiQj*invR
+    rFc = QiQj*model%fshift/invR
+    ECij = QiQjbyR + QiQj*model%eshift + rFc
+    WCij = QiQjbyR - rFc
 
-  end subroutine bond_harmonic_compute
+  end subroutine coul_sf_compute
 
 !---------------------------------------------------------------------------------------------------
 
-end module bond_harmonic_module
+  subroutine coul_sf_virial( model, Wij, invR, invR2, QiQj, noInvR )
+    class(coul_sf), intent(in)    :: model
+    real(rb),       intent(inout) :: Wij, invR
+    real(rb),       intent(in)    :: invR2, QiQj
+    logical,        intent(in)    :: noInvR
+
+    if (noInvR) invR = sqrt(invR2)
+    Wij = Wij + QiQj*(invR - model%fshift/invR)
+
+  end subroutine coul_sf_virial
+
+!---------------------------------------------------------------------------------------------------
+
+end module coul_sf_module

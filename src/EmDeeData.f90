@@ -75,8 +75,6 @@ type :: tData
   real(rb) :: skinSq                      ! Square of the neighbor list skin width
   real(rb) :: totalMass                   ! Sum of the masses of all atoms
   real(rb) :: startTime                   ! Time recorded at initialization
-  real(rb) :: eshift                      ! Potential shifting factor for Coulombic interactions
-  real(rb) :: fshift                      ! Force shifting factor for Coulombic interactions
 
   logical :: initialized = .false.        ! Flag for checking coordinates initialization
 
@@ -101,15 +99,21 @@ type :: tData
   real(rb), allocatable :: mass(:)        ! Masses of all atoms
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
   real(rb), allocatable :: R0(:,:)        ! Position of each atom at latest neighbor list building
+  logical,  allocatable :: charged(:)     ! Flag to determine if a particle is charged
 
   type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
   type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
+  type(modelContainer),     allocatable :: coul(:)
+
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
+
+  logical :: multilayer_coulomb
+
   real(rb), allocatable :: layer_energy(:)
   real(rb), allocatable :: layer_virial(:)
 
@@ -184,20 +188,22 @@ contains
     type(tData), intent(inout) :: me
 
     integer :: i, j, k
-    logical :: no_interaction, coulomb_only, neutral(me%ntypes)
-    logical :: inert
+    logical :: no_pair, no_coul, coul_only, neutral(me%ntypes), inert
+    type(pair_none) :: PairNone
+    type(coul_none) :: CoulNone
 
     do i = 1, me%ntypes
-      neutral(i) = count((me%atomType == i).and.(me%charge /= zero)) == 0
+      neutral(i) = count((me%atomType == i) .and. me%charged) == 0
       do j = 1, i
         associate( pair => me%pair(i,j,:) )
           k = 0
           inert = .true.
           do while (inert .and. (k < me%nlayers))
             k = k + 1
-            no_interaction = .not.(pair(k)%model%vdw .or. pair(k)%model%coulomb)
-            coulomb_only = pair(k)%model%coulomb .and. (.not. pair(k)%model%vdw)
-            inert = no_interaction .or. (coulomb_only .and. neutral(i) .and. neutral(j))
+            no_pair = same_type_as( pair(k)%model, PairNone )
+            no_coul = same_type_as( me%coul(k)%model, CoulNone ) .or. (.not.pair(k)%coulomb)
+            coul_only = no_pair .and. (.not.no_coul)
+            inert = (no_pair .and. no_coul) .or. (coul_only .and. neutral(i) .and. neutral(j))
           end do
           me%interact(i,j) = .not.inert
           me%interact(j,i) = me%interact(i,j)
@@ -209,10 +215,11 @@ contains
 
 !===================================================================================================
 
-  subroutine set_pair_type( me, itype, jtype, layer, container )
-    type(tData),          intent(inout) :: me
-    integer(ib),          intent(in)    :: itype, jtype, layer
-    type(modelContainer), intent(in)    :: container
+  subroutine set_pair_type( me, itype, jtype, layer, container, kCoul )
+    type(tData),              intent(inout) :: me
+    integer(ib),              intent(in)    :: itype, jtype, layer
+    type(pairModelContainer), intent(in)    :: container
+    real(rb),                 intent(in)    :: kCoul
 
     integer :: ktype
 
@@ -221,22 +228,26 @@ contains
         associate (pair => me%pair(:,:,layer))
           if (itype == jtype) then
             pair(itype,itype) = container
+            pair(itype,itype)%coulomb = kCoul /= zero
+            if (pair(itype,itype)%coulomb) pair(itype,itype)%kCoul = kCoul
             call pair(itype,itype) % model % shifting_setup( me%Rc )
             do ktype = 1, me%ntypes
               if ((ktype /= itype).and.me%overridable(itype,ktype)) then
-                pair(itype,ktype) = pair(ktype,ktype) % mix( pmodel )
+                pair(itype,ktype) = pair(ktype,ktype) % mix( pair(itype,itype) )
                 call pair(itype,ktype) % model % shifting_setup( me%Rc )
                 pair(ktype,itype) = pair(itype,ktype)
               end if
             end do
           else
             pair(itype,jtype) = container
+            pair(itype,jtype)%coulomb = kCoul /= zero
+            if (pair(itype,jtype)%coulomb) pair(itype,jtype)%kCoul = kCoul
             call pair(itype,jtype) % model % shifting_setup( me%Rc )
             pair(jtype,itype) = pair(itype,jtype)
           end if
         end associate
       class default
-        stop "ERROR: a valid pair model must be provided"
+        call error( "pair model setup", "a valid pair model must be provided" )
     end select
 
   end subroutine set_pair_type
@@ -256,7 +267,7 @@ contains
       call compute_body_forces( thread, Wrb(thread) )
     end block
     !$omp end parallel
-    Virial = Virial - third*sum(Wrb)
+    Virial = Virial - sum(Wrb)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -301,7 +312,7 @@ contains
 
   subroutine distribute_atoms( me, M, Rs )
     type(tData), intent(inout) :: me
-    integer, intent(in)    :: M
+    integer,     intent(in)    :: M
     real(rb),    intent(in)    :: Rs(3,me%natoms)
 
     integer :: MM, cells_per_thread, maxNatoms, threadNatoms(me%nthreads), next(me%natoms)
@@ -336,7 +347,7 @@ contains
         integer, intent(in)  :: thread
         integer, intent(out) :: maxNatoms
 
-        integer :: i, k, icell, ix, iy, iz, first, last, atoms_per_thread
+        integer :: i, k, icell, ix, iy, iz, first, last
         integer :: icoord(3)
         integer, allocatable :: head(:)
 
@@ -357,8 +368,7 @@ contains
           last = me%threadCell%last(thread)
         end if
 
-        atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
-        do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
+        do i = (thread - 1)*me%threadAtoms + 1, min( thread*me%threadAtoms, me%natoms )
           icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
           me%atomCell(i) = 1 + icoord(1) + M*icoord(2) + MM*icoord(3)
         end do
@@ -490,7 +500,7 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: m, ndihedrals, i, j
-    real(rb) :: Rc2, Ed, Fd, r2, invR2, Eij, Wij, Qi, Qj
+    real(rb) :: Rc2, Ed, Fd, r2, invR2, invR, Eij, Wij, Qi, Qj
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi, factor14
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
@@ -580,10 +590,11 @@ contains
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer
     integer  :: nlocal, ntotal, first, last
-    real(rb) :: xRc2, Rc2, r2, invR2, Eij, Wij, Qi, Qj
-    logical  :: include(0:me%maxpairs)
+    real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
+    logical  :: icharged, ijcharged, include(0:me%maxpairs)
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
+
     integer,  allocatable :: xlist(:)
 
     xRc2 = me%xRcSq*me%invL2
@@ -626,6 +637,7 @@ contains
           neighbor%first(i) = npairs + 1
           itype = me%atomType(i)
           Qi = me%charge(i)
+          icharged = me%charged(i)
           Ri = Rs(:,i)
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
@@ -670,8 +682,9 @@ contains
     real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, &
                                 Elayer(me%nlayers), Wlayer(me%nlayers)
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
-    real(rb) :: Rc2, r2, invR2, Eij, Wij, Qi, Qj
+    real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    logical  :: icharged, ijcharged
 
     Rc2 = me%RcSq*me%invL2
 
@@ -688,6 +701,7 @@ contains
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
         Qi = me%charge(i)
+        icharged = me%charged(i)
         Ri = Rs(:,i)
         Fi = zero
         associate (partner => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
@@ -714,7 +728,7 @@ contains
     real(rb),    intent(out) :: DF(3,me%natoms), DE, DW
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, new_Eij, new_Wij, Eij, Wij, Qi, Qj
+    real(rb) :: Rc2, r2, invR2, invR, new_Eij, new_Wij, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
     logical  :: participant(me%ntypes)
 

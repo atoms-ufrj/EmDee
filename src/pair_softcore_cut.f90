@@ -23,19 +23,24 @@ use global
 use pairModelClass
 use pair_lj_cut_module
 
-real(rb), parameter, private :: alpha      = 0.5_rb, &
-                                exponent_n = 1.0_rb, &
-                                exponent_p = 1.0_rb
+implicit none
+
+real(rb), parameter, private :: alpha      = half, &
+                                exponent_n = one,  &
+                                exponent_p = one
 
 !> Abstract class for pair model softcore_cut
+!!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
-!!        2) allocatable parameters are permitted only for rank=1
-!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
-!!           which will contain their (common) size after allocation
+!!        2) recognizable parameter types are real(rb) and integer(ib)
+!!        3) allocatable one-dimensional arrays (i.e. vectors) are permitted as parameters
+!!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
+!!           parameter or series of equally-sized allocatable parameters.
+
 type, extends(cPairModel) :: pair_softcore_cut
-  real(rb) :: epsilon !<> Lennard-Jones parameter epsilon
-  real(rb) :: sigma   !<> Lennard-Jones parameter sigma
-  real(rb) :: lambda  !<> Coupling parameter
+  real(rb) :: epsilon !<> Depth of the potential well
+  real(rb) :: sigma   !<> Distance at which the potential is zero
+  real(rb) :: lambda  !<> Coupling parameter value
 
   real(rb) :: prefactor, prefactor6, invSigSq, shift
   contains
@@ -64,7 +69,7 @@ contains
 
     ! Check parameter validity:
     if ((model%lambda < zero).or.(model%lambda > one)) then
-      stop "ERROR: invalid parameter lambda in pair_softcore_cut setup"
+      call error( "pair_softcore_cut setup", "out-of-range parameter lambda" )
     end if
 
     ! Pre-computed quantities:
@@ -73,17 +78,14 @@ contains
     model%invSigSq = one/model%sigma**2
     model%shift = alpha*(one - model%lambda)**exponent_p
 
-    ! Mark active contributions:
-    model%vdw = model%lambda /= zero
-
   end subroutine pair_softcore_cut_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_softcore_cut_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine pair_softcore_cut_compute( model, Eij, Wij, invR, invR2 )
     class(pair_softcore_cut), intent(in)  :: model
-    real(rb),                 intent(out) :: Eij, Wij
-    real(rb),                 intent(in)  :: invR2, Qi, Qj
+    real(rb),                 intent(out) :: Eij, Wij, invR
+    real(rb),                 intent(in)  :: invR2
 
     real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
 
@@ -99,10 +101,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_softcore_cut_virial( model, invR2, Qi, Qj ) result( Wij )
-    class(pair_softcore_cut), intent(in) :: model
-    real(rb),                 intent(in) :: invR2, Qi, Qj
-    real(rb)                             :: Wij
+  subroutine pair_softcore_cut_virial( model, Wij, invR, invR2 )
+    class(pair_softcore_cut), intent(in)  :: model
+    real(rb),                 intent(out) :: Wij, invR
+    real(rb),                 intent(in)  :: invR2
 
     real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
 
@@ -113,14 +115,14 @@ contains
     sinvCb = sinv*sinvSq
     Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq)
 
-  end function pair_softcore_cut_virial
+  end subroutine pair_softcore_cut_virial
 
 !---------------------------------------------------------------------------------------------------
 
   function pair_softcore_cut_mix( this, other ) result( mixed )
-    class(pair_softcore_cut),    intent(in) :: this
-    class(cPairModel), intent(in) :: other
-    class(cPairModel), pointer :: mixed
+    class(pair_softcore_cut), intent(in) :: this
+    class(cPairModel),        intent(in) :: other
+    class(cPairModel),        pointer    :: mixed
 
     select type (other)
 

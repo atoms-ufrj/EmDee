@@ -1,27 +1,28 @@
 #!/bin/bash
-commands+=("./test_pair_coul_sf small.inp")
-commands+=("./test_pair_lj_cut_coul_cut small.inp")
-commands+=("./test_pair_coul_sf small.inp")
-commands+=("./test_pair_lj_cut_coul_cut small.inp")
-commands+=("./test_pair_lj_cut_coul_sf small.inp")
-commands+=("./test_pair_lj_cut small.inp")
-commands+=("./test_pair_lj_sf_coul_sf small.inp")
-commands+=("./test_pair_lj_sf small.inp")
-commands+=("./test_pair_softcore_cut_coul_sf small.inp")
-commands+=("./test_pair_softcore_cut small.inp")
-commands+=("./test_pair_softcore_sf_coul_sf small.inp")
-commands+=("./test_verlet 2 small.inp")
-commands+=("./testfortran 2 small.inp")
-#commands+=("")
-#commands+=("")
-#commands+=("")
+commands+=("./test_pair_lj_cut 2 lj_sample.inp")
+commands+=("./test_pair_lj_sf 2 lj_sample.inp")
+commands+=("./test_pair_softcore_cut 2 lj_sample.inp")
+commands+=("./test_verlet 2 lj_sample.inp")
+#commands+=("./test_coul_sf 2 spce_sample.inp")
+#commands+=("./testfortran 2 lj_sample.inp")
 
+
+#commands+=("./test_kspace_ewald water.inp")
+#commands+=("")
+#commands+=("")
+#commands+=("")
 
 for i in "${!commands[@]}"; do
-  echo "======================================================================"
+  echo "====================================================================================="
   echo ${commands[$i]}
-  echo "----------------------------------------------------------------------"
+  echo "-------------------------------------------------------------------------------------"
   eval ${commands[$i]}
-  echo "======================================================================"
+  if [ "$?" == "0" ]; then
+    echo -e "\n> Passed"
+  else
+    echo -e "\n> FAILED!"
+  fi 
+  echo "====================================================================================="
   echo
 done
+

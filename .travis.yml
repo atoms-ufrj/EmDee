@@ -9,37 +9,37 @@ matrix:
   include:
 
     - os: linux
-      compiler: gcc
+      compiler: gcc-6
       addons: &gfortran5
         apt:
           sources: ubuntu-toolchain-r-test
           packages:
           - gfortran-5
           - gcc-5
-      env: VERSION=5 DEBUG=0 COVERAGE=0
+      env: VERSION=5 DBG=0 COVERAGE=0
 
     - os: linux
-      compiler: gcc
+      compiler: gcc-5
       addons: *gfortran5
-      env: VERSION=5 DEBUG=1 COVERAGE=0
+      env: VERSION=5 DBG=1 COVERAGE=1
 
     - os: linux
-      compiler: gcc
+      compiler: gcc-6
       addons: &gfortran6
         apt:
           sources: ubuntu-toolchain-r-test
           packages:
           - gfortran-6
           - gcc-6
-      env: VERSION=6 DEBUG=0 COVERAGE=0
+      env: VERSION=6 DBG=0 COVERAGE=0
 
-    - os: linux
-      compiler: gcc
-      addons: *gfortran6
-      env: VERSION=6 DEBUG=1 COVERAGE=1
+#    - os: linux
+#      compiler: gcc-6
+#      addons: *gfortran6
+#      env: VERSION=6 DBG=1 COVERAGE=1
 
 script:
-  - make -j 2 CC=gcc-$VERSION FORT=gfortran-$VERSION test
+  - make -j 2 CC=gcc-$VERSION FORT=gfortran-$VERSION DEBUG=$DBG test
 
 after_success:
   - |

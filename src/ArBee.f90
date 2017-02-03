@@ -242,12 +242,12 @@ contains
     lmin = min(l1,l3)
     a = [ sign(one,w0(1))*sqrt(b%I113*r1), sqrt(lmin), sign(one,w0(3))*sqrt(b%I313*r3) ]
     m = lmin/max(l1,l3)
-    K = RF( zero, one - m, one )
+    K = Carlson_RF( zero, one - m, one )
     inv2K = half/K
     s0 = w0(2)/a(2)
     if (abs(s0) < one) then
       c0 = merge( w0(1)/a(1), w0(3)/a(3), l1 < l3 )
-      u0 = s0*RF( one - s0*s0, one - m*s0*s0, one )
+      u0 = s0*Carlson_RF( one - s0*s0, one - m*s0*s0, one )
       i0 = staircase(u0*inv2K)
     else
       a(2) = abs(w0(2))
@@ -284,7 +284,7 @@ contains
         real(rb)             :: Theta
         real(rb) :: x2
         x2 = x*x
-        Theta = -third*n*x*x2*RJ( one - x2, one - m*x2, one, one + n*x2 )
+        Theta = -third*n*x*x2*Carlson_RJ( one - x2, one - m*x2, one, one + n*x2 )
       end function Theta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       pure function deltaFcn( u0, c0, s0, d0, u, cn, sn, dn, m, jump, alpha )

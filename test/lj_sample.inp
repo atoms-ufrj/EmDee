@@ -1,0 +1,17 @@
+[Configuration file name]
+NIST_lj_sample.mol
+[Cutoff distance]
+3.0
+[Skin for neighbor lists]
+0.3
+[Seed for random number generation]
+86245
+[Integration time step]
+0.002
+[Number of integration steps]
+50
+[Interval for property printing]
+10
+[Temperature]
+2.0
+

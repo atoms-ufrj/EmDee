@@ -25,13 +25,16 @@ use pairModelClass
 implicit none
 
 !> Abstract class for pair model lj_sf
+!!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
-!!        2) allocatable parameters are permitted only for rank=1
-!!        3) a series of rank-1 allocatable parameters must be succeeded by an integer parameter,
-!!           which will contain their (common) size after allocation
+!!        2) recognizable parameter types are real(rb) and integer(ib)
+!!        3) allocatable one-dimensional arrays (i.e. vectors) are permitted as parameters
+!!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
+!!           parameter or series of equally-sized allocatable parameters.
+
 type, extends(cPairModel) :: pair_lj_sf
-  real(rb) :: epsilon !<> Lennard-Jones parameter epsilon
-  real(rb) :: sigma   !<> Lennard-Jones parameter sigma
+  real(rb) :: epsilon !<> Depth of the potential well
+  real(rb) :: sigma   !<> Distance at which the potential is zero
 
   real(rb) :: eps4, eps24, sigsq
   contains
@@ -62,61 +65,67 @@ contains
     model%eps24 = 24.0_rb*model%epsilon
     model%sigsq = model%sigma**2
 
-    ! Mark active contributions:
-    model%vdw = .true.
-
     ! Activate shifted-force status:
-    model%shifted_force_vdw = .true.
+    model%shifted_force = .true.
+
+    ! Attest that invR is evaluated during model computations:
+    model%noInvR = .false.
+    model%noInvR_virial = .false.
 
   end subroutine pair_lj_sf_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_sf_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine pair_lj_sf_compute( model, Eij, Wij, invR, invR2 )
     class(pair_lj_sf), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij
-    real(rb),          intent(in)  :: invR2, Qi, Qj
+    real(rb),          intent(out) :: Eij, Wij, invR
+    real(rb),          intent(in)  :: invR2
 
     real(rb) :: sr2, sr6, sr12, rFc
 
     sr2 = model%sigSq*invR2
     sr6 = sr2*sr2*sr2
     sr12 = sr6*sr6
-    rFc = model%fshift_vdw/sqrt(invR2)
-    Eij = model%eps4*(sr12 - sr6) + model%eshift_vdw + rFc
+    invR = sqrt(invR2)
+    rFc = model%fshift/invR
+    Eij = model%eps4*(sr12 - sr6) + model%eshift + rFc
     Wij = model%eps24*(sr12 + sr12 - sr6) - rFc
 
   end subroutine pair_lj_sf_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_lj_sf_virial( model, invR2, Qi, Qj ) result( Wij )
-    class(pair_lj_sf), intent(in) :: model
-    real(rb),          intent(in) :: invR2, Qi, Qj
-    real(rb)                      :: Wij
+  subroutine pair_lj_sf_virial( model, Wij, invR, invR2 )
+    class(pair_lj_sf), intent(in)  :: model
+    real(rb),          intent(out) :: Wij, invR
+    real(rb),          intent(in)  :: invR2
 
     real(rb) :: sr2, sr6, sr12
 
     sr2 = model%sigSq*invR2
     sr6 = sr2*sr2*sr2
     sr12 = sr6*sr6
-    Wij = model%eps24*(sr12 + sr12 - sr6) - model%fshift_vdw/sqrt(invR2)
+    invR = sqrt(invR2)
+    Wij = model%eps24*(sr12 + sr12 - sr6) - model%fshift/invR
 
-  end function pair_lj_sf_virial
+  end subroutine pair_lj_sf_virial
 
 !---------------------------------------------------------------------------------------------------
 
   function pair_lj_sf_mix( this, other ) result( mixed )
-    class(pair_lj_sf),    intent(in) :: this
+    class(pair_lj_sf), intent(in) :: this
     class(cPairModel), intent(in) :: other
-    class(cPairModel), pointer :: mixed
+    class(cPairModel), pointer    :: mixed
 
     select type (other)
+
       class is (pair_lj_sf)
         allocate(pair_lj_sf :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon), half*(this%sigma + other%sigma)] )
+
       class default
         mixed => null()
+
     end select
 
   end function pair_lj_sf_mix

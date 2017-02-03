@@ -25,7 +25,13 @@ use angleModelClass
 implicit none
 
 !> Abstract class for angle model harmonic
-!! NOTE: model parameters must be declared individually and tagged with comment mark "!<>"
+!!
+!! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
+!!        2) recognizable parameter types are real(rb) and integer(ib)
+!!        3) allocatable one-dimensional arrays (i.e. vectors) are permitted as parameters
+!!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
+!!           parameter or series of equally-sized allocatable parameters.
+
 type, extends(cAngleModel) :: angle_harmonic
   real(rb) :: k       !<> Force constant
   real(rb) :: theta0  !<> Equilibrium angle

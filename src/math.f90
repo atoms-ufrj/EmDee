@@ -58,6 +58,10 @@ type, extends(i32rng) :: kiss
     procedure :: i32  => kiss_i32
 end type kiss
 
+interface operator (.op.)
+  module procedure operation
+end interface
+
 contains
 
 !---------------------------------------------------------------------------------------------------
@@ -487,7 +491,7 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  pure real(rb) function RF( x, y, z )
+  pure real(rb) function Carlson_RF( x, y, z ) result( RF )
     real(rb), intent(in) :: x, y, z
 
     real(rb), parameter :: errtol = 0.001_rb
@@ -528,11 +532,11 @@ contains
       s = 1.0_rb + (c1*e2 - 0.10_rb - c2*e3)*e2 + c3*e3
       RF = s/sqrt(mu)
     end if
-  end function RF
+  end function Carlson_RF
 
 !---------------------------------------------------------------------------------------------------
 
-  pure real(rb) function RC( x, y )
+  pure real(rb) function Carlson_RC( x, y ) result( RC )
     real(rb), intent(in) :: x, y
 
     real(rb), parameter :: errtol = 0.001_rb
@@ -559,11 +563,11 @@ contains
       s = sn*sn*(0.30_rb + sn*(c1 + sn*(0.3750_rb + sn*c2)))
       RC = (1.0_rb + s)/sqrt(mu)
     end if
-  end function RC
+  end function Carlson_RC
 
 !---------------------------------------------------------------------------------------------------
 
-  pure real(rb) function RJ( x, y, z, p )
+  pure real(rb) function Carlson_RJ( x, y, z, p ) result( RJ )
     real(rb), intent(in) :: x, y, z, p
 
     real(rb), parameter :: errtol = 0.001_rb
@@ -603,7 +607,7 @@ contains
         alfa = pn*(xnroot + ynroot + znroot) + xnroot*ynroot*znroot
         alfa = alfa*alfa
         beta = pn*(pn + lamda)*(pn + lamda)
-        sigma = sigma + power4*RC(alfa,beta)
+        sigma = sigma + power4*Carlson_RC(alfa,beta)
         power4 = power4*0.250_rb
         xn = (xn + lamda)*0.250_rb
         yn = (yn + lamda)*0.250_rb
@@ -620,7 +624,57 @@ contains
       s3 = pndev*ea*(c2 - pndev*c3) - c2*pndev*ec
       RJ = 3.0_rb*sigma + power4*(s1 + s2 + s3)/(mu*sqrt(mu))
     end if
-  end function RJ
+  end function Carlson_RJ
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function inverse_of_x_plus_ln_x( y ) result( x )
+    real(rb), intent(in) :: y
+    real(rb)             :: x
+    real(rb) :: x0
+    real(rb), parameter :: tol = 1.0e-12_rb
+    if (y > 0.5671432904097839_rb) then
+      x = y - log(y)
+    else
+      x = exp(y)
+    end if
+    x0 = x + one
+    do while (abs(x - x0) > tol*x0)
+      x0 = x
+      x = x*(y + one - log(x))/(x + one)
+    end do
+  end function inverse_of_x_plus_ln_x
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function inv_erfc( y ) result( x )
+    real(rb), intent(in) :: y
+    real(rb)             :: x
+    real(rb), parameter :: tol = 1.0e-8_rb
+    real(rb) :: x0
+    x = sqrt(-log(y))
+    x0 = x + one
+    do while (abs(x-x0) > tol)
+      x0 = x
+      x = x + half*sqrt(Pi)*(erfc(x) - y)/exp(-x**2)
+    end do
+  end function inv_erfc
+
+!---------------------------------------------------------------------------------------------------
+
+  elemental function normSq( x ) result( y )
+    complex(rb), intent(in) :: x
+    real(rb)                :: y
+    y = realpart(x)**2 + imagpart(x)**2
+  end function normSq
+
+!---------------------------------------------------------------------------------------------------
+
+  elemental function operation( a, b ) result( c )
+    complex(rb), intent(in) :: a, b
+    real(rb)                :: c
+    c = realpart(a)*imagpart(b) - realpart(b)*imagpart(a)
+  end function operation
 
 !---------------------------------------------------------------------------------------------------
 

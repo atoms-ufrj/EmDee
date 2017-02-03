@@ -34,16 +34,29 @@ function system( threads::Integer, layers::Integer, rc::Real, skin::Real, N::Int
                 threads, layers, rc, skin, N, Vector{Int32}(types), Vector{Float64}(masses) )
 end
 #---------------------------------------------------------------------------------------------------
-function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel )
+function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel, kCoul::Real )
   ccall( (:EmDee_set_pair_model,"libemdee"), Void,
-         (tEmDee, Int32, Int32, tModel),
-         md, itype, jtype, model )
+         (tEmDee, Int32, Int32, tModel, Float64),
+         md, itype, jtype, model, kCoul )
 end
 #---------------------------------------------------------------------------------------------------
-function set_pair_multimodel( md::tEmDee, itype::Integer, jtype::Integer, model::Array{tModel} )
+function set_pair_multimodel( md::tEmDee, itype::Integer, jtype::Integer, model::Array{tModel},
+                              kCoul::RealArray )
   ccall( (:EmDee_set_pair_multimodel,"libemdee"), Void,
-         (tEmDee, Int32, Int32, tModel),
-         md, itype, jtype, model )
+         (tEmDee, Int32, Int32, Ptr{tModel}, Ptr{Float64}),
+         md, itype, jtype, model, kCoul )
+end
+#---------------------------------------------------------------------------------------------------
+function set_coul_model( md::tEmDee, model::tModel )
+  ccall( (:EmDee_set_coul_model,"libemdee"), Void,
+         (tEmDee, tModel),
+         md, model )
+end
+#---------------------------------------------------------------------------------------------------
+function set_pair_multimodel( md::tEmDee, model::Array{tModel} )
+  ccall( (:EmDee_set_coul_multimodel,"libemdee"), Void,
+         (tEmDee, Ptr{tModel}),
+         md, model )
 end
 #---------------------------------------------------------------------------------------------------
 function switch_model_layer( md::tEmDee, layer::Int )
@@ -116,6 +129,10 @@ end
 #---------------------------------------------------------------------------------------------------
 function pair_none()
   return ccall( (:EmDee_pair_none,"libemdee"), tModel, () )
+end
+#---------------------------------------------------------------------------------------------------
+function coul_none()
+  return ccall( (:EmDee_coul_none,"libemdee"), tModel, () )
 end
 #---------------------------------------------------------------------------------------------------
 function bond_none()

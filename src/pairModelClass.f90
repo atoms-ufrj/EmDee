@@ -26,37 +26,36 @@ implicit none
 
 !> Abstract class for pair interaction models
 type, abstract, extends(cModel) :: cPairModel
-  logical  :: vdw = .false.
-  logical  :: coulomb = .false.
-  logical  :: shifted_force_vdw = .false.
-  logical  :: shifted_force_coul = .false.
-  real(rb) :: eshift_vdw = zero
-  real(rb) :: fshift_vdw = zero
-  real(rb) :: eshift_coul = zero
-  real(rb) :: fshift_coul = zero
+  real(rb) :: eshift = zero
+  real(rb) :: fshift = zero
+  logical  :: shifted = .false.
+  logical  :: shifted_force = .false.
+  logical  :: noInvR = .true.
+  logical  :: noInvR_virial = .true.
   contains
     procedure(cPairModel_compute), deferred :: compute
     procedure(cPairModel_virial),  deferred :: virial
     procedure(cPairModel_mix),     deferred :: mix
 
     procedure :: shifting_setup => cPairModel_shifting_setup
+    procedure :: kspace_setup => cPairModel_kspace_setup
 end type cPairModel
 
 abstract interface
 
-  subroutine cPairModel_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine cPairModel_compute( model, Eij, Wij, invR, invR2 )
     import
     class(cPairModel), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij
-    real(rb),          intent(in)  :: invR2, Qi, Qj
+    real(rb),          intent(out) :: Eij, Wij, invR
+    real(rb),          intent(in)  :: invR2
   end subroutine cPairModel_compute
 
-  function cPairModel_virial( model, invR2, Qi, Qj ) result( Wij )
+  subroutine cPairModel_virial( model, Wij, invR, invR2 )
     import
     class(cPairModel), intent(in)  :: model
-    real(rb),          intent(in)  :: invR2, Qi, Qj
-    real(rb)                       :: Wij
-  end function cPairModel_virial
+    real(rb),          intent(out) :: Wij, invR
+    real(rb),          intent(in)  :: invR2
+  end subroutine cPairModel_virial
 
   function cPairModel_mix( this, other ) result( mixed )
     import
@@ -69,9 +68,11 @@ end interface
 !> Container structure for pair models
 type pairModelContainer
   class(cPairModel), allocatable :: model
+  logical  :: coulomb = .false.
+  real(rb) :: kCoul = zero
   contains
-    procedure :: pairModelContainer_assign
-    generic :: assignment(=) => pairModelContainer_assign
+    procedure :: assign => pairModelContainer_assign
+    generic :: assignment(=) => assign
     procedure :: mix => pairModelContainer_mix
 end type pairModelContainer
 
@@ -94,32 +95,36 @@ contains
     class(cPairModel), intent(inout) :: model
     real(rb),          intent(in)    :: cutoff
 
-    real(rb) :: invR2, Evdw, Wvdw, Etot, Wtot, Ecoul, Wcoul
+    real(rb) :: invR2, E, W, invR
 
-    ! Zero van der Waals and Coulombic energy and force shifts:
-    model%fshift_vdw = zero
-    model%eshift_vdw = zero
-    model%fshift_coul = zero
-    model%eshift_coul = zero
+    ! Zero energy and force shifts:
+    model%fshift = zero
+    model%eshift = zero
 
-    ! Compute van der Waals and Coulombic energies and virials at cutoff:
-    invR2 = one/cutoff**2
-    call model%compute( Evdw, Wvdw, invR2, zero, zero )
-    call model%compute( Etot, Wtot, invR2, one, one )
-    Ecoul = Etot - Evdw
-    Wcoul = Wtot - Wvdw
+    if (model%shifted .or. model%shifted_force) then
 
-    ! Update van der Waals energy and force shifts:
-    model%fshift_vdw = Wvdw/cutoff
-    model%eshift_vdw = -Evdw
-    if (model%shifted_force_vdw) model%eshift_vdw = model%eshift_vdw - Wvdw
+      ! Compute energies and virials at cutoff:
+      invR2 = one/cutoff**2
+      call model%compute( E, W, invR, invR2 )
 
-    ! Update Coulombic energy and force shifts:
-    model%fshift_coul = Wcoul/cutoff
-    model%eshift_coul = -Ecoul
-    if (model%shifted_force_coul) model%eshift_coul = model%eshift_coul - Wcoul
+      ! Update energy and force shifts:
+      if (model%shifted_force) then
+        model%eshift = -(E + W)
+        model%fshift = W/cutoff
+      else
+        model%eshift = -E
+      end if
+
+    end if
 
   end subroutine cPairModel_shifting_setup
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cPairModel_kspace_setup( model, alpha )
+    class(cPairModel), intent(inout) :: model
+    real(rb),          intent(in)    :: alpha
+  end subroutine cPairModel_kspace_setup
 
 !===================================================================================================
 !                         P A I R     M O D E L    C O N T A I N E R
@@ -127,7 +132,7 @@ contains
 
   subroutine pairModelContainer_assign( new, old )
     class(pairModelContainer), intent(inout) :: new
-    type(modelContainer), intent(in)    :: old
+    type(modelContainer),      intent(in)    :: old
 
     if (allocated(new%model)) deallocate( new%model )
 
@@ -136,7 +141,7 @@ contains
         class is (cPairModel)
           allocate( new%model, source = model )
         class default
-          stop "ERROR: cannot assign a pair model type from another model type"
+          call error( "pair model assignment", trim(model%name)//" is not a pair model" )
       end select
     end if
 
@@ -145,22 +150,24 @@ contains
 !---------------------------------------------------------------------------------------------------
 
   function pairModelContainer_mix( a, b ) result( c )
-    class(pairModelContainer), intent(in) :: a
-    class(cPairModel),         intent(in) :: b
+    class(pairModelContainer), intent(in) :: a, b
+!    class(cPairModel),         intent(in) :: b
     type(pairModelContainer)              :: c
 
     class(cPairModel), pointer :: mixed
 
-    mixed => b % mix( a%model )
-    if (.not.associated(mixed)) mixed => a % model % mix( b )
+    mixed => b % model % mix( a%model )
+    if (.not.associated(mixed)) mixed => a % model % mix( b%model )
     if (associated(mixed)) then
       allocate( c%model, source = mixed )
       deallocate( mixed )
     else
       allocate( c%model, source = pair_none(name="none") )
-      write(*,'("WARNING: no mixing rule found for pair interaction models ",A," and ",A,".")') &
-        trim(a % model % name), trim(b % name)
+      call warning( "no mixing rule found for models "//trim(a%model%name)//" and "//trim(b%model%name) )
     end if
+
+    c%Coulomb = a%Coulomb .and. b%Coulomb
+    if (c%Coulomb) c%kCoul = sqrt(a%kCoul*b%kCoul)
 
   end function pairModelContainer_mix
 
@@ -186,22 +193,22 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_compute( model, Eij, Wij, invR2, Qi, Qj )
+  subroutine pair_none_compute( model, Eij, Wij, invR, invR2 )
     class(pair_none), intent(in)  :: model
-    real(rb),         intent(out) :: Eij, Wij
-    real(rb),         intent(in)  :: invR2, Qi, Qj
+    real(rb),         intent(out) :: Eij, Wij, invR
+    real(rb),         intent(in)  :: invR2
     Eij = zero
     Wij = zero
   end subroutine pair_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  function pair_none_virial( model, invR2, Qi, Qj ) result( Wij )
-    class(pair_none), intent(in) :: model
-    real(rb),         intent(in) :: invR2, Qi, Qj
-    real(rb)                     :: Wij
+  subroutine pair_none_virial( model, Wij, invR, invR2 )
+    class(pair_none), intent(in)  :: model
+    real(rb),         intent(out) :: Wij, invR
+    real(rb),         intent(in)  :: invR2
     Wij = zero
-  end function pair_none_virial
+  end subroutine pair_none_virial
 
 !---------------------------------------------------------------------------------------------------
 
@@ -212,9 +219,10 @@ contains
 
     ! Mixing rule: pair_none + any pair model => pair_none
     allocate(pair_none :: mixed)
+    call mixed % setup()
 
   end function pair_none_mix
 
-!---------------------------------------------------------------------------------------------------
+!===================================================================================================
 
 end module pairModelClass
