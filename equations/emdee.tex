@@ -154,11 +154,11 @@ Therefore,
 
 Conventionally, for a simulation box with periodic boundary conditions, the long-range electrostatic part of the potential energy is written as
 \begin{equation*}
-U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_j \sum_k q_j q_k e^{i \tr{\vt g}({\vt r}_j - {\vt r}_k)},
+U_\text{long} = \frac{2\pi k_e} {\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{\|\vt k\|^2}{4\alpha^2}}}{\|\vt k\|^2} \sum_m \sum_n q_m q_n e^{i \tr{\vt k}({\vt r}_m - {\vt r}_n)},
 \end{equation*}
-where $k_e$ is Coulomb's constant ($k_e = \frac{1}{4\pi\epsilon_0}$), $\epsilon$ is a dielectric constant, $V$ is the box volume, $\vt n$ is a vector in $\mathbb Z^3$ (integer lattice), $\vt g = 2\pi \vt L^{-1}{\vt n}$ is a reciprocal space vector, and $g = \|\vt k\|$ is the norm of $\vt g$. 
+where $k_e$ is Coulomb's constant ($k_e = \frac{1}{4\pi\epsilon_0}$), $\epsilon$ is a dielectric constant, $V$ is the box volume, $\vt n$ is a vector in $\mathbb Z^3$ (integer lattice), $\vt k = 2\pi \vt L^{-1}{\vt n}$ is a reciprocal space vector, and $k = \|\vt k\|$ is the norm of $\vt k$. The long-range part of the potential energy is
 \begin{equation*}
-U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \left(\sum_j q_j e^{i \tr{\vt g}{\vt r}_j} \right) \left(\sum_k q_k e^{-i \tr{\vt g}{\vt r}_k}\right),
+U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left(\sum_j q_j e^{i \tr{\vt k}{\vt r}_j} \right) \left(\sum_m q_m e^{-i \tr{\vt k}{\vt r}_m}\right),
 \end{equation*}
 
 Given that $S(\vt g) = \sum_j q_j e^{i \tr{\vt g}{\vt r}_j}$ is defined as the structure factor of the system, we observe that $\overline{S(\vt g)} = \sum_j q_j e^{-i \tr{\vt g}{\vt r}_j}$ is the complex conjugate of $S(\vt g)$ and, therefore,

@@ -108,7 +108,8 @@ type :: tData
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
-  type(modelContainer),     allocatable :: coul(:)
+  type(coulModelContainer), allocatable :: coul(:)
+  class(cKspaceModel),      allocatable :: kspace
 
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
@@ -193,10 +194,10 @@ contains
 !===================================================================================================
 
   subroutine set_pair_type( me, itype, jtype, layer, container, kCoul )
-    type(tData),              intent(inout) :: me
-    integer(ib),              intent(in)    :: itype, jtype, layer
-    type(pairModelContainer), intent(in)    :: container
-    real(rb),                 intent(in)    :: kCoul
+    type(tData),          intent(inout) :: me
+    integer(ib),          intent(in)    :: itype, jtype, layer
+    type(modelContainer), intent(in)    :: container
+    real(rb),             intent(in)    :: kCoul
 
     integer :: ktype
 

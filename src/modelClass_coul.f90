@@ -26,10 +26,12 @@ implicit none
 
 !> Abstract class for coul interaction models
 type, abstract, extends(cModel) :: cCoulModel
-  logical  :: shifted
+  logical  :: shifted = .false.
   logical  :: shifted_force = .false.
   real(rb) :: eshift = zero
   real(rb) :: fshift = zero
+  logical  :: requires_kspace = .false.
+  real(rb) :: alpha = zero
   contains
     procedure(cCoulModel_compute), deferred :: compute
     procedure(cCoulModel_virial), deferred :: virial

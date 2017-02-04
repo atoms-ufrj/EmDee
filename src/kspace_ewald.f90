@@ -27,7 +27,13 @@ use kspaceModelClass
 implicit none
 
 !> Abstract class for kspace model ewald
-!! NOTE: model parameters must be declared individually and tagged with comment mark "!<>"
+!!
+!! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
+!!        2) recognizable parameter types are real(rb) and integer(ib)
+!!        3) allocatable one-dimensional arrays (i.e. vectors) are permitted as parameters
+!!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
+!!           parameter or series of equally-sized allocatable parameters.
+
 type, extends(cKspaceModel) :: kspace_ewald
   real(rb) :: accuracy !<> Expected accuracy in energy calculations
 

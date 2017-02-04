@@ -47,6 +47,12 @@ function set_pair_multimodel( md::tEmDee, itype::Integer, jtype::Integer, model:
          md, itype, jtype, model, kCoul )
 end
 #---------------------------------------------------------------------------------------------------
+function set_kspace_model( md::tEmDee, model::tModel )
+  ccall( (:EmDee_set_kspace_model,"libemdee"), Void,
+         (tEmDee, tModel),
+         md, model )
+end
+#---------------------------------------------------------------------------------------------------
 function set_coul_model( md::tEmDee, model::tModel )
   ccall( (:EmDee_set_coul_model,"libemdee"), Void,
          (tEmDee, tModel),

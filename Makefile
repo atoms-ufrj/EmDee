@@ -62,10 +62,10 @@ DIHEDMODELS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/dihedral_*.f90))
 ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
               $(COULMODELS) $(BONDMODELS) $(ANGLEMODELS) $(DIHEDMODELS)
 
-#KSPACESOLVERS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
+KSPACE = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
 
 OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
-                     $(ALLMODELS) $(addprefix modelClass_,$(MODELTERMS)) \
+                     $(ALLMODELS) $(KSPACE) $(addprefix modelClass_,$(MODELTERMS) kspace) \
                      modelClass lists global)
 
 COMPUTES = $(addprefix compute_,$(MODELTERMS))
@@ -160,33 +160,30 @@ $(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(SRCDIR)/compute_pair.f90: $(call src,$(PAIRMODELS))
+$(SRCDIR)/compute_pair.f90: $(call src,$(PAIRMODELS)) $(SRCDIR)/make_compute.sh
 	bash $(SRCDIR)/make_compute.sh pair $(PAIRMODELS) > $@
 
-$(SRCDIR)/compute_coul.f90: $(call src,$(COULMODELS))
+$(SRCDIR)/compute_coul.f90: $(call src,$(COULMODELS)) $(SRCDIR)/make_compute.sh
 	bash $(SRCDIR)/make_compute.sh coul $(COULMODELS) > $@
 
-$(SRCDIR)/compute_coul_virial.f90: $(call src,$(COULMODELS))
-	bash $(SRCDIR)/make_compute_virial.sh coul $(COULMODELS) > $@
-
-$(SRCDIR)/compute_bond.f90: $(call src,$(BONDMODELS))
+$(SRCDIR)/compute_bond.f90: $(call src,$(BONDMODELS)) $(SRCDIR)/make_compute.sh
 	bash $(SRCDIR)/make_compute.sh bond $(BONDMODELS) > $@
 
-$(SRCDIR)/compute_angle.f90: $(call src,$(ANGLEMODELS))
+$(SRCDIR)/compute_angle.f90: $(call src,$(ANGLEMODELS)) $(SRCDIR)/make_compute.sh
 	bash $(SRCDIR)/make_compute.sh angle $(ANGLEMODELS) > $@
 
-$(SRCDIR)/compute_dihedral.f90: $(call src,$(DIHEDMODELS))
+$(SRCDIR)/compute_dihedral.f90: $(call src,$(DIHEDMODELS)) $(SRCDIR)/make_compute.sh
 	bash $(SRCDIR)/make_compute.sh dihedral $(DIHEDMODELS) > $@
 
-$(SRCDIR)/virial_compute_pair.f90: $(call src,$(PAIRMODELS))
+$(SRCDIR)/virial_compute_pair.f90: $(call src,$(PAIRMODELS)) $(SRCDIR)/make_virial_compute.sh
 	bash $(SRCDIR)/make_virial_compute.sh pair $(PAIRMODELS) > $@
 
-$(SRCDIR)/virial_compute_coul.f90: $(call src,$(COULMODELS))
+$(SRCDIR)/virial_compute_coul.f90: $(call src,$(COULMODELS)) $(SRCDIR)/make_virial_compute.sh
 	bash $(SRCDIR)/make_virial_compute.sh coul $(COULMODELS) > $@
 
 $(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addprefix modelClass_,$(MODELTERMS))) \
-                    $(SRCDIR)/make_models_module.sh
-	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $(SRCDIR)/models.f90
+                    $(call obj,$(KSPACE) modelClass_kspace) $(SRCDIR)/make_models_module.sh
+	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) $(KSPACE) > $(SRCDIR)/models.f90
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $(SRCDIR)/models.f90
 
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(OBJDIR)/modelClass_pair.o
@@ -204,11 +201,8 @@ $(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(OBJDIR)/modelClass_angle.o
 $(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(OBJDIR)/modelClass_dihedral.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-#$(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/modelClass_kspace.o
-#	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
-
-#$(OBJDIR)/modelClass_kspace.o: $(SRCDIR)/modelClass_kspace.f90 $(OBJDIR)/modelClass.o $(OBJDIR)/lists.o
-#	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+$(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/modelClass_kspace.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/modelClass_%.o: $(SRCDIR)/modelClass_%.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<

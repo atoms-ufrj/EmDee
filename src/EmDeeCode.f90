@@ -72,7 +72,7 @@ contains
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
     type(pairModelContainer) :: noPair
-    type(modelContainer)     :: noCoul
+    type(coulModelContainer) :: noCoul
 
     write(*,'("EmDee (version: ",A11,")")') VERSION
 
@@ -195,20 +195,27 @@ contains
     type(c_ptr),  value :: model
     real(rb),     value :: kCoul
 
-    character(*), parameter :: task = "pair model setting"
+    character(*), parameter :: task = "pair model setup"
 
     integer :: layer, ktype
     type(tData), pointer :: me
-    type(pairModelContainer), pointer :: container
+    type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
+    if (me%initialized) then
+      call error( task, "cannot set model after coordinates have been defined" )
+    end if
+
     if (.not.ranged( [itype,jtype], me%ntypes )) then
       call error( task, "provided type index is out of range" )
     end if
-    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
-    if (.not.c_associated(model)) call error( task, "a valid pair model must be provided" )
+
+    if (.not.c_associated(model)) then
+      call error( task, "a valid pair model must be provided" )
+    end if
     call c_f_pointer( model, container )
-    select type ( pair_model => container%model )
+
+    select type ( pair => container%model )
       class is (cPairModel)
         do layer = 1, me%nlayers
           call set_pair_type( me, itype, jtype, layer, container, kCoul )
@@ -242,33 +249,32 @@ contains
     type(c_ptr),  intent(in) :: model(*)
     real(rb),     intent(in) :: kCoul(*)
 
-    character(*), parameter :: task = "pair multimodel setting"
+    character(*), parameter :: task = "pair multimodel setup"
 
     integer :: layer, ktype
     character(5) :: C
     type(tData), pointer :: me
-    type(pairModelContainer), pointer :: container
+    type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
+    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
+
     if (.not.ranged( [itype,jtype], me%ntypes )) then
       call error( task, "provided type index is out of range" )
     end if
 
     write(C,'(I5)') me%nlayers
     C = adjustl(C)
-
-    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
     do layer = 1, me%nlayers
-      if (c_associated(model(layer))) then
-        call c_f_pointer( model(layer), container )
-      else
+      if (.not.c_associated(model(layer))) then
         call error( task, trim(C)//" valid pair models must be provided" )
       end if
-      select type (pair_model => container%model )
+      call c_f_pointer( model(layer), container )
+      select type ( pair => container%model )
         class is (cPairModel)
           call set_pair_type( me, itype, jtype, layer, container, kCoul(layer) )
         class default
-          call error( task, trim(C)//" valid pair models must be provided" )
+          call error( task, "a valid pair model must be provided" )
       end select
     end do
 
@@ -290,31 +296,67 @@ contains
 
 !===================================================================================================
 
+  subroutine EmDee_set_kspace_model( md, model ) bind(C,name="EmDee_set_kspace_model")
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: model
+
+    character(*), parameter :: task = "kspace model setup"
+
+    type(tData), pointer :: me
+    type(modelContainer), pointer :: container
+
+    call c_f_pointer( md%data, me )
+    if (me%initialized) then
+      call error( task, "cannot set model after coordinates have been defined" )
+    end if
+
+    if (.not.c_associated(model)) then
+      call error( task, "a valid kspace model must be provided" )
+    end if
+    call c_f_pointer( model, container )
+
+    select type ( kspace => container%model )
+      class is (cKspaceModel)
+        if (allocated(me%kspace)) deallocate( me%kspace )
+        allocate( me%kspace, source = kspace )
+      class default
+        call error( task, "a valid kspace model must be provided" )
+    end select
+
+  end subroutine EmDee_set_kspace_model
+
+!===================================================================================================
+
   subroutine EmDee_set_coul_model( md, model ) bind(C,name="EmDee_set_coul_model")
     type(tEmDee), value :: md
     type(c_ptr),  value :: model
 
-    character(*), parameter :: task = "coulomb model setting"
+    character(*), parameter :: task = "coulomb model setup"
 
     integer :: layer
     type(tData), pointer :: me
     type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
+    if (me%initialized) then
+      call error( task, "cannot set model after coordinates have been defined" )
+    end if
+
+    if (.not.c_associated(model)) then
+      call error( task, "a valid coulomb model must be provided" )
+    end if
     call c_f_pointer( model, container )
 
-    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
-    if (.not.c_associated(model)) call error( task, "a valid coulomb model must be provided" )
-    do layer = 1, me%nlayers
-      me%coul(layer) = container
-      select type ( coul_model => me%coul(layer)%model )
-        class is (cCoulModel)
-          call coul_model % shifting_setup( me%Rc )
-        class default
-          call error( task, "a valid coulomb model must be provided" )
-      end select
-    end do
-    me % multilayer_coulomb = .false.
+    select type ( coul => container%model )
+      class is (cCoulModel)
+        do layer = 1, me%nlayers
+          me%coul(layer) = container
+          call me % coul(layer) % model % shifting_setup( me%Rc )
+        end do
+      class default
+        call error( task, "a valid coulomb model must be provided" )
+    end select
+    me%multilayer_coulomb = .false.
 
   end subroutine EmDee_set_coul_model
 
@@ -324,7 +366,7 @@ contains
     type(tEmDee), value :: md
     type(c_ptr),  intent(in) :: model(*)
 
-    character(*), parameter :: task = "coulomb multimodel setting"
+    character(*), parameter :: task = "coulomb multimodel setup"
 
     integer :: layer
     character(5) :: C
@@ -332,25 +374,24 @@ contains
     type(modelContainer), pointer :: container
 
     call c_f_pointer( md%data, me )
+    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
 
     write(C,'(I5)') me%nlayers
     C = adjustl(C)
-
-    if (me%initialized) call error( task, "cannot set model after coordinates have been defined" )
     do layer = 1, me%nlayers
       if (.not.c_associated(model(layer))) then
         call error( task, trim(C)//" valid coulomb models must be provided" )
       end if
       call c_f_pointer( model(layer), container )
-      me%coul(layer) = container
-      select type ( coul_model => me%coul(layer)%model )
+      select type ( coul => container%model )
         class is (cCoulModel)
-          call coul_model % shifting_setup( me%Rc )
+          me%coul(layer) = container
+          call me % coul(layer) % model % shifting_setup( me%Rc )
         class default
-          call error( task, trim(C)//" valid coulomb models must be provided" )
+          call error( task, "a valid coulomb model must be provided" )
       end select
     end do
-    me % multilayer_coulomb = .true.
+    me%multilayer_coulomb = .true.
 
   end subroutine EmDee_set_coul_multimodel
 
@@ -514,13 +555,7 @@ contains
         me%invL2 = me%invL**2
         if (.not.me%initialized) then
           me%initialized = allocated( me%R )
-          if (me%initialized) then
-            call check_actual_interactions( me )
-            !$omp parallel num_threads(me%nthreads)
-            call update_rigid_bodies( me, omp_get_thread_num() + 1 )
-            !$omp end parallel
-            md%DOF = 3*me%nfree + sum(me%body%dof) - 3
-          end if
+          if (me%initialized) call perform_initialization
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -532,13 +567,7 @@ contains
         !$omp end parallel
         if (.not.me%initialized) then
           me%initialized = me%Lbox > zero
-          if (me%initialized) then
-            call check_actual_interactions( me )
-            !$omp parallel num_threads(me%nthreads)
-            call update_rigid_bodies( me, omp_get_thread_num() + 1 )
-            !$omp end parallel
-            md%DOF = 3*me%nfree + sum(me%body%dof) - 3
-          end if
+          if (me%initialized) call perform_initialization
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -620,6 +649,26 @@ contains
           end associate
         end do
       end subroutine update_rigid_bodies
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine perform_initialization
+        integer :: layer
+        !$omp parallel num_threads(me%nthreads)
+        call update_rigid_bodies( me, omp_get_thread_num() + 1 )
+        !$omp end parallel
+        md%DOF = 3*me%nfree + sum(me%body%dof) - 3
+        call check_actual_interactions( me )
+        do layer = 1, me%nlayers
+          associate( coul => me%coul(layer)%model )
+            if (coul%requires_kspace) then
+              if (allocated(me%kspace)) then
+                coul%alpha = me%kspace%alpha
+              else
+                call error( "upload", "model coul_"//trim(coul%name)//" requires a kspace solver" )
+              end if
+            end if
+          end associate
+        end do
+      end subroutine perform_initialization
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 

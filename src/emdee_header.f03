@@ -81,6 +81,13 @@ interface
     real(c_double), intent(in) :: kCoul(*)
   end subroutine EmDee_set_pair_multimodel
 
+  subroutine EmDee_set_kspace_model( md, model ) &
+    bind(C,name="EmDee_set_kspace_model")
+    import :: c_ptr, tEmDee
+    type(tEmDee), value :: md
+    type(c_ptr),  value :: model
+  end subroutine EmDee_set_kspace_model
+
   subroutine EmDee_set_coul_model( md, model ) &
     bind(C,name="EmDee_set_coul_model")
     import :: c_ptr, tEmDee
