@@ -66,7 +66,7 @@ Q(1:N/5) = 0.0_rb
 Q(N/2+1:N/2+N/5) = 0.0_rb
 
 !md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_null_ptr )
-md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_null_ptr )
+md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_null_ptr, c_null_ptr )
 
 pair = EmDee_pair_lj_cut( 1.0_rb, 1.0_rb )
 !pair = EmDee_pair_lj_sf( 1.0_rb, 1.0_rb )

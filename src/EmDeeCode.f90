@@ -31,7 +31,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "02 Feb 2017"
+character(11), parameter :: VERSION = "04 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -61,13 +61,13 @@ contains
 !                                L I B R A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  function EmDee_system( threads, layers, rc, skin, N, types, masses ) bind(C,name="EmDee_system")
+  function EmDee_system( threads, layers, rc, skin, N, types, masses, bodies ) &
+    bind(C,name="EmDee_system")
     integer(ib), value :: threads, layers, N
     real(rb),    value :: rc, skin
-    type(c_ptr), value :: types, masses
+    type(c_ptr), value :: types, masses, bodies
     type(tEmDee)       :: EmDee_system
 
-    integer :: i
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
@@ -88,6 +88,7 @@ contains
     me%xRcSq = me%xRc**2
     me%skinSq = skin*skin
     me%natoms = N
+    me%threadAtoms = (N + threads - 1)/threads
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -120,11 +121,8 @@ contains
     allocate( me%cell(0) )
     allocate( me%atomCell(N) )
 
-    ! Allocate variables associated to rigid bodies:
-    allocate( me%body(me%nbodies) )
-    me%nfree = N
-    allocate( me%free(N), source = [(i,i=1,N)] )
-    me%threadAtoms = (N + threads - 1)/threads
+    ! Allocate variables related to rigid bodies:
+    call allocate_rigid_bodies( me, bodies )
 
     ! Allocate memory for list of atoms per cell:
     call me % cellAtom % allocate( N, 0 )
@@ -493,66 +491,6 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_add_rigid_body( md, N, indexes ) bind(C,name="EmDee_add_rigid_body")
-    type(tEmDee), value :: md
-    type(c_ptr),  value :: indexes
-    integer(ib),  value :: N
-
-    integer, parameter :: extraBodies = 100
-
-    integer :: i, j
-    logical,  allocatable :: isFree(:)
-    real(rb), allocatable :: Rn(:,:)
-    integer,      pointer :: atom(:)
-    type(tData),  pointer :: me
-
-    type(tBody), allocatable :: body(:)
-
-    call c_f_pointer( indexes, atom, [N] )
-    call c_f_pointer( md%data, me )
-
-    if (.not.allocated(me%R)) call error( "add_rigid_body", "coordinates have not been defined" )
-
-    allocate( isFree(me%natoms) )
-    isFree = .false.
-    isFree(me%free(1:me%nfree)) = .true.
-    isFree(atom) = .false.
-    me%nfree = me%nfree - N
-    md%DOF = md%DOF - 3*N
-    if (count(isFree) /= me%nfree) call error( "add_rigid_body", "only free atoms are allowed" )
-    me%free(1:me%nfree) = pack([(i,i=1,me%natoms)],isFree)
-    me%threadAtoms = (me%nfree + me%nthreads - 1)/me%nthreads
-
-    if (me%nbodies == size(me%body)) then
-      allocate( body(me%nbodies + extraBodies) )
-      body(1:me%nbodies) = me%body
-      deallocate( me%body )
-      call move_alloc( body, me%body )
-    end if
-    me%nbodies = me%nbodies + 1
-    me%threadBodies = (me%nbodies + me%nthreads - 1)/me%nthreads
-    associate(b => me%body(me%nbodies))
-      call b % setup( atom, me%mass(atom) )
-      if (me%initialized) then
-        Rn = me%R(:,atom)
-        forall (j=2:b%NP) Rn(:,j) = Rn(:,j) - me%Lbox*anint((Rn(:,j) - Rn(:,1))*me%invL)
-        call b % update( Rn )
-        me%R(:,b%index) = Rn
-      end if
-      md%DOF = md%DOF + b%dof
-      md%rotationDOF = md%rotationDOF + b%dof - 3
-    end associate
-
-    do i = 1, N-1
-      do j = i+1, N
-        call EmDee_ignore_pair( md, atom(i), atom(j) )
-      end do
-    end do
-
-  end subroutine EmDee_add_rigid_body
-
-!===================================================================================================
-
   subroutine EmDee_upload( md, option, address ) bind(C,name="EmDee_upload")
     type(tEmDee),      intent(inout) :: md
     character(c_char), intent(in)    :: option(*)
@@ -576,7 +514,13 @@ contains
         me%invL2 = me%invL**2
         if (.not.me%initialized) then
           me%initialized = allocated( me%R )
-          if (me%initialized) call check_actual_interactions( me )
+          if (me%initialized) then
+            call check_actual_interactions( me )
+            !$omp parallel num_threads(me%nthreads)
+            call update_rigid_bodies( me, omp_get_thread_num() + 1 )
+            !$omp end parallel
+            md%DOF = 3*me%nfree + sum(me%body%dof) - 3
+          end if
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -588,7 +532,13 @@ contains
         !$omp end parallel
         if (.not.me%initialized) then
           me%initialized = me%Lbox > zero
-          if (me%initialized) call check_actual_interactions( me )
+          if (me%initialized) then
+            call check_actual_interactions( me )
+            !$omp parallel num_threads(me%nthreads)
+            call update_rigid_bodies( me, omp_get_thread_num() + 1 )
+            !$omp end parallel
+            md%DOF = 3*me%nfree + sum(me%body%dof) - 3
+          end if
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -628,7 +578,7 @@ contains
         integer,  intent(in) :: thread
         real(rb), intent(in) :: Fext(3,me%natoms)
         integer :: i, j
-        do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+        do j = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
           i = me%free(j)
           me%F(:,i) = Fext(:,i)
         end do
@@ -646,6 +596,30 @@ contains
         me%charge(first:last) = Qext(first:last)
         me%charged(first:last) = Qext(first:last) /= zero
       end subroutine assign_charges
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine assign_coordinates( me, thread, Rext )
+        type(tData), intent(inout) :: me
+        integer,     intent(in)    :: thread
+        real(rb),    intent(in)    :: Rext(3,me%natoms)
+        integer :: first, last
+        first = (thread - 1)*me%threadAtoms + 1
+        last = min(thread*me%threadAtoms, me%natoms)
+        me%R(:,first:last) = Rext(:,first:last)
+      end subroutine assign_coordinates
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine update_rigid_bodies( me, thread )
+        type(tData),  intent(inout) :: me
+        integer,      intent(in)    :: thread
+        integer :: i, j
+        real(rb), allocatable :: R(:,:)
+        do j = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          associate(b => me%body(j))
+            R = me%R(:,b%index)
+            forall (i = 2:b%NP) R(:,i) = R(:,i) - me%Lbox*anint(me%invL*(R(:,i) - R(:,1)))
+            call b % update( R )
+          end associate
+        end do
+      end subroutine update_rigid_bodies
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 
@@ -710,7 +684,7 @@ contains
         integer,  intent(in)    :: thread
         real(rb), intent(inout) :: Pext(3,me%natoms)
         integer :: i
-        forall (i = (thread - 1)*me%threadAtoms + 1 : min(thread*me%threadAtoms, me%nfree))
+        forall (i = (thread - 1)*me%threadFreeAtoms + 1 : min(thread*me%threadFreeAtoms, me%nfree))
           Pext(:,me%free(i)) = me%P(:,me%free(i))
         end forall
         forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
@@ -857,7 +831,7 @@ contains
           end associate
         end do
         if (md%Options%translate) then
-          do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+          do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
             j = me%free(i)
             me%P(:,j) = CP*me%P(:,j) + CF*me%F(:,j)
             twoKEt = twoKEt + me%invMass(j)*sum(me%P(:,j)**2)
@@ -916,7 +890,7 @@ contains
           end associate
         end do
         if (md%Options%translate) then
-          do i = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%nfree)
+          do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
             j = me%free(i)
             me%R(:,j) = cR*me%R(:,j) + cP*me%P(:,j)*me%invMass(j)
           end do

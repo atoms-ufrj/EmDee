@@ -47,12 +47,12 @@ end type tEmDee
 
 interface
 
-  function EmDee_system( threads, layers, rc, skin, N, types, masses ) &
+  function EmDee_system( threads, layers, rc, skin, N, types, masses, bodies ) &
     bind(C,name="EmDee_system")
     import :: c_int, c_double, c_ptr, tEmDee
     integer(c_int), value :: threads, layers, N
     real(c_double), value :: rc, skin
-    type(c_ptr),    value :: types, masses
+    type(c_ptr),    value :: types, masses, bodies
     type(tEmDee)          :: EmDee_system
   end function EmDee_system
 
@@ -125,14 +125,6 @@ interface
     integer(c_int), value :: i, j, k, l
     type(c_ptr),    value :: model
   end subroutine EmDee_add_dihedral
-
-  subroutine EmDee_add_rigid_body( md, N, indexes ) &
-    bind(C,name="EmDee_add_rigid_body")
-    import :: c_int, c_ptr, tEmDee
-    type(tEmDee),   value :: md
-    type(c_ptr),    value :: indexes
-    integer(c_int), value :: N
-  end subroutine EmDee_add_rigid_body
 
   subroutine EmDee_upload( md, item, address ) &
     bind(C,name="EmDee_upload")

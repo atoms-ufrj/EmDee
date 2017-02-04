@@ -26,20 +26,13 @@ use mConfig
 
 implicit none
 
-integer(ib) :: Nsteps, Nprop, i
-real(rb)    :: Rc, Rs, Rc2, Temp, Dt, Dt_2
-
-type(tEmDee), target :: md
-type(c_ptr) :: pair
-
-integer :: threads
-character(256) :: filename, configFile
+#include "common/declarations.f90"
 
 call command_line_arguments( filename, threads )
 call read_data( filename )
 call read_configuration( configFile )
 
-md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass) )
+md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass), c_null_ptr )
 do i = 1, ntypes
   pair = EmDee_pair_lj_sf( epsilon(i), sigma(i) )
   call EmDee_set_pair_model( md, i, i, pair, kCoul )

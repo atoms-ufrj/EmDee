@@ -31,16 +31,20 @@ implicit none
 call command_line_arguments( filename, threads )
 call read_data( filename )
 call read_configuration( configFile )
-call unit_conversions
 
-md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass), c_null_ptr )
+where (mod(molecule,3) == 0) molecule = 0
+md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass), c_loc(molecule) )
 do i = 1, ntypes
-  pair = EmDee_pair_softcore_cut( epsilon(i), sigma(i), 1.0_rb )
+  if (epsilon(i) == 0.0_rb) then
+    pair = EmDee_pair_none( )
+  else
+    pair = EmDee_pair_lj_sf( epsilon(i), sigma(i) )
+  end if
   call EmDee_set_pair_model( md, i, i, pair, kCoul )
 end do
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
-call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
+call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 
 call run( 0, Nprop )
 
