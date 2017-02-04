@@ -26,14 +26,7 @@ use mConfig
 
 implicit none
 
-integer(ib) :: Nsteps, Nprop, i, seed
-real(rb)    :: Rc, Rs, Rc2, Temp, Dt, Dt_2
-
-type(tEmDee), target :: md
-type(c_ptr) :: pair
-
-integer :: threads
-character(256) :: filename, configFile
+#include "common/declarations.f90"
 
 call command_line_arguments( filename, threads )
 call read_data( filename )

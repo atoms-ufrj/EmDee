@@ -1,13 +1,5 @@
 # Description:
 Lennard-Jones System Sample (Source: NIST)
-# Energy conversion factor:
-1.0
-# Pressure conversion factor:
-1.0
-# Boltzmann's constant:
-1.0
-# Coulomb's constant:
-0.0
 # Number of types:
 1
 # Type parameters: id mass epsilon/kB sigma

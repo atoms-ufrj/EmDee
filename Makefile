@@ -65,7 +65,7 @@ ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
 #KSPACESOLVERS = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
 
 OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
-                     $(ALLMODELS) $(addsuffix ModelClass,$(MODELTERMS)) \
+                     $(ALLMODELS) $(addprefix modelClass_,$(MODELTERMS)) \
                      modelClass lists global)
 
 COMPUTES = $(addprefix compute_,$(MODELTERMS))
@@ -184,33 +184,33 @@ $(SRCDIR)/virial_compute_pair.f90: $(call src,$(PAIRMODELS))
 $(SRCDIR)/virial_compute_coul.f90: $(call src,$(COULMODELS))
 	bash $(SRCDIR)/make_virial_compute.sh coul $(COULMODELS) > $@
 
-$(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addsuffix ModelClass,$(MODELTERMS))) \
+$(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addprefix modelClass_,$(MODELTERMS))) \
                     $(SRCDIR)/make_models_module.sh
 	bash $(SRCDIR)/make_models_module.sh $(ALLMODELS) > $(SRCDIR)/models.f90
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $(SRCDIR)/models.f90
 
-$(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(OBJDIR)/pairModelClass.o
+$(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(OBJDIR)/modelClass_pair.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/coul_%.o: $(SRCDIR)/coul_%.f90 $(OBJDIR)/coulModelClass.o
+$(OBJDIR)/coul_%.o: $(SRCDIR)/coul_%.f90 $(OBJDIR)/modelClass_coul.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(OBJDIR)/bondModelClass.o
+$(OBJDIR)/bond_%.o: $(SRCDIR)/bond_%.f90 $(OBJDIR)/modelClass_bond.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(OBJDIR)/angleModelClass.o
+$(OBJDIR)/angle_%.o: $(SRCDIR)/angle_%.f90 $(OBJDIR)/modelClass_angle.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(OBJDIR)/dihedralModelClass.o
+$(OBJDIR)/dihedral_%.o: $(SRCDIR)/dihedral_%.f90 $(OBJDIR)/modelClass_dihedral.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-#$(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/kspaceModelClass.o
+#$(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/modelClass_kspace.o
 #	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-#$(OBJDIR)/kspaceModelClass.o: $(SRCDIR)/kspaceModelClass.f90 $(OBJDIR)/modelClass.o $(OBJDIR)/lists.o
+#$(OBJDIR)/modelClass_kspace.o: $(SRCDIR)/modelClass_kspace.f90 $(OBJDIR)/modelClass.o $(OBJDIR)/lists.o
 #	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/%ModelClass.o: $(SRCDIR)/%ModelClass.f90 $(OBJDIR)/modelClass.o
+$(OBJDIR)/modelClass_%.o: $(SRCDIR)/modelClass_%.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/global.o

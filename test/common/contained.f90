@@ -36,12 +36,20 @@
     read(inp,*); read(inp,*) Nsteps
     read(inp,*); read(inp,*) Nprop
     read(inp,*); read(inp,*) Temp
+    read(inp,*); read(inp,*) mvv2e
+    read(inp,*); read(inp,*) Pconv
+    read(inp,*); read(inp,*) kB
+    read(inp,*); read(inp,*) kCoul
     close(inp)
     call random_seed( size = nseeds )
     call random_seed( put = seed + 37*[(i-1,i=1,nseeds)] )
     Rc2 = Rc**2
     Dt_2 = 0.5_8*Dt
   end subroutine read_data
+!---------------------------------------------------------------------------------------------------
+  subroutine unit_conversions
+    epsilon = epsilon/mvv2e
+  end
 !---------------------------------------------------------------------------------------------------
   subroutine run( Nsteps, Nprop )
     integer, intent(in) :: Nsteps, Nprop

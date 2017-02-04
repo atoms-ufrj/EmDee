@@ -31,7 +31,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "03 Feb 2017"
+character(11), parameter :: VERSION = "04 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations

@@ -14,4 +14,12 @@ NIST_spce_sample.mol
 20
 [Temperature]
 298.0
+[Energy conversion factor]
+2390.057364          (kcal/mol)/(Da*A²/fs²)
+[Pressure conversion factor]
+1.6388244954E+8      atm/(Da/(A*fs²))
+[Boltzmann's constant]
+8.3144621455E-7      Da*A²/(fs²*K)
+[Coulomb's constant]
+0.13893545755135628  Da*A³/(fs*e)²
 

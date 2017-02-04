@@ -14,4 +14,12 @@ NIST_lj_sample.mol
 20
 [Temperature]
 2.0
+[Energy conversion factor]
+1.0
+[Pressure conversion factor]
+1.0
+[Boltzmann's constant]
+1.0
+[Coulomb's constant]
+0.0
 

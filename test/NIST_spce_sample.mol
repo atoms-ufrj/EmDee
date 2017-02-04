@@ -1,17 +1,9 @@
 # Description:
 SPC/E Water (Source: NIST)
-# Energy conversion factor:
-2390.057364                   # Da*A²/fs² to kcal/mol
-# Pressure conversion factor:
-1.6388244954E+8               # Da/(A*fs²) to atm
-# Boltzmann's constant:
-8.3144621455E-7               # Da*A²/(fs²*K)
-# Coulomb's constant:
-0.13893545755135628           # Da*A³/(fs*e)²
 # Number of types:
 2
 # Type parameters: id mass epsilon/kB sigma
-1 15.9994 78.19743111 3.16555789
+1 15.9994  0.15539425 3.16555789
 2  1.0080  0.00000000 0.00000000
 # Box lengths:
 30.00000000000       30.00000000000       30.0000000000

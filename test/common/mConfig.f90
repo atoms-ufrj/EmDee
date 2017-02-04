@@ -13,10 +13,6 @@ character(*), parameter :: cform = '(A256)'
 
 integer(ib) :: ntypes
 integer(ib) :: N
-real(rb)    :: mvv2e         ! Energy conversion factor
-real(rb)    :: Pconv         ! Pressure conversion factor
-real(rb)    :: kB            ! Boltzmann's constant
-real(rb)    :: kCoul         ! Coulomb's constant
 
 real(rb), allocatable :: epsilon(:)
 real(rb), allocatable :: sigma(:)
@@ -43,17 +39,12 @@ contains
     open( newunit = inp, file = configFile, status = "old" )
     read(inp,*); read(inp,cform) Description
     write(*,'(A)') trim(Description)
-    read(inp,*); read(inp,*) mvv2e
-    read(inp,*); read(inp,*) Pconv
-    read(inp,*); read(inp,*) kB
-    read(inp,*); read(inp,*) kCoul
     read(inp,*); read(inp,*) ntypes
     allocate( mass(ntypes), epsilon(ntypes), sigma(ntypes) )
     read(inp,*)
     do i = 1, ntypes
       read(inp,*) id, mass(id), epsilon(id), sigma(id)
     end do
-    epsilon = kB*epsilon
     read(inp,*); read(inp,*) L
     read(inp,*); read(inp,*) N
     allocate( R(3,N), P(3,N), atomType(N), molecule(N), Q(N) )
