@@ -130,15 +130,15 @@ $(LIBDIR)/libemdee.so: $(OBJECTS)
 
 $(INCDIR)/emdee.f03: $(SRCDIR)/emdee_header.f03
 	mkdir -p $(INCDIR) $(LIBDIR)
-	bash $(SRCDIR)/make_f_header.sh $(ALLMODELS) > $(INCDIR)/emdee.f03
+	bash $(SRCDIR)/make_f_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/emdee.f03
 
 $(INCDIR)/emdee.h: $(SRCDIR)/emdee_header.h
 	mkdir -p $(INCDIR) $(LIBDIR)
-	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) > $(INCDIR)/emdee.h
+	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/emdee.h
 
 $(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl
 	mkdir -p $(INCDIR) $(LIBDIR)
-	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) > $(INCDIR)/libemdee.jl
+	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/libemdee.jl
 
 # Object files:
 
@@ -152,9 +152,6 @@ $(OBJDIR)/EmDeeData.o: $(call src,EmDeeData inner_loop) \
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/ArBee.o: $(SRCDIR)/ArBee.f90 $(call obj,math global)
-	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
-
-$(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/structs.o: $(SRCDIR)/structs.f90 $(OBJDIR)/models.o
@@ -189,6 +186,9 @@ $(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addprefix modelClass_,$(MODELTERMS
 $(OBJDIR)/pair_%.o: $(SRCDIR)/pair_%.f90 $(OBJDIR)/modelClass_pair.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
+$(OBJDIR)/coul_long.o: $(SRCDIR)/coul_long.f90 $(OBJDIR)/modelClass_coul.o $(OBJDIR)/lists.o
+	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
+
 $(OBJDIR)/coul_%.o: $(SRCDIR)/coul_%.f90 $(OBJDIR)/modelClass_coul.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
@@ -207,11 +207,13 @@ $(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/modelClass_kspace.o
 $(OBJDIR)/modelClass_%.o: $(SRCDIR)/modelClass_%.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/global.o
+$(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(OBJDIR)/lists.o $(OBJDIR)/math.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/lists.o: $(SRCDIR)/lists.f90
-	mkdir -p $(OBJDIR)
+$(OBJDIR)/lists.o: $(SRCDIR)/lists.f90 $(OBJDIR)/global.o
+	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/math.o: $(SRCDIR)/math.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/global.o: $(SRCDIR)/global.f90

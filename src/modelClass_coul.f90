@@ -36,6 +36,7 @@ type, abstract, extends(cModel) :: cCoulModel
     procedure(cCoulModel_compute), deferred :: compute
     procedure(cCoulModel_virial), deferred :: virial
     procedure :: shifting_setup => cCoulModel_shifting_setup
+    procedure :: kspace_setup => cCoulModel_kspace_setup
 end type cCoulModel
 
 abstract interface
@@ -109,6 +110,16 @@ contains
     end if
 
   end subroutine cCoulModel_shifting_setup
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cCoulModel_kspace_setup( model, alpha )
+    class(cCoulModel), intent(inout) :: model
+    real(rb),          intent(in)    :: alpha
+
+    model%alpha = alpha
+
+  end subroutine cCoulModel_kspace_setup
 
 !===================================================================================================
 !                         C O U L     M O D E L    C O N T A I N E R

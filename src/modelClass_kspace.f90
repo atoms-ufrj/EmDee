@@ -21,7 +21,6 @@ module kspaceModelClass
 
 use global
 use modelClass
-use lists
 use omp_lib
 
 implicit none
@@ -31,46 +30,47 @@ type, abstract, extends(cModel) :: cKspaceModel
 
   real(rb) :: alpha
   integer  :: nthreads
-  logical  :: verbose
+  integer  :: threadAtoms
 
-  real(rb) :: beta
-  real(rb) :: E_self
-
-  integer :: natoms
-  integer,  allocatable :: index(:)
-  logical,  allocatable :: charged(:)
+  integer :: natoms, ntypes
+  integer,  allocatable :: index(:), type(:)
   real(rb), allocatable :: Q(:)
-
-  integer :: atoms_per_thread
 
   contains
     procedure :: initialize => cKspaceModel_initialize
-    procedure :: discount => cKspaceModel_discount
     procedure(cKspaceModel_set_parameters), deferred :: set_parameters
-    procedure(cKspaceModel_update), deferred :: update
+    procedure(cKspaceModel_update),  deferred :: update
+    procedure(cKspaceModel_prepare), deferred :: prepare
     procedure(cKspaceModel_compute), deferred :: compute
 end type cKspaceModel
 
 abstract interface
 
-  subroutine cKspaceModel_set_parameters( model, Rc, L, Q )
+  subroutine cKspaceModel_set_parameters( me, Rc, L )
     import
-    class(cKspaceModel), intent(inout) :: model
-    real(rb),            intent(in)    :: Rc, L(3), Q(:)
+    class(cKspaceModel), intent(inout) :: me
+    real(rb),            intent(in)    :: Rc, L(3)
   end subroutine cKspaceModel_set_parameters
 
-  ! This procedure must be invoked whenever the box geometry or atoms charges change: 
-  subroutine cKspaceModel_update( model, L )
+  ! This procedure must be invoked whenever the box geometry and/or atom charges change:
+  subroutine cKspaceModel_update( me, L )
     import
-    class(cKspaceModel), intent(inout) :: model
+    class(cKspaceModel), intent(inout) :: me
     real(rb),            intent(in)    :: L(3)
   end subroutine cKspaceModel_update
 
-  ! This procedure computes the reciprocal part of Ewald-type electrostatics:
-  subroutine cKspaceModel_compute( model, R, F, Potential, Virial )
+  subroutine cKspaceModel_prepare( me, thread, Rs )
     import
-    class(cKspaceModel), intent(in)    :: model
-    real(rb),            intent(in)    :: R(:,:)
+    class(cKspaceModel), intent(inout) :: me
+    integer,             intent(in)    :: thread
+    real(rb),            intent(in)    :: Rs(:,:)
+  end subroutine cKspaceModel_prepare
+
+  subroutine cKspaceModel_compute( me, thread, lambda, F, Potential, Virial )
+    import
+    class(cKspaceModel), intent(inout) :: me
+    integer,             intent(in)    :: thread
+    real(rb),            intent(in)    :: lambda(:,:)
     real(rb),            intent(inout) :: F(:,:), Potential, Virial
   end subroutine cKspaceModel_compute
 
@@ -80,72 +80,30 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine cKspaceModel_initialize( model, nthreads, Rc, L, Q, verbose )
-    class(cKspaceModel), intent(inout) :: model
+  subroutine cKspaceModel_initialize( me, nthreads, Rc, L, types, charged, charge )
+    class(cKspaceModel), intent(inout) :: me
     integer,             intent(in)    :: nthreads
-    real(rb),            intent(in)    :: Rc, L(3), Q(:)
-    logical,             intent(in)    :: verbose
+    real(rb),            intent(in)    :: Rc, L(3)
+    integer,             intent(in)    :: types(:)
+    logical,             intent(in)    :: charged(size(types))
+    real(rb),            intent(in)    :: charge(size(types))
+
+    character(*), parameter :: task = "kspace model initialization"
 
     integer :: i
 
-    model%nthreads = nthreads
-    model%verbose = verbose
-
-    model%charged = Q /= zero
-    model%index = pack( [(i,i=1,size(Q))], model%charged )
-    model%natoms = size(model%index)
-    if (model%natoms == 0) call error( "kspace model initialization", "no charged atoms" )
-    model%Q = Q
-
-    model%atoms_per_thread = (model%natoms + nthreads - 1)/nthreads
-
-    call model % set_parameters( Rc, L, Q )
-    call model % update( L )
-
-    model%beta = two*model%alpha/sqrt(Pi)
-    model%E_self = model%alpha*sum(model%Q**2)/sqrt(Pi)
+    me%nthreads = nthreads
+    me%index = pack( [(i,i=1,size(types))], charged )
+    me%natoms = size(me%index)
+    if (me%natoms == 0) call error( task, "system without charged atoms" )
+    me%type = types(me%index)
+    me%ntypes = maxval(me%type)
+    me%Q = charge(me%index)
+    me%threadAtoms = (me%natoms + nthreads - 1)/nthreads
+    call me % set_parameters( Rc, L )
+    call me % update( L )
 
   end subroutine cKspaceModel_initialize
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine cKspaceModel_discount( model, thread, excluded, R, F, Potential, Virial )
-    class(cKspaceModel), intent(inout) :: model
-    integer,             intent(in)    :: thread
-    type(tList),         intent(in)    :: excluded
-    real(rb),            intent(in)    :: R(:,:)
-    real(rb),            intent(inout) :: F(:,:), Potential, Virial
-
-    integer  :: first, last, ii, jj, i, j
-    real(rb) :: Qi, Ri(3), Rij(3), R2, Rd, QiQj, alphaRd, Eij, Wij, Fij(3)
-
-    first = (thread - 1)*model%atoms_per_thread + 1
-    last = min(thread*model%atoms_per_thread, model%natoms)
-
-    do ii = first, last
-      i = model%index(i)
-      Qi = model%Q(ii)
-      Ri = R(:,i)
-      do jj = excluded%first(i), excluded%last(i)
-        j = excluded%item(jj)
-        if (model%charged(j)) then
-          Rij = Ri - R(:,j)
-          R2 = sum(Rij*Rij)
-          Rd = sqrt(R2)
-          QiQj = Qi*model%Q(j)
-          alphaRd = model%alpha*Rd
-          Eij = QiQj*erf(alphaRd)/Rd
-          Wij = Eij - QiQj*model%beta*exp(-alphaRd*alphaRd)
-          Fij = Wij*Rij/R2
-          F(:,i) = F(:,i) - Fij
-          F(:,j) = F(:,j) + Fij
-          Potential = Potential - Eij
-          Virial = Virial - Wij
-        end if
-      end do
-    end do
-
- end subroutine cKspaceModel_discount
 
 !---------------------------------------------------------------------------------------------------
 

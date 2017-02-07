@@ -41,19 +41,21 @@ type, extends(cKspaceModel) :: kspace_ewald
 
   real(rb) :: unit(3)
   integer  :: nmax(3)
-  real(rb) :: kmaxSq
 
   integer  :: nvecs
-  real(rb), allocatable :: prefac(:)
-  integer,  allocatable :: n(:,:)
-  real(rb), allocatable :: vec(:,:)
-
-  integer :: vecs_per_thread
+  integer  :: threadVecs
+  real(rb),    allocatable :: prefac(:)
+  integer,     allocatable :: n(:,:)
+  real(rb),    allocatable :: vec(:,:)
+  complex(rb), allocatable :: qeikr(:,:)
+  complex(rb), allocatable :: S(:,:)
+  complex(rb), allocatable :: sigma(:,:)
 
   contains
     procedure :: setup => kspace_ewald_setup
     procedure :: set_parameters => kspace_ewald_set_parameters
-    procedure :: update => kspace_ewald_update
+    procedure :: update  => kspace_ewald_update
+    procedure :: prepare => kspace_ewald_prepare
     procedure :: compute => kspace_ewald_compute
 end type
 
@@ -63,8 +65,8 @@ contains
 
   subroutine kspace_ewald_setup( model, params, iparams )
     class(kspace_ewald),  intent(inout) :: model
-    real(rb), optional,   intent(in)    :: params(:)
-    integer,  optional,   intent(in)    :: iparams(:)
+    real(rb),  optional,  intent(in)    :: params(:)
+    integer,   optional,  intent(in)    :: iparams(:)
 
     ! Model name:
     model%name = "ewald"
@@ -73,15 +75,16 @@ contains
     model%accuracy = params(1)
 
     ! Initialize empty arrays:
-    allocate( model%n(0,0), model%prefac(0), model%vec(0,0) )
+    allocate( model%n(0,0), model%prefac(0), model%vec(0,0), &
+              model%qeikr(0,0), model%S(0,0), model%sigma(0,0) )
 
   end subroutine kspace_ewald_setup
 
 !===================================================================================================
 
-  subroutine kspace_ewald_set_parameters( model, Rc, L, Q )
-    class(kspace_ewald), intent(inout) :: model
-    real(rb),            intent(in)    :: Rc, L(3), Q(:)
+  subroutine kspace_ewald_set_parameters( me, Rc, L )
+    class(kspace_ewald), intent(inout) :: me
+    real(rb),            intent(in)    :: Rc, L(3)
 
     real(rb) :: s
 
@@ -90,133 +93,138 @@ contains
     !     accuracy = exp(-s^2)/s^2
     !     alpha = s/Rc
     !     kmax = 2*alpha*s
-    s = sqrt(inverse_of_x_plus_ln_x(-log(model%accuracy)))
-    model%alpha = s/Rc
-    model%kmax = two*model%alpha*s
+    s = sqrt(inverse_of_x_plus_ln_x(-log(me%accuracy)))
+    me%alpha = s/Rc
+    me%kmax = two*me%alpha*s
 
-!model%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
-!model%kmax = sqrt(27.0_rb) ! DELETE THIS LINE
+!me%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
+!me%kmax = twoPi/Lsqrt(27.0_rb) ! DELETE THIS LINE
 
   end subroutine kspace_ewald_set_parameters
 
 !===================================================================================================
 
-  subroutine kspace_ewald_update( model, L )
-    class(kspace_ewald), intent(inout) :: model
+  subroutine kspace_ewald_update( me, L )
+    class(kspace_ewald), intent(inout) :: me
     real(rb),            intent(in)    :: L(3)
 
-    integer  :: maxnvecs, nvecs, n1, n2, n3, n(3)
-    real(rb) :: unitSq(3), B, factor, k1sq, k12sq, ksq, twoPiByV, prefac
+    integer  :: nvecs, n1, n2, n3
+    real(rb) :: kmaxSq, unitSq(3), B, k1sq, limit, twoPiByV, fourPiByV
+    logical  :: nz1, nz12
+    integer, allocatable :: n(:,:)
 
-    model%unit = twoPi/L
-    unitSq = model%unit**2
-    model%nmax = ceiling(model%kmax/model%unit)
-    model%kmaxSq = 1.0001_rb*maxval(unitSq*model%nmax**2)
+    me%unit = twoPi/L
+    unitSq = me%unit**2
+    me%nmax = ceiling(me%kmax/me%unit)
+    kmaxSq = 1.0001_rb*maxval(unitSq*me%nmax**2)
 
-    maxnvecs = (model%nmax(1) + 1)*product(2*model%nmax(2:3) + 1)
-    if (size(model%prefac) < maxnvecs) then
-      deallocate( model%prefac, model%n, model%vec )
-      allocate( model%prefac(maxnvecs), model%n(maxnvecs,3), model%vec(3,maxnvecs) )
-    end if
+    allocate( n(3,(me%nmax(1) + 1)*product(2*me%nmax(2:3) + 1)) )
 
-    B = -0.25_rb/model%alpha**2
-    twoPiByV = twoPi/product(L)
     nvecs = 0
-    do n1 = 0, model%nmax(1)
-      factor = merge(1,2,n1 == 0)*twoPiByV
+    do n1 = 0, me%nmax(1)
+      nz1 = (n1 /= 0)
       k1sq = unitSq(1)*n1*n1
-      do n2 = -model%nmax(2), model%nmax(2)
-        k12sq = k1sq + unitSq(2)*n2*n2
-        do n3 = -model%nmax(3), model%nmax(3)
-          if ((n1 /= 0).or.(n2 /= 0).or.(n3 /= 0)) then
-            ksq = k12sq + unitSq(3)*n3*n3
-            if (ksq < model%kmaxSq) then
-              nvecs = nvecs + 1
-              n = [n1, n2, n3]
-              prefac = factor*exp(ksq*B)/ksq
-              model%n(nvecs,:) = n
-              model%prefac(nvecs) = prefac
-              model%vec(:,nvecs) = two*prefac*model%unit*n
-            end if
+      do n2 = -me%nmax(2), me%nmax(2)
+        nz12 = nz1.or.(n2 /= 0)
+        limit = kmaxSq - (k1sq + unitSq(2)*n2*n2)
+        do n3 = -me%nmax(3), me%nmax(3)
+          if ((nz12.or.(n3 /= 0)).and.(unitSq(3)*n3*n3 < limit)) then
+            nvecs = nvecs + 1
+            n(:,nvecs) = [n1, n2, n3]
           end if
         end do
       end do
     end do
 
-    model%nvecs = nvecs
-    model%vecs_per_thread = (nvecs + model%nthreads - 1)/model%nthreads
+    me%nvecs = nvecs
+    me%threadVecs = (nvecs + me%nthreads - 1)/me%nthreads
+
+    if (size(me%prefac) /= nvecs) then
+      deallocate( me%prefac, me%n, me%vec, me%qeikr, me%S, me%sigma )
+      allocate( me%prefac(nvecs) )
+      allocate( me%n(nvecs,3) )
+      allocate( me%vec(3,nvecs) )
+      allocate( me%qeikr(nvecs,me%natoms) )
+      allocate( me%S(nvecs,me%ntypes) )
+      allocate( me%sigma(nvecs,me%ntypes) )
+    end if
+
+    B = -0.25_rb/me%alpha**2
+    twoPiByV = twoPi/product(L)
+    fourPiByV = two*twoPiByV
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer  :: thread, v1, vN, i
+      real(rb) :: k(3), ksq
+
+      thread = omp_get_thread_num() + 1
+      v1 = (thread - 1)*me%threadVecs + 1
+      vN = min(thread*me%threadVecs, nvecs)
+      do i = v1, vN
+        me%n(i,:) = n(:,i)
+        k = me%unit*n(:,i)
+        ksq = sum(k*k)
+        if (n(1,i) == 0) then
+          me%prefac(i) = twoPiByV*exp(ksq*B)/ksq
+        else
+          me%prefac(i) = fourPiByV*exp(ksq*B)/ksq
+        end if
+        me%vec(:,i) = two*me%prefac(i)*k
+      end do
+    end block
+    !$omp end parallel
 
   end subroutine kspace_ewald_update
 
 !===================================================================================================
 
-  subroutine kspace_ewald_compute( model, R, F, Potential, Virial )
-    class(kspace_ewald), intent(in)    :: model
-    real(rb),            intent(in)    :: R(:,:)
-    real(rb),            intent(inout) :: F(:,:), Potential, Virial
+  subroutine kspace_ewald_prepare( me, thread, Rs )
+    class(kspace_ewald), intent(inout) :: me
+    integer,             intent(in)    :: thread
+    real(rb),            intent(in)    :: Rs(:,:)
 
-    real(rb) :: E = zero
-    complex(rb) :: S(model%nvecs)
-    complex(rb), allocatable :: qeikr(:,:)
+    integer  :: first, last, v1, vN, i, j, itype
+    real(rb) :: theta(3)
+    complex(rb) :: Z(3), G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), &
+                   G3(-me%nmax(3):me%nmax(3))
 
-    allocate( qeikr(model%nvecs,model%natoms) )
+    associate ( nmax => me%nmax, qeikr => me%qeikr, S => me%S, n => me%n, vec => me%vec )
 
-    associate( nmax => model%nmax, n => model%n(1:model%nvecs,:) )
-      !$omp parallel num_threads(model%nthreads) reduction(+:E)
-      block
-        integer :: thread, first, last, v1, vN, i, j, k
-        real(rb) :: theta(3)
-        complex(rb) :: Z(3)
-        complex(rb) :: G1(0:nmax(1)), G2(-nmax(2):nmax(2)), G3(-nmax(3):nmax(3))
+      ! Split atoms and wave-vectors among threads:
+      first = (thread - 1)*me%threadAtoms + 1
+      last = min(thread*me%threadAtoms, me%natoms)
+      v1 = (thread - 1)*me%threadVecs + 1
+      vN = min(thread*me%threadVecs, me%nvecs)
 
-        ! Split atoms and wave-vectors among threads:
-        thread = omp_get_thread_num() + 1
-        first = (thread - 1)*model%atoms_per_thread + 1
-        last = min(thread*model%atoms_per_thread, model%natoms)
-        v1 = (thread - 1)*model%vecs_per_thread + 1
-        vN = min(thread*model%vecs_per_thread, model%nvecs)
+      ! Compute q*exp(i*k*R) for current thread's atoms:
+      G1(0) = (one,zero)
+      G2(0) = (one,zero)
+      G3(0) = (one,zero)
+      do j = first, last
+        i = me%index(j)
+        theta = twoPi*Rs(:,i)
+        Z = cmplx(cos(theta),sin(theta),rb)
+        G1(1:nmax(1)) = G( Z(1), nmax(1) )
+        G2(1:nmax(2)) = G( Z(2), nmax(2) )
+        G3(1:nmax(3)) = G( Z(3), nmax(3) )
+        G2(-nmax(2):-1) = conjg(G2(nmax(2):1:-1))
+        G3(-nmax(2):-1) = conjg(G3(nmax(2):1:-1))
+        qeikr(:,j) = me%Q(j)*G1(n(:,1))*G2(n(:,2))*G3(n(:,3))
+      end do
+      !$omp barrier
 
-        ! Compute qj*exp(i*k*Rj) for local atoms:
-        G1(0) = (one,zero)
-        G2(0) = (one,zero)
-        G3(0) = (one,zero)
-        do i = first, last
-          j = model%index(i)
-          theta = model%unit*R(:,j)
-          Z = cmplx(cos(theta),sin(theta),rb)
-          G1(1:nmax(1)) = recursion( Z(1), nmax(1) )
-          G2(1:nmax(2)) = recursion( Z(2), nmax(2) )
-          G3(1:nmax(3)) = recursion( Z(3), nmax(3) )
-          G2(-nmax(2):-1) = conjg(G2(nmax(2):1:-1))
-          G3(-nmax(2):-1) = conjg(G3(nmax(2):1:-1))
-          qeikr(:,i) = model%Q(j)*G1(n(:,1))*G2(n(:,2))*G3(n(:,3))
-        end do
-        !$omp barrier
+      ! Compute type-specific structure factors for current thread's vectors:
+      S(v1:vN,:) = (zero,zero)
+      do j = 1, me%natoms
+        itype = me%type(j)
+        S(v1:vN,itype) = S(v1:vN,itype) + qeikr(v1:vN,j)
+      end do
 
-        ! Compute structure factors for local vectors:
-        S(v1:vN) = sum(qeikr(v1:vN,:),2)
-        !$omp barrier
-
-        ! Compute forces of local atoms:
-        do j = first, last
-          i = model%index(j)
-          do k = 1, model%nvecs
-            F(:,i) = F(:,i) + ( S(k) .op. qeikr(k,j) )*model%vec(:,k)
-          end do
-        end do
-
-        ! Compute part of energy related to local vectors:
-        E = sum(model%prefac(v1:vN)*normSq(S(v1:vn)))
-      end block
-      !$omp end parallel
     end associate
-
-    Potential = Potential + E
-    Virial = Virial + E
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure function recursion( Z, n ) result( G )
+      pure function G( Z, n )
         complex(rb), intent(in) :: Z
         integer,     intent(in) :: n
         complex(rb)             :: G(n)
@@ -230,8 +238,40 @@ contains
           j = j + 1
         end do
         G(j) = B
-      end function recursion
+      end function G
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine kspace_ewald_prepare
+
+!===================================================================================================
+
+  subroutine kspace_ewald_compute( me, thread, lambda, F, Potential, Virial )
+    class(kspace_ewald), intent(inout) :: me
+    integer,             intent(in)    :: thread
+    real(rb),            intent(in)    :: lambda(:,:)
+    real(rb),            intent(inout) :: F(:,:), Potential, Virial
+
+    integer  :: first, last, v1, vN, i, j, itype
+
+    ! Split atoms and wave-vectors among threads:
+    first = (thread - 1)*me%threadAtoms + 1
+    last = min(thread*me%threadAtoms, me%natoms)
+    v1 = (thread - 1)*me%threadVecs + 1
+    vN = min(thread*me%threadVecs, me%nvecs)
+
+    ! Compute type-specific structure factors and sigmas for current thread's vectors:
+    me%sigma(v1:vN,:) = matmul(me%S(v1:vN,:),lambda)
+
+    ! Compute energy related to current thread's vectors:
+    Potential = Potential + sum(me%prefac(v1:vN)*sum(me%S(v1:vn,:).dot.me%sigma(v1:vN,:),2))
+    !$omp barrier
+
+    ! Compute forces on current thread's atoms:
+    do j = first, last
+      i = me%index(j)
+      itype = me%type(j)
+      F(:,i) = F(:,i) + matmul(me%vec, me%sigma(:,itype).cross.me%qeikr(:,j))
+    end do
+
   end subroutine kspace_ewald_compute
 
 !===================================================================================================

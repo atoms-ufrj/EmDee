@@ -115,6 +115,7 @@ type :: tData
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
 
+  logical :: kspace_active
   logical :: multilayer_coulomb
 
   real(rb), allocatable :: layer_energy(:)

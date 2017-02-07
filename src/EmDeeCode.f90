@@ -31,7 +31,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "04 Feb 2017"
+character(11), parameter :: VERSION = "07 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -89,6 +89,7 @@ contains
     me%skinSq = skin*skin
     me%natoms = N
     me%threadAtoms = (N + threads - 1)/threads
+    me%kspace_active = .false.
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -317,8 +318,9 @@ contains
 
     select type ( kspace => container%model )
       class is (cKspaceModel)
-        if (allocated(me%kspace)) deallocate( me%kspace )
+        if (me%kspace_active) deallocate( me%kspace )
         allocate( me%kspace, source = kspace )
+        me%kspace_active = .true.
       class default
         call error( task, "a valid kspace model must be provided" )
     end select
@@ -651,19 +653,24 @@ contains
       end subroutine update_rigid_bodies
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine perform_initialization
-        integer :: layer
+        integer  :: layer
+        real(rb) :: L(3)
         !$omp parallel num_threads(me%nthreads)
         call update_rigid_bodies( me, omp_get_thread_num() + 1 )
         !$omp end parallel
         md%DOF = 3*me%nfree + sum(me%body%dof) - 3
         call check_actual_interactions( me )
+        if (me%kspace_active) then
+          L = me%Lbox*[one,one,one]
+          call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charged, me%charge )
+        end if
         do layer = 1, me%nlayers
           associate( coul => me%coul(layer)%model )
             if (coul%requires_kspace) then
-              if (allocated(me%kspace)) then
-                coul%alpha = me%kspace%alpha
+              if (me%kspace_active) then
+                call coul % kspace_setup( me%kspace%alpha )
               else
-                call error( "upload", "model coul_"//trim(coul%name)//" requires a kspace solver" )
+                call error( "upload", "model "//trim(coul%name)//" requires a kspace solver" )
               end if
             end if
           end associate
@@ -980,6 +987,7 @@ contains
     !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
     block
       integer :: thread
+      real(rb) :: lambda(me%ntypes,me%ntypes)
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread), EL => Elayer(:,thread), WL => Wlayer(:,thread) )
         if (buildList) then
@@ -991,8 +999,14 @@ contains
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
         if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E, W )
       end associate
+      if (me%kspace_active) then
+        lambda = me%pair(:,:,me%layer)%kCoul
+        call me % kspace % prepare( thread, Rs )
+        call me % kspace % compute( thread, lambda, me%F, E, W )
+      end if
     end block
     !$omp end parallel
+
 
     me%F = me%Lbox*sum(Fs,3)
     md%Virial = W

@@ -24,6 +24,13 @@ use, intrinsic :: ieee_arithmetic
 
 implicit none
 
+real(rb), parameter, private :: a1 =  0.254829592_rb, &
+                                a2 = -0.284496736_rb, &
+                                a3 =  1.421413741_rb, &
+                                a4 = -1.453152027_rb, &
+                                a5 =  1.061405429_rb, &
+                                p  =  0.327591100_rb
+
 type, abstract :: i32rng
   logical :: seeding_required = .true.
   integer(4), private :: kn(0:127)
@@ -58,8 +65,12 @@ type, extends(i32rng) :: kiss
     procedure :: i32  => kiss_i32
 end type kiss
 
-interface operator (.op.)
-  module procedure operation
+interface operator (.dot.)
+  module procedure complex_dot_product
+end interface
+
+interface operator (.cross.)
+  module procedure complex_cross_product
 end interface
 
 contains
@@ -651,12 +662,13 @@ contains
     real(rb), intent(in) :: y
     real(rb)             :: x
     real(rb), parameter :: tol = 1.0e-8_rb
-    real(rb) :: x0
+    real(rb) :: x0, expmx2
     x = sqrt(-log(y))
     x0 = x + one
     do while (abs(x-x0) > tol)
       x0 = x
-      x = x + half*sqrt(Pi)*(erfc(x) - y)/exp(-x**2)
+      expmx2 = exp(-x**2)
+      x = x + half*sqrt(Pi)*(uerfc(x,expmx2) - y)/expmx2
     end do
   end function inv_erfc
 
@@ -670,11 +682,39 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  elemental function operation( a, b ) result( c )
+  pure function uerf( x, expmx2 ) result( erfx )
+    real(rb), intent(in) :: x, expmx2
+    real(rb)             :: erfx
+    real(rb) :: t
+    t = one/(one + p*x)
+    erfx = one - t*(a1 + t*(a2 + t*(a3 + t*(a4 + t*a5))))*expmx2
+  end function uerf
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function uerfc( x, expmx2 ) result( erfcx )
+    real(rb), intent(in) :: x, expmx2
+    real(rb)             :: erfcx
+    real(rb) :: t
+    t = one/(one + p*x)
+    erfcx = t*(a1 + t*(a2 + t*(a3 + t*(a4 + t*a5))))*expmx2
+  end function uerfc
+
+!---------------------------------------------------------------------------------------------------
+
+  elemental function complex_dot_product( a, b ) result( c )
+    complex(rb), intent(in) :: a, b
+    real(rb)                :: c
+    c = realpart(a)*realpart(b) + imagpart(a)*imagpart(b)
+  end function complex_dot_product
+
+!---------------------------------------------------------------------------------------------------
+
+  elemental function complex_cross_product( a, b ) result( c )
     complex(rb), intent(in) :: a, b
     real(rb)                :: c
     c = realpart(a)*imagpart(b) - realpart(b)*imagpart(a)
-  end function operation
+  end function complex_cross_product
 
 !---------------------------------------------------------------------------------------------------
 
