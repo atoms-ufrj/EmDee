@@ -324,6 +324,62 @@ contains
 
 !===================================================================================================
 
+  subroutine perform_initialization( me, DoF )
+    type(tData), intent(inout) :: me
+    integer,     intent(out)   :: DoF
+
+    integer  :: layer, i
+    real(rb) :: L(3)
+
+    integer, allocatable :: indices(:)
+
+    !$omp parallel num_threads(me%nthreads)
+    call update_rigid_bodies( me, omp_get_thread_num() + 1 )
+    !$omp end parallel
+    DoF = 3*me%nfree + sum(me%body%dof) - 3
+
+    call check_actual_interactions( me )
+    if (me%kspace_active) then
+      L = me%Lbox*[one,one,one]
+      call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charged, me%charge )
+      indices = [(me%body(i)%index,i=1,me%nbodies)]
+      call me % kspace % setup_rigid_pairs( me%body%NP, indices, me%R, me%charged )
+    end if
+    do layer = 1, me%nlayers
+      associate( coul => me%coul(layer)%model )
+        if (coul%requires_kspace) then
+          if (me%kspace_active) then
+            call coul % kspace_setup( me%kspace%alpha )
+          else
+            call error( "upload", "model "//trim(coul%name)//" requires a kspace solver" )
+          end if
+        end if
+      end associate
+    end do
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine update_rigid_bodies( me, thread )
+        type(tData),  intent(inout) :: me
+        integer,      intent(in)    :: thread
+
+        integer :: i, j
+        real(rb), allocatable :: R(:,:)
+
+        do j = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          associate(b => me%body(j))
+            R = me%R(:,b%index)
+            forall (i = 2:b%NP) R(:,i) = R(:,i) - me%Lbox*anint(me%invL*(R(:,i) - R(:,1)))
+            call b % update( R )
+          end associate
+        end do
+
+      end subroutine update_rigid_bodies
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine perform_initialization
+
+!===================================================================================================
+
   subroutine rigid_body_forces( me, Virial )
     type(tData), intent(inout) :: me
     real(rb),    intent(inout) :: Virial

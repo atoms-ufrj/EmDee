@@ -38,10 +38,7 @@ type, extends(cKspaceModel) :: kspace_ewald
   real(rb) :: accuracy !<> Expected accuracy in energy calculations
 
   real(rb) :: kmax
-
-  real(rb) :: unit(3)
   integer  :: nmax(3)
-
   integer  :: nvecs
   integer  :: threadVecs
   real(rb),    allocatable :: prefac(:)
@@ -82,9 +79,10 @@ contains
 
 !===================================================================================================
 
-  subroutine kspace_ewald_set_parameters( me, Rc, L )
+  subroutine kspace_ewald_set_parameters( me, Rc, L, alpha )
     class(kspace_ewald), intent(inout) :: me
     real(rb),            intent(in)    :: Rc, L(3)
+    real(rb),            intent(out)   :: alpha
 
     real(rb) :: s
 
@@ -94,8 +92,8 @@ contains
     !     alpha = s/Rc
     !     kmax = 2*alpha*s
     s = sqrt(inverse_of_x_plus_ln_x(-log(me%accuracy)))
-    me%alpha = s/Rc
-    me%kmax = two*me%alpha*s
+    alpha = s/Rc
+    me%kmax = two*alpha*s
 
 !me%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
 !me%kmax = twoPi/Lsqrt(27.0_rb) ! DELETE THIS LINE
@@ -109,13 +107,13 @@ contains
     real(rb),            intent(in)    :: L(3)
 
     integer  :: nvecs, n1, n2, n3
-    real(rb) :: kmaxSq, unitSq(3), B, k1sq, limit, twoPiByV, fourPiByV
+    real(rb) :: kmaxSq, unit(3), unitSq(3), B, k1sq, limit, twoPiByV, fourPiByV
     logical  :: nz1, nz12
     integer, allocatable :: n(:,:)
 
-    me%unit = twoPi/L
-    unitSq = me%unit**2
-    me%nmax = ceiling(me%kmax/me%unit)
+    unit = twoPi/L
+    unitSq = unit**2
+    me%nmax = ceiling(me%kmax/unit)
     kmaxSq = 1.0001_rb*maxval(unitSq*me%nmax**2)
 
     allocate( n(3,(me%nmax(1) + 1)*product(2*me%nmax(2:3) + 1)) )
@@ -162,7 +160,7 @@ contains
       vN = min(thread*me%threadVecs, nvecs)
       do i = v1, vN
         me%n(i,:) = n(:,i)
-        k = me%unit*n(:,i)
+        k = unit*n(:,i)
         ksq = sum(k*k)
         if (n(1,i) == 0) then
           me%prefac(i) = twoPiByV*exp(ksq*B)/ksq
@@ -183,44 +181,36 @@ contains
     integer,             intent(in)    :: thread
     real(rb),            intent(in)    :: Rs(:,:)
 
-    integer  :: first, last, v1, vN, i, j, itype
+    integer  :: v1, vN, i, j, itype
     real(rb) :: theta(3)
     complex(rb) :: Z(3), G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), &
                    G3(-me%nmax(3):me%nmax(3))
 
-    associate ( nmax => me%nmax, qeikr => me%qeikr, S => me%S, n => me%n, vec => me%vec )
+    ! Compute q*exp(i*k*R) for current thread's atoms:
+    G1(0) = (one,zero)
+    G2(0) = (one,zero)
+    G3(0) = (one,zero)
+    do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%natoms)
+      i = me%index(j)
+      theta = twoPi*Rs(:,i)
+      Z = cmplx(cos(theta),sin(theta),rb)
+      G1(1:me%nmax(1)) = G( Z(1), me%nmax(1) )
+      G2(1:me%nmax(2)) = G( Z(2), me%nmax(2) )
+      G3(1:me%nmax(3)) = G( Z(3), me%nmax(3) )
+      G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
+      G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
+      me%qeikr(:,j) = me%Q(j)*G1(me%n(:,1))*G2(me%n(:,2))*G3(me%n(:,3))
+    end do
+    !$omp barrier
 
-      ! Split atoms and wave-vectors among threads:
-      first = (thread - 1)*me%threadAtoms + 1
-      last = min(thread*me%threadAtoms, me%natoms)
-      v1 = (thread - 1)*me%threadVecs + 1
-      vN = min(thread*me%threadVecs, me%nvecs)
-
-      ! Compute q*exp(i*k*R) for current thread's atoms:
-      G1(0) = (one,zero)
-      G2(0) = (one,zero)
-      G3(0) = (one,zero)
-      do j = first, last
-        i = me%index(j)
-        theta = twoPi*Rs(:,i)
-        Z = cmplx(cos(theta),sin(theta),rb)
-        G1(1:nmax(1)) = G( Z(1), nmax(1) )
-        G2(1:nmax(2)) = G( Z(2), nmax(2) )
-        G3(1:nmax(3)) = G( Z(3), nmax(3) )
-        G2(-nmax(2):-1) = conjg(G2(nmax(2):1:-1))
-        G3(-nmax(2):-1) = conjg(G3(nmax(2):1:-1))
-        qeikr(:,j) = me%Q(j)*G1(n(:,1))*G2(n(:,2))*G3(n(:,3))
-      end do
-      !$omp barrier
-
-      ! Compute type-specific structure factors for current thread's vectors:
-      S(v1:vN,:) = (zero,zero)
-      do j = 1, me%natoms
-        itype = me%type(j)
-        S(v1:vN,itype) = S(v1:vN,itype) + qeikr(v1:vN,j)
-      end do
-
-    end associate
+    ! Compute type-specific structure factors for current thread's vectors:
+    v1 = (thread - 1)*me%threadVecs + 1
+    vN = min(thread*me%threadVecs, me%nvecs)
+    me%S(v1:vN,:) = (zero,zero)
+    do j = 1, me%natoms
+      itype = me%type(j)
+      me%S(v1:vN,itype) = me%S(v1:vN,itype) + me%qeikr(v1:vN,j)
+    end do
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -244,17 +234,16 @@ contains
 
 !===================================================================================================
 
-  subroutine kspace_ewald_compute( me, thread, lambda, F, Potential, Virial )
+  subroutine kspace_ewald_compute( me, thread, lambda, Potential, Virial, F )
     class(kspace_ewald), intent(inout) :: me
     integer,             intent(in)    :: thread
     real(rb),            intent(in)    :: lambda(:,:)
-    real(rb),            intent(inout) :: F(:,:), Potential, Virial
+    real(rb),            intent(inout) :: Potential, Virial
+    real(rb), optional,  intent(inout) :: F(:,:)
 
-    integer  :: first, last, v1, vN, i, j, itype
+    integer  :: v1, vN, i, j, itype
 
-    ! Split atoms and wave-vectors among threads:
-    first = (thread - 1)*me%threadAtoms + 1
-    last = min(thread*me%threadAtoms, me%natoms)
+    ! Split wave-vectors among threads:
     v1 = (thread - 1)*me%threadVecs + 1
     vN = min(thread*me%threadVecs, me%nvecs)
 
@@ -266,11 +255,13 @@ contains
     !$omp barrier
 
     ! Compute forces on current thread's atoms:
-    do j = first, last
-      i = me%index(j)
-      itype = me%type(j)
-      F(:,i) = F(:,i) + matmul(me%vec, me%sigma(:,itype).cross.me%qeikr(:,j))
-    end do
+    if (present(F)) then
+      do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%natoms)
+        i = me%index(j)
+        itype = me%type(j)
+        F(:,i) = F(:,i) + matmul(me%vec, me%sigma(:,itype).cross.me%qeikr(:,j))
+      end do
+    end if
 
   end subroutine kspace_ewald_compute
 

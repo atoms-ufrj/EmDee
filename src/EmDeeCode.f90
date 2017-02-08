@@ -17,6 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
 ! TODO: Include coulomb multimodels in multilayer energy and virial computations
 ! TODO: Change name of exported Julia wrapper
 ! TODO: Add option of automatic versus manual force calculations
@@ -557,7 +558,7 @@ contains
         me%invL2 = me%invL**2
         if (.not.me%initialized) then
           me%initialized = allocated( me%R )
-          if (me%initialized) call perform_initialization
+          if (me%initialized) call perform_initialization( me, md%DOF )
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -569,7 +570,7 @@ contains
         !$omp end parallel
         if (.not.me%initialized) then
           me%initialized = me%Lbox > zero
-          if (me%initialized) call perform_initialization
+          if (me%initialized) call perform_initialization( me, md%DOF )
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -637,45 +638,6 @@ contains
         last = min(thread*me%threadAtoms, me%natoms)
         me%R(:,first:last) = Rext(:,first:last)
       end subroutine assign_coordinates
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine update_rigid_bodies( me, thread )
-        type(tData),  intent(inout) :: me
-        integer,      intent(in)    :: thread
-        integer :: i, j
-        real(rb), allocatable :: R(:,:)
-        do j = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => me%body(j))
-            R = me%R(:,b%index)
-            forall (i = 2:b%NP) R(:,i) = R(:,i) - me%Lbox*anint(me%invL*(R(:,i) - R(:,1)))
-            call b % update( R )
-          end associate
-        end do
-      end subroutine update_rigid_bodies
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine perform_initialization
-        integer  :: layer
-        real(rb) :: L(3)
-        !$omp parallel num_threads(me%nthreads)
-        call update_rigid_bodies( me, omp_get_thread_num() + 1 )
-        !$omp end parallel
-        md%DOF = 3*me%nfree + sum(me%body%dof) - 3
-        call check_actual_interactions( me )
-        if (me%kspace_active) then
-          L = me%Lbox*[one,one,one]
-          call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charged, me%charge )
-        end if
-        do layer = 1, me%nlayers
-          associate( coul => me%coul(layer)%model )
-            if (coul%requires_kspace) then
-              if (me%kspace_active) then
-                call coul % kspace_setup( me%kspace%alpha )
-              else
-                call error( "upload", "model "//trim(coul%name)//" requires a kspace solver" )
-              end if
-            end if
-          end associate
-        end do
-      end subroutine perform_initialization
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 
@@ -995,21 +957,23 @@ contains
         else
           call compute_pairs( me, thread, md%UpToDate, Rs, F, E, W, EL, WL )
         end if
+        F = me%Lbox*F
+        if (me%kspace_active) then
+          call me % kspace % prepare( thread, Rs )
+          lambda = me%pair(:,:,me%layer)%kCoul
+          call me % kspace % compute( thread, lambda, E, W, F )
+          call me % kspace % discount_rigid_pairs( thread, lambda, me%R, E, W, F )
+        end if
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
         if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E, W )
       end associate
-      if (me%kspace_active) then
-        lambda = me%pair(:,:,me%layer)%kCoul
-        call me % kspace % prepare( thread, Rs )
-        call me % kspace % compute( thread, lambda, me%F, E, W )
-      end if
     end block
     !$omp end parallel
 
-
-    me%F = me%Lbox*sum(Fs,3)
+    me%F = sum(Fs,3)
     md%Virial = W
+
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     if (md%UpToDate) then

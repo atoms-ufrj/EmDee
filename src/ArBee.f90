@@ -46,6 +46,10 @@ type tBody
   real(rb), allocatable :: d(:,:)
   real(rb), allocatable :: delta(:,:)
 
+  real(rb), allocatable :: E(:,:)
+  real(rb), allocatable :: W(:,:)
+  real(rb), allocatable :: F_R(:,:)
+
   real(rb) :: invMass    ! Inverse of body mass
   real(rb) :: invMoI(3)  ! Inverses of principal moments of inertia
 
@@ -77,8 +81,11 @@ contains
     integer(ib),  intent(in)    :: indexes(:)
     real(rb),     intent(in)    :: masses(size(indexes))
 
-    b%NP = size(indexes)
-    allocate( b%index(b%NP), b%M(b%NP), b%d(3,b%NP), b%delta(3,b%NP) )
+    integer :: n
+
+    n = size(indexes)
+    b%NP = n
+    allocate( b%index(n), b%M(n), b%d(3,n), b%delta(3,n), b%E(n,n), b%W(n,n), b%F_R(n,n) )
     b%index = indexes
     b%M = masses
     b%mass = sum(b%M)

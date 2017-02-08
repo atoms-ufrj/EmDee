@@ -22,8 +22,11 @@ module kspaceModelClass
 use global
 use modelClass
 use omp_lib
+use math
 
 implicit none
+
+real(rb), parameter, private :: prefactor = two/sqrt(Pi)
 
 !> An abstract class for kspace interaction models:
 type, abstract, extends(cModel) :: cKspaceModel
@@ -36,8 +39,16 @@ type, abstract, extends(cModel) :: cKspaceModel
   integer,  allocatable :: index(:), type(:)
   real(rb), allocatable :: Q(:)
 
+  integer :: npairs
+  integer :: threadPairs
+  integer,  allocatable :: pair(:,:)
+  real(rb), allocatable :: Edisc(:,:), Wdisc(:,:), FbyR(:)
+
   contains
     procedure :: initialize => cKspaceModel_initialize
+    procedure :: setup_rigid_pairs => cKspaceModel_setup_rigid_pairs
+    procedure :: discount_rigid_pairs => cKspaceModel_discount_rigid_pairs
+    procedure :: discount => cKspaceModel_discount
     procedure(cKspaceModel_set_parameters), deferred :: set_parameters
     procedure(cKspaceModel_update),  deferred :: update
     procedure(cKspaceModel_prepare), deferred :: prepare
@@ -46,10 +57,11 @@ end type cKspaceModel
 
 abstract interface
 
-  subroutine cKspaceModel_set_parameters( me, Rc, L )
+  subroutine cKspaceModel_set_parameters( me, Rc, L, alpha )
     import
     class(cKspaceModel), intent(inout) :: me
     real(rb),            intent(in)    :: Rc, L(3)
+    real(rb),            intent(out)   :: alpha
   end subroutine cKspaceModel_set_parameters
 
   ! This procedure must be invoked whenever the box geometry and/or atom charges change:
@@ -66,12 +78,13 @@ abstract interface
     real(rb),            intent(in)    :: Rs(:,:)
   end subroutine cKspaceModel_prepare
 
-  subroutine cKspaceModel_compute( me, thread, lambda, F, Potential, Virial )
+  subroutine cKspaceModel_compute( me, thread, lambda, Potential, Virial, F )
     import
     class(cKspaceModel), intent(inout) :: me
     integer,             intent(in)    :: thread
     real(rb),            intent(in)    :: lambda(:,:)
-    real(rb),            intent(inout) :: F(:,:), Potential, Virial
+    real(rb),            intent(inout) :: Potential, Virial
+    real(rb), optional,  intent(inout) :: F(:,:)
   end subroutine cKspaceModel_compute
 
 end interface
@@ -100,10 +113,129 @@ contains
     me%ntypes = maxval(me%type)
     me%Q = charge(me%index)
     me%threadAtoms = (me%natoms + nthreads - 1)/nthreads
-    call me % set_parameters( Rc, L )
+    call me % set_parameters( Rc, L, me%alpha )
     call me % update( L )
 
   end subroutine cKspaceModel_initialize
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cKspaceModel_setup_rigid_pairs( me, groupSize, atomIndex, R, charged )
+    class(cKspaceModel), intent(inout) :: me
+    integer,             intent(in)    :: groupSize(:), atomIndex(:)
+    real(rb),            intent(in)    :: R(:,:)
+    logical,             intent(in)    :: charged(:)
+
+    integer  :: maxnpairs, npairs, ii, i, jj, j, k, prev, n
+    integer  :: ipos, jpos, itype, jtype, imin, imax
+    real(rb) :: Ri(3), Qi, rsq, Eij, Wij
+
+    integer,  allocatable :: pos(:), pair(:,:)
+    real(rb), allocatable :: FbyR(:)
+
+    allocate( pos(size(charged)) )
+    pos(me%index) = [(i,i=1,me%natoms)]
+
+    maxnpairs = sum(groupSize*(groupSize-1)/2)
+    allocate( pair(2,maxnpairs), FbyR(maxnpairs) )
+    allocate( me%Edisc(me%ntypes,me%ntypes), me%Wdisc(me%ntypes,me%ntypes) )
+
+    npairs = 0
+    prev = 0
+    me%Edisc = zero
+    me%Wdisc = zero
+    do k = 1, size(groupSize)
+      n = groupSize(k)
+      do ii = 1, n-1
+        i = atomIndex(prev+ii)
+        if (charged(i)) then
+          Ri = R(:,i)
+          ipos = pos(i)
+          Qi = me%Q(ipos)
+          itype = me%type(ipos)
+          do jj = ii+1, n
+            j = atomIndex(prev+jj)
+            if (charged(j)) then
+              jpos = pos(j)
+              jtype = me%type(jpos)
+              imin = min(itype,jtype)
+              imax = max(itype,jtype)
+
+              rsq = sum((Ri - R(:,j))**2)
+              call me % discount( Eij, Wij, rsq, Qi*me%Q(jpos) )
+              me%Edisc(imin,imax) = me%Edisc(imin,imax) + Eij
+              me%Wdisc(imin,imax) = me%Wdisc(imin,imax) + Wij
+
+              npairs = npairs + 1
+              pair(:,npairs) = [ipos, jpos]
+              FbyR(npairs) = Wij/rsq
+            end if
+          end do
+        end if
+      end do
+      prev = prev + n
+    end do
+
+    me%npairs = npairs
+    me%threadPairs = (npairs + me%nthreads - 1)/me%nthreads
+    me%pair = pair(:,1:npairs)
+    me%FbyR = FbyR(1:npairs)
+
+  end subroutine cKspaceModel_setup_rigid_pairs
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cKspaceModel_discount_rigid_pairs( me, thread, lambda, R, Potential, Virial, F )
+    class(cKspaceModel), intent(inout) :: me
+    integer,             intent(in)    :: thread
+    real(rb),            intent(in)    :: lambda(:,:), R(:,:)
+    real(rb),            intent(inout) :: Potential, Virial
+    real(rb), optional,  intent(inout) :: F(:,:)
+
+    integer  :: i, j, k, ii, jj, itype, jtype
+    real(rb) :: Fij(3)
+
+    if (present(F)) then
+      do k = (thread - 1)*me%threadPairs + 1, min(thread*me%threadPairs,me%npairs)
+        ii = me%pair(1,k)
+        jj = me%pair(2,k)
+        itype = me%type(ii)
+        jtype = me%type(jj)
+        i = me%index(ii)
+        j = me%index(jj)
+        Fij = lambda(itype,jtype)*me%FbyR(k)*(R(:,i) - R(:,j))
+        F(:,i) = F(:,i) + Fij
+        F(:,j) = F(:,j) - Fij
+      end do
+    end if
+
+    if (thread == 1) then
+      do itype = 1, me%ntypes
+        do jtype = itype, me%ntypes
+          Potential = Potential + lambda(itype,jtype)*me%Edisc(itype,jtype)
+          Virial = Virial + lambda(itype,jtype)*me%Wdisc(itype,jtype)
+        end do
+      end do
+    end if
+
+  end subroutine cKspaceModel_discount_rigid_pairs
+
+!---------------------------------------------------------------------------------------------------
+
+  elemental subroutine cKspaceModel_discount( me, E, W, rsq, QiQj )
+    class(cKspaceModel), intent(in)  :: me
+    real(rb),            intent(out) :: E, W
+    real(rb),            intent(in)  :: rsq, QiQj
+
+    real(rb) :: r, x, expmx2
+
+    r = sqrt(rsq)
+    x = me%alpha*r
+    expmx2 = exp(-x*x)
+    E = -QiQj*uerf( x, expmx2 )
+    W = QiQj*prefactor*x*expmx2
+
+  end subroutine cKspaceModel_discount
 
 !---------------------------------------------------------------------------------------------------
 
