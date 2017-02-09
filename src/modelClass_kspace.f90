@@ -32,17 +32,26 @@ real(rb), parameter, private :: prefactor = two/sqrt(Pi)
 type, abstract, extends(cModel) :: cKspaceModel
 
   real(rb) :: alpha
-  integer  :: nthreads
-  integer  :: threadAtoms
+  real(rb) :: beta
 
-  integer :: natoms, ntypes
-  integer,  allocatable :: index(:), type(:)
-  real(rb), allocatable :: Q(:)
+  integer :: natoms                       ! Number of charged atoms
+  integer,  allocatable :: index(:)       ! System-wise index of each charged atom
+  integer,  allocatable :: type(:)        ! Type of each charged atom
+  real(rb), allocatable :: Q(:)           ! Charge of each charged atom
 
-  integer :: npairs
+  integer :: ntypes                       ! Number of types of charged atoms
+  integer :: npairtypes                   ! Number of types of atoms pairs
+  integer :: npairs                       ! Number of intrabody pairs (fixed distance)
+  integer,  allocatable :: pair(:,:)      ! Local indices of atoms forming each intrabody pair
+  real(rb), allocatable :: FbyR(:)        ! Unscaled force/distance ratio for each intrabody pair
+  real(rb), allocatable :: Erigid(:)      ! Unscaled energy for intrabody pairs of each pair type
+  real(rb), allocatable :: Wrigid(:)      ! Unscaled virial for intrabody pairs of each pair type
+  real(rb), allocatable :: Eself(:)       ! Unscaled self-energy of atoms of each type
+
+  integer :: nthreads
+  integer :: threadAtoms
   integer :: threadPairs
-  integer,  allocatable :: pair(:,:)
-  real(rb), allocatable :: Edisc(:,:), Wdisc(:,:), FbyR(:)
+  integer :: threadPairTypes
 
   contains
     procedure :: initialize => cKspaceModel_initialize
@@ -103,18 +112,32 @@ contains
 
     character(*), parameter :: task = "kspace model initialization"
 
-    integer :: i
+    integer :: i, itype
 
     me%nthreads = nthreads
     me%index = pack( [(i,i=1,size(types))], charged )
     me%natoms = size(me%index)
     if (me%natoms == 0) call error( task, "system without charged atoms" )
+    me%threadAtoms = (me%natoms + nthreads - 1)/nthreads
     me%type = types(me%index)
     me%ntypes = maxval(me%type)
     me%Q = charge(me%index)
-    me%threadAtoms = (me%natoms + nthreads - 1)/nthreads
+
     call me % set_parameters( Rc, L, me%alpha )
+    me%beta = two*me%alpha/sqrt(Pi)
+
     call me % update( L )
+
+    me%npairtypes = me%ntypes*(me%ntypes - 1)/2 + me%ntypes
+    me%threadPairTypes = (me%npairtypes + nthreads - 1)/nthreads
+    allocate( me%Erigid(me%npairtypes), me%Wrigid(me%npairtypes) )
+
+    allocate( me%Eself(me%ntypes), source = zero )
+    do i = 1, me%natoms
+      itype = me%type(i)
+      me%Eself(itype) = me%Eself(itype) + me%Q(i)**2
+    end do
+    me%Eself = -me%alpha*me%Eself/sqrt(Pi)
 
   end subroutine cKspaceModel_initialize
 
@@ -126,26 +149,25 @@ contains
     real(rb),            intent(in)    :: R(:,:)
     logical,             intent(in)    :: charged(:)
 
-    integer  :: maxnpairs, npairs, ii, i, jj, j, k, prev, n
-    integer  :: ipos, jpos, itype, jtype, imin, imax
+    integer  :: maxnpairs, npairs, ii, i, jj, j, kk, k, prev, n
+    integer  :: ipos, jpos, itype, jtype
     real(rb) :: Ri(3), Qi, rsq, Eij, Wij
 
     integer,  allocatable :: pos(:), pair(:,:)
     real(rb), allocatable :: FbyR(:)
 
-    allocate( pos(size(charged)) )
-    pos(me%index) = [(i,i=1,me%natoms)]
+    pos = [(i,i=1,me%natoms)]
+    pos(me%index) = pos
 
     maxnpairs = sum(groupSize*(groupSize-1)/2)
     allocate( pair(2,maxnpairs), FbyR(maxnpairs) )
-    allocate( me%Edisc(me%ntypes,me%ntypes), me%Wdisc(me%ntypes,me%ntypes) )
 
     npairs = 0
     prev = 0
-    me%Edisc = zero
-    me%Wdisc = zero
-    do k = 1, size(groupSize)
-      n = groupSize(k)
+    me%Erigid = zero
+    me%Wrigid = zero
+    do kk = 1, size(groupSize)
+      n = groupSize(kk)
       do ii = 1, n-1
         i = atomIndex(prev+ii)
         if (charged(i)) then
@@ -158,13 +180,13 @@ contains
             if (charged(j)) then
               jpos = pos(j)
               jtype = me%type(jpos)
-              imin = min(itype,jtype)
-              imax = max(itype,jtype)
 
               rsq = sum((Ri - R(:,j))**2)
               call me % discount( Eij, Wij, rsq, Qi*me%Q(jpos) )
-              me%Edisc(imin,imax) = me%Edisc(imin,imax) + Eij
-              me%Wdisc(imin,imax) = me%Wdisc(imin,imax) + Wij
+
+              k = symm1D( itype, jtype )
+              me%Erigid(k) = me%Erigid(k) + Eij
+              me%Wrigid(k) = me%Wrigid(k) + Wij
 
               npairs = npairs + 1
               pair(:,npairs) = [ipos, jpos]
@@ -188,35 +210,29 @@ contains
   subroutine cKspaceModel_discount_rigid_pairs( me, thread, lambda, R, Potential, Virial, F )
     class(cKspaceModel), intent(inout) :: me
     integer,             intent(in)    :: thread
-    real(rb),            intent(in)    :: lambda(:,:), R(:,:)
+    real(rb),            intent(in)    :: lambda(:), R(:,:)
     real(rb),            intent(inout) :: Potential, Virial
     real(rb), optional,  intent(inout) :: F(:,:)
 
-    integer  :: i, j, k, ii, jj, itype, jtype
+    integer  :: i, j, k, ii, jj, first, last
     real(rb) :: Fij(3)
 
     if (present(F)) then
       do k = (thread - 1)*me%threadPairs + 1, min(thread*me%threadPairs,me%npairs)
         ii = me%pair(1,k)
         jj = me%pair(2,k)
-        itype = me%type(ii)
-        jtype = me%type(jj)
         i = me%index(ii)
         j = me%index(jj)
-        Fij = lambda(itype,jtype)*me%FbyR(k)*(R(:,i) - R(:,j))
+        Fij = lambda(symm1D(me%type(ii),me%type(ii)))*me%FbyR(k)*(R(:,i) - R(:,j))
         F(:,i) = F(:,i) + Fij
         F(:,j) = F(:,j) - Fij
       end do
     end if
 
-    if (thread == 1) then
-      do itype = 1, me%ntypes
-        do jtype = itype, me%ntypes
-          Potential = Potential + lambda(itype,jtype)*me%Edisc(itype,jtype)
-          Virial = Virial + lambda(itype,jtype)*me%Wdisc(itype,jtype)
-        end do
-      end do
-    end if
+    first = (thread - 1)*me%threadPairTypes + 1
+    last = min(thread*me%threadPairTypes,me%npairtypes)
+
+    Potential = Potential + sum(lambda(first:last)*me%Erigid(first:last))
 
   end subroutine cKspaceModel_discount_rigid_pairs
 
@@ -232,8 +248,10 @@ contains
     r = sqrt(rsq)
     x = me%alpha*r
     expmx2 = exp(-x*x)
-    E = -QiQj*uerf( x, expmx2 )
-    W = QiQj*prefactor*x*expmx2
+!    E = -QiQj*uerf( x, expmx2 )/r
+    E = -QiQj*erf( x )/r
+    W = E + QiQj*me%beta*expmx2
+!    W = QiQj*prefactor*x*expmx2    ! CORRECT THIS!!!
 
   end subroutine cKspaceModel_discount
 

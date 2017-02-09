@@ -718,4 +718,15 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
+  elemental function symm1D( i, j ) result( k )
+    integer, intent(in) :: i, j
+    integer             :: k
+    integer :: x, y
+    x = min(i,j) - 1
+    y = max(i,j) - 1
+    k = x + (y + 1)*y/2 + 1
+  end function symm1D
+
+!---------------------------------------------------------------------------------------------------
+
 end module math

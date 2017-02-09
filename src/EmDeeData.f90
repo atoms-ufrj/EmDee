@@ -118,8 +118,11 @@ type :: tData
   logical :: kspace_active
   logical :: multilayer_coulomb
 
-  real(rb), allocatable :: layer_energy(:)
-  real(rb), allocatable :: layer_virial(:)
+  integer,  allocatable :: other_layers(:)
+  real(rb), allocatable :: layer_energy(:,:)
+  real(rb), allocatable :: layer_virial(:,:)
+  real(rb), allocatable :: kCoul(:,:,:)
+  real(rb), allocatable :: kCoul1D(:,:)
 
 end type tData
 
@@ -328,7 +331,9 @@ contains
     type(tData), intent(inout) :: me
     integer,     intent(out)   :: DoF
 
-    integer  :: layer, i
+    character(*), parameter :: task = "system initialization"
+
+    integer  :: layer, i, j, npairtypes
     real(rb) :: L(3)
 
     integer, allocatable :: indices(:)
@@ -339,22 +344,34 @@ contains
     DoF = 3*me%nfree + sum(me%body%dof) - 3
 
     call check_actual_interactions( me )
+
     if (me%kspace_active) then
       L = me%Lbox*[one,one,one]
       call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charged, me%charge )
       indices = [(me%body(i)%index,i=1,me%nbodies)]
       call me % kspace % setup_rigid_pairs( me%body%NP, indices, me%R, me%charged )
     end if
+
     do layer = 1, me%nlayers
       associate( coul => me%coul(layer)%model )
         if (coul%requires_kspace) then
           if (me%kspace_active) then
             call coul % kspace_setup( me%kspace%alpha )
           else
-            call error( "upload", "model "//trim(coul%name)//" requires a kspace solver" )
+            call error( task, "model "//trim(coul%name)//" requires a kspace solver" )
           end if
         end if
       end associate
+    end do
+
+    npairtypes = me%ntypes*(me%ntypes - 1)/2 + me%ntypes
+    allocate( me%kCoul(me%ntypes,me%ntypes,me%nlayers), me%kCoul1D(npairtypes, me%nlayers) )
+    do i = 1, me%ntypes
+      do j = i, me%ntypes
+        me%kCoul(i,j,:) = me%pair(i,j,:)%kCoul
+        me%kCoul(j,i,:) = me%kCoul(i,j,:)
+        me%kCoul1D(symm1D(i,j),:) = me%kCoul(i,j,:)
+      end do
     end do
 
     contains
@@ -371,6 +388,7 @@ contains
             R = me%R(:,b%index)
             forall (i = 2:b%NP) R(:,i) = R(:,i) - me%Lbox*anint(me%invL*(R(:,i) - R(:,1)))
             call b % update( R )
+            me%R(:,b%index) = R
           end associate
         end do
 
@@ -707,13 +725,12 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Potential, Virial, Elayer, Wlayer )
+  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Potential, Virial )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial, &
-                                  Elayer(me%nlayers), Wlayer(me%nlayers)
+    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial
 
     integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer, ibody
     integer  :: nlocal, ntotal, first, last
@@ -730,13 +747,15 @@ contains
     F = zero
     Potential = zero
     Virial = zero
-    Elayer = zero
-    Wlayer = zero
 
     include = .true.
     index = 0
     npairs = 0
-    associate (neighbor => me%neighbor(thread))
+    associate ( neighbor => me%neighbor(thread),     &
+                Elayer => me%layer_energy(:,thread), &
+                Wlayer => me%layer_virial(:,thread)  )
+      Elayer = zero
+      Wlayer = zero
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
         if (neighbor%nitems < npairs + me%maxpairs) then
@@ -804,13 +823,13 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, compute, Rs, F, Potential, Virial, Elayer, Wlayer )
-    type(tData), intent(in)  :: me
-    integer,     intent(in)  :: thread
-    logical(lb), intent(in)  :: compute
-    real(rb),    intent(in)  :: Rs(3,me%natoms)
-    real(rb),    intent(out) :: F(3,me%natoms), Potential, Virial, &
-                                Elayer(me%nlayers), Wlayer(me%nlayers)
+  subroutine compute_pairs( me, thread, compute, Rs, F, Potential, Virial )
+    type(tData), intent(inout) :: me
+    integer,     intent(in)    :: thread
+    logical(lb), intent(in)    :: compute
+    real(rb),    intent(in)    :: Rs(3,me%natoms)
+    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial
+
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
@@ -821,12 +840,14 @@ contains
     F = zero
     Potential = zero
     Virial = zero
-    Elayer = zero
-    Wlayer = zero
 
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate (neighbor => me%neighbor(thread) )
+    associate ( neighbor => me%neighbor(thread),     &
+                Elayer => me%layer_energy(:,thread), &
+                Wlayer => me%layer_virial(:,thread)  )
+      Elayer = zero
+      Wlayer = zero
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)
@@ -848,6 +869,32 @@ contains
     end associate
 
   end subroutine compute_pairs
+
+!===================================================================================================
+
+  subroutine compute_kspace( me, thread, compute, Rs, F, Potential, Virial )
+    type(tData), intent(inout) :: me
+    integer,     intent(in)    :: thread
+    logical(lb), intent(in)    :: compute
+    real(rb),    intent(in)    :: Rs(3,me%natoms)
+    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial
+
+    if (me%coul(me%layer)%model%requires_kspace) then
+      call me % kspace % prepare( thread, Rs )
+!      call me % kspace % compute( thread, compute, me%kCoul(:,:,me%layer), F, Potential, Virial )
+
+!          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, E, W, F )
+!          if (compute) then
+!            do layer = 1, me%nlayers
+!              call me % kspace % compute( thread, me%kCoul(:,:,layer), EL(layer), WL(layer) )
+!              call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,layer), me%R, EL(layer), WL(layer) )
+!            end do
+!          end if
+        end if
+
+
+
+  end subroutine compute_kspace
 
 !===================================================================================================
 

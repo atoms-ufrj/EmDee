@@ -96,7 +96,10 @@ contains
     me%kmax = two*alpha*s
 
 !me%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
+print*, "alpha = ", alpha
 !me%kmax = twoPi/Lsqrt(27.0_rb) ! DELETE THIS LINE
+
+!alpha = 0.254674_rb
 
   end subroutine kspace_ewald_set_parameters
 
@@ -241,14 +244,14 @@ contains
     real(rb),            intent(inout) :: Potential, Virial
     real(rb), optional,  intent(inout) :: F(:,:)
 
-    integer  :: v1, vN, i, j, itype
+    integer :: v1, vN, i, j, itype
 
     ! Split wave-vectors among threads:
     v1 = (thread - 1)*me%threadVecs + 1
     vN = min(thread*me%threadVecs, me%nvecs)
 
     ! Compute type-specific structure factors and sigmas for current thread's vectors:
-    me%sigma(v1:vN,:) = matmul(me%S(v1:vN,:),lambda)
+    me%sigma(v1:vN,:) = matmul(me%S(v1:vN,:), lambda)
 
     ! Compute energy related to current thread's vectors:
     Potential = Potential + sum(me%prefac(v1:vN)*sum(me%S(v1:vn,:).dot.me%sigma(v1:vN,:),2))

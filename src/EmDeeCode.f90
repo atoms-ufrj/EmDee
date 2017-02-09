@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "07 Feb 2017"
+character(11), parameter :: VERSION = "08 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -69,6 +69,7 @@ contains
     type(c_ptr), value :: types, masses, bodies
     type(tEmDee)       :: EmDee_system
 
+    integer :: i
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
@@ -151,8 +152,9 @@ contains
     allocate( me%coul(me%nlayers), source = noCoul )
 
     ! Allocate variables related to model layers:
-    allocate( me%layer_energy(me%nlayers), source = zero )
-    allocate( me%layer_virial(me%nlayers), source = zero )
+    allocate( me%layer_energy(me%nlayers,me%nthreads), source = zero )
+    allocate( me%layer_virial(me%nlayers,me%nthreads), source = zero )
+    me%other_layers = [(i,i=1,me%layer-1), (i,i=me%layer+1,me%nlayers)]
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -177,6 +179,7 @@ contains
     type(tEmDee), value :: md
     integer(ib),  value :: layer
 
+    integer :: i
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -184,6 +187,7 @@ contains
       if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
       if (me%initialized) call update_forces( md, layer )
       me%layer = layer
+      me%other_layers = [(i,i=1,layer-1), (i,i=layer+1,me%nlayers)]
     end if
 
   end subroutine EmDee_switch_model_layer
@@ -684,12 +688,12 @@ contains
       case ("multienergy")
         if (.not.md%UpToDate) call error( "download", "layer energies are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
-        vector = me%layer_energy
+        vector = sum(me%layer_energy,2)
 
       case ("multivirial")
         if (.not.md%UpToDate) call error( "download", "layer virials are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
-        vector = me%layer_virial
+        vector = sum(me%layer_virial,2)
 
       case default
         call error( "download", "invalid option" )
@@ -926,15 +930,14 @@ contains
 
     integer  :: M
     real(rb) :: time, E, W
-    logical  :: buildList
-    real(rb), allocatable :: Rs(:,:), Fs(:,:,:), Elayer(:,:), Wlayer(:,:)
+    logical(lb) :: buildList, compProps
+    real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     md%pairTime = md%pairTime - omp_get_wtime()
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
-    allocate( Elayer(me%nlayers,me%nthreads), Wlayer(me%nlayers,me%nthreads) )
     Rs = me%invL*me%R
 
     buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
@@ -945,25 +948,33 @@ contains
       md%builds = md%builds + 1
     endif
 
-    md%UpToDate = md%Options%computeProps
+    compProps = md%Options%computeProps
     !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
     block
-      integer :: thread
+      integer :: thread, layer
       real(rb) :: lambda(me%ntypes,me%ntypes)
       thread = omp_get_thread_num() + 1
-      associate( F => Fs(:,:,thread), EL => Elayer(:,thread), WL => Wlayer(:,thread) )
+      associate( F => Fs(:,:,thread) )
+
         if (buildList) then
-          call find_pairs_and_compute( me, thread, md%UpToDate, Rs, F, E, W, EL, WL )
+          call find_pairs_and_compute( me, thread, compProps, Rs, F, E, W )
         else
-          call compute_pairs( me, thread, md%UpToDate, Rs, F, E, W, EL, WL )
+          call compute_pairs( me, thread, compProps, Rs, F, E, W )
         end if
         F = me%Lbox*F
-        if (me%kspace_active) then
+
+        if (me%kspace_active .and. me%coul(me%layer)%model%requires_kspace) then
           call me % kspace % prepare( thread, Rs )
-          lambda = me%pair(:,:,me%layer)%kCoul
-          call me % kspace % compute( thread, lambda, E, W, F )
-          call me % kspace % discount_rigid_pairs( thread, lambda, me%R, E, W, F )
+          call me % kspace % compute( thread, me%kCoul(:,:,me%layer), E, W, F )
+!          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, E, W, F )
+!          if (compProps) then
+!            do layer = 1, me%nlayers
+!              call me % kspace % compute( thread, me%kCoul(:,:,layer), EL(layer), WL(layer) )
+!              call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,layer), me%R, EL(layer), WL(layer) )
+!            end do
+!          end if
         end if
+
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
         if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E, W )
@@ -976,12 +987,13 @@ contains
 
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
-    if (md%UpToDate) then
+    if (compProps) then
       md%Potential = E
-      me%layer_energy = sum(Elayer,2)
-      me%layer_virial = sum(Wlayer,2)
+!      me%layer_energy = sum(Elayer,2)
+!      me%layer_virial = sum(Wlayer,2)
     end if
 
+    md%UpToDate = compProps
     time = omp_get_wtime()
     md%pairTime = md%pairTime + time
     md%totalTime = time - me%startTime

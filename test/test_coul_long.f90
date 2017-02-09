@@ -43,12 +43,14 @@ do i = 1, ntypes
   call EmDee_set_pair_model( md, i, i, pair, kCoul )
 end do
 call EmDee_set_coul_model( md, EmDee_coul_long() )
+!call EmDee_set_coul_model( md, EmDee_coul_none() )
 call EmDee_set_kspace_model( md, EmDee_kspace_ewald( 0.0001_rb ) )
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 
 call run( Nsteps, Nprop )
+print*, md%Potential/kB
 
 contains
   include "common/contained.f90"

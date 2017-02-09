@@ -84,7 +84,8 @@ contains
     if (noInvR) invR = sqrt(invR2)
     x = model%alpha/invR
     expmx2 = exp(-x*x)
-    ECij = QiQj*uerfc(x,expmx2)*invR
+!    ECij = QiQj*uerfc(x,expmx2)*invR
+    ECij = QiQj*erfc(x)*invR
     WCij = ECij + QiQj*model%beta*expmx2
 
   end subroutine coul_long_compute
@@ -102,7 +103,8 @@ contains
     if (noInvR) invR = sqrt(invR2)
     x = model%alpha/invR
     expmx2 = exp(-x*x)
-    Wij = Wij + QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
+!    Wij = Wij + QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
+    Wij = Wij + QiQj*(erfc(x)*invR + model%beta*expmx2)
 
   end subroutine coul_long_virial
 
