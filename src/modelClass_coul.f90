@@ -41,21 +41,21 @@ end type cCoulModel
 
 abstract interface
 
-  subroutine cCoulModel_compute( model, ECij, WCij, invR, invR2, QiQj, noInvR )
+  subroutine cCoulModel_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
     import
     class(cCoulModel), intent(in)    :: model
     real(rb),          intent(out)   :: ECij, WCij
+    logical,           intent(inout) :: noInvR
     real(rb),          intent(inout) :: invR
     real(rb),          intent(in)    :: invR2, QiQj
-    logical,           intent(in)    :: noInvR
   end subroutine cCoulModel_compute
 
-  subroutine cCoulModel_virial( model, Wij, invR, invR2, QiQj, noInvR )
+  subroutine cCoulModel_virial( model, Wij, noInvR, invR, invR2, QiQj )
     import
     class(cCoulModel), intent(in)    :: model
     real(rb),          intent(inout) :: Wij, invR
+    logical,           intent(inout) :: noInvR
     real(rb),          intent(in)    :: invR2, QiQj
-    logical,           intent(in)    :: noInvR
   end subroutine cCoulModel_virial
 
 end interface
@@ -87,6 +87,7 @@ contains
     real(rb),          intent(in)    :: cutoff
 
     real(rb) :: invR, invR2, E, W
+    logical  :: noInvR
 
     ! Zero energy and force shifts:
     model%fshift = zero
@@ -97,7 +98,8 @@ contains
       ! Compute energies and virials at cutoff:
       invR = one/cutoff
       invR2 = invR*invR
-      call model % compute( E, W, invR, invR2, one, .false. )
+      noInvR = .false.
+      call model % compute( E, W, noInvR, invR, invR2, one )
 
       ! Update van der Waals energy and force shifts:
       if (model%shifted_force) then
@@ -164,23 +166,23 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_compute( model, ECij, WCij, invR, invR2, QiQj, noInvR )
+  subroutine coul_none_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
     class(coul_none), intent(in)    :: model
     real(rb),         intent(out)   :: ECij, WCij
+    logical,          intent(inout) :: noInvR
     real(rb),         intent(inout) :: invR
     real(rb),         intent(in)    :: invR2, QiQj
-    logical,          intent(in)    :: noInvR
     ECij = zero
     WCij = zero
   end subroutine coul_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_virial( model, Wij, invR, invR2, QiQj, noInvR )
+  subroutine coul_none_virial( model, Wij, noInvR, invR, invR2, QiQj )
     class(coul_none), intent(in)    :: model
     real(rb),         intent(inout) :: Wij, invR
+    logical,          intent(inout) :: noInvR
     real(rb),         intent(in)    :: invR2, QiQj
-    logical,          intent(in)    :: noInvR
   end subroutine coul_none_virial
 
 !---------------------------------------------------------------------------------------------------

@@ -17,12 +17,11 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-!if (r2 < Rc2) then
-!  invR = me%invL/sqrt(r2)
-!  invR2 = invR*invR
-!  invR2 = me%invL2/r2
+if (r2 < Rc2) then
+  invR2 = me%invL2/r2
   jtype = me%atomType(j)
   ijcharged = icharged.and.me%charged(j)
+  noInvR = .true.
   if (compute) then
     associate( pair => partner(jtype) )
       select type ( model => pair%model )
@@ -30,11 +29,9 @@
       end select
       if (ijcharged.and.pair%coulomb) then
         QiQj = pair%kCoul*Qi*me%charge(j)
-        associate( noInvR => pair%model%noInvR )
-          select type ( model => me%coul(me%layer)%model )
-            include "compute_coul.f90"
-          end select
-        end associate
+        select type ( model => me%coul(me%layer)%model )
+          include "compute_coul.f90"
+        end select
       else
         ECij = zero
         WCij = zero
@@ -66,11 +63,9 @@
       end select
       if (ijcharged.and.pair%coulomb) then
         QiQj = pair%kCoul*Qi*me%charge(j)
-        associate( noInvR => pair%model%noInvR )
-          select type ( model => me%coul(me%layer)%model )
-            include "virial_compute_coul.f90"
-          end select
-        end associate
+        select type ( model => me%coul(me%layer)%model )
+          include "virial_compute_coul.f90"
+        end select
       end if
     end associate
     Virial = Virial + Wij
@@ -78,5 +73,5 @@
   end if
   Fi = Fi + Fij
   F(:,j) = F(:,j) - Fij
-!end if
+end if
 

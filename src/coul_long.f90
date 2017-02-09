@@ -72,39 +72,45 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_long_compute( model, ECij, WCij, invR, invR2, QiQj, noInvR )
+  subroutine coul_long_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
     class(coul_long), intent(in)    :: model
     real(rb),         intent(out)   :: ECij, WCij
+    logical,          intent(inout) :: noInvR
     real(rb),         intent(inout) :: invR
     real(rb),         intent(in)    :: invR2, QiQj
-    logical,          intent(in)    :: noInvR
 
     real(rb) :: x, expmx2
 
-    if (noInvR) invR = sqrt(invR2)
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
     x = model%alpha/invR
     expmx2 = exp(-x*x)
-!    ECij = QiQj*uerfc(x,expmx2)*invR
-    ECij = QiQj*erfc(x)*invR
+    ECij = QiQj*uerfc(x,expmx2)*invR
+!    ECij = QiQj*erfc(x)*invR
     WCij = ECij + QiQj*model%beta*expmx2
 
   end subroutine coul_long_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_long_virial( model, Wij, invR, invR2, QiQj, noInvR )
+  subroutine coul_long_virial( model, Wij, noInvR, invR, invR2, QiQj )
     class(coul_long), intent(in)    :: model
     real(rb),         intent(inout) :: Wij, invR
+    logical,          intent(inout) :: noInvR
     real(rb),         intent(in)    :: invR2, QiQj
-    logical,          intent(in)    :: noInvR
 
     real(rb) :: x, expmx2
 
-    if (noInvR) invR = sqrt(invR2)
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
     x = model%alpha/invR
     expmx2 = exp(-x*x)
-!    Wij = Wij + QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
-    Wij = Wij + QiQj*(erfc(x)*invR + model%beta*expmx2)
+    Wij = Wij + QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
+!    Wij = Wij + QiQj*(erfc(x)*invR + model%beta*expmx2)
 
   end subroutine coul_long_virial
 

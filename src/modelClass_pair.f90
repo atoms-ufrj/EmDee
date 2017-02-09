@@ -30,8 +30,6 @@ type, abstract, extends(cModel) :: cPairModel
   real(rb) :: fshift = zero
   logical  :: shifted = .false.
   logical  :: shifted_force = .false.
-  logical  :: noInvR = .true.
-  logical  :: noInvR_virial = .true.
   contains
     procedure(cPairModel_compute), deferred :: compute
     procedure(cPairModel_virial),  deferred :: virial
@@ -43,18 +41,22 @@ end type cPairModel
 
 abstract interface
 
-  subroutine cPairModel_compute( model, Eij, Wij, invR, invR2 )
+  subroutine cPairModel_compute( model, Eij, Wij, noInvR, invR, invR2 )
     import
-    class(cPairModel), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij, invR
-    real(rb),          intent(in)  :: invR2
+    class(cPairModel), intent(in)    :: model
+    real(rb),          intent(out)   :: Eij, Wij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2
   end subroutine cPairModel_compute
 
-  subroutine cPairModel_virial( model, Wij, invR, invR2 )
+  subroutine cPairModel_virial( model, Wij, noInvR, invR, invR2 )
     import
-    class(cPairModel), intent(in)  :: model
-    real(rb),          intent(out) :: Wij, invR
-    real(rb),          intent(in)  :: invR2
+    class(cPairModel), intent(in)    :: model
+    real(rb),          intent(out)   :: Wij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2
   end subroutine cPairModel_virial
 
   function cPairModel_mix( this, other ) result( mixed )
@@ -96,6 +98,7 @@ contains
     real(rb),          intent(in)    :: cutoff
 
     real(rb) :: invR2, E, W, invR
+    logical  :: noInvR
 
     ! Zero energy and force shifts:
     model%fshift = zero
@@ -104,8 +107,10 @@ contains
     if (model%shifted .or. model%shifted_force) then
 
       ! Compute energies and virials at cutoff:
-      invR2 = one/cutoff**2
-      call model%compute( E, W, invR, invR2 )
+      invR = one/cutoff
+      invR2 = invR*invR
+      noInvR = .false.
+      call model%compute( E, W, noInvR, invR, invR2 )
 
       ! Update energy and force shifts:
       if (model%shifted_force) then
@@ -151,7 +156,6 @@ contains
 
   function pairModelContainer_mix( a, b ) result( c )
     class(pairModelContainer), intent(in) :: a, b
-!    class(cPairModel),         intent(in) :: b
     type(pairModelContainer)              :: c
 
     class(cPairModel), pointer :: mixed
@@ -163,7 +167,8 @@ contains
       deallocate( mixed )
     else
       allocate( c%model, source = pair_none(name="none") )
-      call warning( "no mixing rule found for models "//trim(a%model%name)//" and "//trim(b%model%name) )
+      call warning( "no mixing rule found for models "//trim(a%model%name)// &
+                    " and "//trim(b%model%name) )
     end if
 
     c%Coulomb = a%Coulomb .and. b%Coulomb
@@ -193,20 +198,24 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_compute( model, Eij, Wij, invR, invR2 )
-    class(pair_none), intent(in)  :: model
-    real(rb),         intent(out) :: Eij, Wij, invR
-    real(rb),         intent(in)  :: invR2
+  subroutine pair_none_compute( model, Eij, Wij, noInvR, invR, invR2 )
+    class(pair_none),  intent(in)    :: model
+    real(rb),          intent(out)   :: Eij, Wij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2
     Eij = zero
     Wij = zero
   end subroutine pair_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_virial( model, Wij, invR, invR2 )
-    class(pair_none), intent(in)  :: model
-    real(rb),         intent(out) :: Wij, invR
-    real(rb),         intent(in)  :: invR2
+  subroutine pair_none_virial( model, Wij, noInvR, invR, invR2 )
+    class(pair_none), intent(in)    :: model
+    real(rb),         intent(out)   :: Wij
+    logical,          intent(inout) :: noInvR
+    real(rb),         intent(inout) :: invR
+    real(rb),         intent(in)    :: invR2
     Wij = zero
   end subroutine pair_none_virial
 

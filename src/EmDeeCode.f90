@@ -962,9 +962,9 @@ contains
         end if
         F = me%Lbox*F
 
-        if (me%kspace_active .and. me%coul(me%layer)%model%requires_kspace) then
-          call me % kspace % prepare( thread, Rs )
-          call me % kspace % compute( thread, me%kCoul(:,:,me%layer), Ec, W, F )
+!        if (me%kspace_active .and. me%coul(me%layer)%model%requires_kspace) then
+!          call me % kspace % prepare( thread, Rs )
+!          call me % kspace % compute( thread, me%kCoul(:,:,me%layer), Ec, W, F )
 !          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, E, W, F )
 !          if (compProps) then
 !            do layer = 1, me%nlayers
@@ -972,7 +972,7 @@ contains
 !              call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,layer), me%R, EL(layer), WL(layer) )
 !            end do
 !          end if
-        end if
+!        end if
 
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ep, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, Ep, W )

@@ -68,25 +68,26 @@ contains
     ! Activate shifted-force status:
     model%shifted_force = .true.
 
-    ! Attest that invR is evaluated during model computations:
-    model%noInvR = .false.
-    model%noInvR_virial = .false.
-
   end subroutine pair_lj_sf_setup
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_sf_compute( model, Eij, Wij, invR, invR2 )
-    class(pair_lj_sf), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij, invR
-    real(rb),          intent(in)  :: invR2
+  subroutine pair_lj_sf_compute( model, Eij, Wij, noInvR, invR, invR2 )
+    class(pair_lj_sf), intent(in)    :: model
+    real(rb),          intent(out)   :: Eij, Wij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2
 
     real(rb) :: sr2, sr6, sr12, rFc
 
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
     sr2 = model%sigSq*invR2
     sr6 = sr2*sr2*sr2
     sr12 = sr6*sr6
-    invR = sqrt(invR2)
     rFc = model%fshift/invR
     Eij = model%eps4*(sr12 - sr6) + model%eshift + rFc
     Wij = model%eps24*(sr12 + sr12 - sr6) - rFc
@@ -95,17 +96,22 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_sf_virial( model, Wij, invR, invR2 )
-    class(pair_lj_sf), intent(in)  :: model
-    real(rb),          intent(out) :: Wij, invR
-    real(rb),          intent(in)  :: invR2
+  subroutine pair_lj_sf_virial( model, Wij, noInvR, invR, invR2 )
+    class(pair_lj_sf), intent(in)    :: model
+    real(rb),          intent(out)   :: Wij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2
 
     real(rb) :: sr2, sr6, sr12
 
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
     sr2 = model%sigSq*invR2
     sr6 = sr2*sr2*sr2
     sr12 = sr6*sr6
-    invR = sqrt(invR2)
     Wij = model%eps24*(sr12 + sr12 - sr6) - model%fshift/invR
 
   end subroutine pair_lj_sf_virial
