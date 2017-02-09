@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "08 Feb 2017"
+character(11), parameter :: VERSION = "09 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate      ! Flag to activate/deactivate translations
@@ -152,9 +152,9 @@ contains
     allocate( me%coul(me%nlayers), source = noCoul )
 
     ! Allocate variables related to model layers:
-    allocate( me%layer_energy(me%nlayers,me%nthreads), source = zero )
-    allocate( me%layer_virial(me%nlayers,me%nthreads), source = zero )
-    me%other_layers = [(i,i=1,me%layer-1), (i,i=me%layer+1,me%nlayers)]
+    me%layer = 1
+    me%other_layer = [(i,i=2,me%layer)]
+    allocate( me%Energy(layers,threads), me%Virial(layers,threads) )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -187,7 +187,7 @@ contains
       if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
       if (me%initialized) call update_forces( md, layer )
       me%layer = layer
-      me%other_layers = [(i,i=1,layer-1), (i,i=layer+1,me%nlayers)]
+      me%other_layer = [(i,i=1,layer-1), (i,i=layer+1,me%nlayers)]
     end if
 
   end subroutine EmDee_switch_model_layer
@@ -688,12 +688,12 @@ contains
       case ("multienergy")
         if (.not.md%UpToDate) call error( "download", "layer energies are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
-        vector = sum(me%layer_energy,2)
+        vector = sum(me%Energy,2)
 
       case ("multivirial")
         if (.not.md%UpToDate) call error( "download", "layer virials are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
-        vector = sum(me%layer_virial,2)
+        vector = sum(me%Virial,2)
 
       case default
         call error( "download", "invalid option" )
@@ -929,7 +929,7 @@ contains
     type(tEmDee), intent(inout) :: md
 
     integer  :: M
-    real(rb) :: time, E, W
+    real(rb) :: time, Ep, Ec, W
     logical(lb) :: buildList, compProps
     real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
     type(tData),  pointer :: me
@@ -949,23 +949,22 @@ contains
     endif
 
     compProps = md%Options%computeProps
-    !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
+    !$omp parallel num_threads(me%nthreads) reduction(+:Ep,Ec,W)
     block
-      integer :: thread, layer
-      real(rb) :: lambda(me%ntypes,me%ntypes)
+      integer :: thread !, layer
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
 
         if (buildList) then
-          call find_pairs_and_compute( me, thread, compProps, Rs, F, E, W )
+          call find_pairs_and_compute( me, thread, compProps, Rs, F, Ep, Ec, W )
         else
-          call compute_pairs( me, thread, compProps, Rs, F, E, W )
+          call compute_pairs( me, thread, compProps, Rs, F, Ep, Ec, W )
         end if
         F = me%Lbox*F
 
         if (me%kspace_active .and. me%coul(me%layer)%model%requires_kspace) then
           call me % kspace % prepare( thread, Rs )
-          call me % kspace % compute( thread, me%kCoul(:,:,me%layer), E, W, F )
+          call me % kspace % compute( thread, me%kCoul(:,:,me%layer), Ec, W, F )
 !          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, E, W, F )
 !          if (compProps) then
 !            do layer = 1, me%nlayers
@@ -975,9 +974,9 @@ contains
 !          end if
         end if
 
-        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E, W )
-        if (me%angles%exist) call compute_angles( me, thread, Rs, F, E, W )
-        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E, W )
+        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ep, W )
+        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Ep, W )
+        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Ep, W )
       end associate
     end block
     !$omp end parallel
@@ -988,7 +987,7 @@ contains
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     if (compProps) then
-      md%Potential = E
+      md%Potential = Ep + Ec
 !      me%layer_energy = sum(Elayer,2)
 !      me%layer_virial = sum(Wlayer,2)
     end if

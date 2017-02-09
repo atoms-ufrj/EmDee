@@ -17,8 +17,10 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-if (r2 < Rc2) then
-  invR2 = me%invL2/r2
+!if (r2 < Rc2) then
+!  invR = me%invL/sqrt(r2)
+!  invR2 = invR*invR
+!  invR2 = me%invL2/r2
   jtype = me%atomType(j)
   ijcharged = icharged.and.me%charged(j)
   if (compute) then
@@ -38,14 +40,17 @@ if (r2 < Rc2) then
         WCij = zero
       end if
     end associate
-    Eij = Eij + ECij
     Wij = Wij + WCij
-    Potential = Potential + Eij
     Virial = Virial + Wij
     Fij = Wij*invR2*Rij
+    Epair = Epair + Eij
+    Ecoul = Ecoul + ECij
     if (multilayer(jtype)) then
+      Elayer(me%layer) = Elayer(me%layer) + Eij
+      Wlayer(me%layer) = Wlayer(me%layer) + Wij
       associate( pair => me%pair(itype,jtype,:) )
-        do layer = 1, me%nlayers
+        do l = 1, me%nlayers-1
+          layer = me%other_layer(l)
           select type ( model => pair(layer)%model )
             include "compute_pair.f90"
           end select
@@ -73,5 +78,5 @@ if (r2 < Rc2) then
   end if
   Fi = Fi + Fij
   F(:,j) = F(:,j) - Fij
-end if
+!end if
 

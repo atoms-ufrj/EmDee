@@ -22,20 +22,23 @@
 program testfortran
 
 use EmDee
-use mConfig
 
 implicit none
 
-integer(ib) :: Nsteps, Nprop
-real(rb)    :: Rc, Rs, Rc2, Temp, Dt, Dt_2
-real(rb), pointer :: V(:,:)
+integer, parameter :: ib = 4, rb = 8
+
+integer(ib) :: N, Nsteps, Nprop
+real(rb)    :: rho, Rc, Rs, Rc2, Temp, Dt, Dt_2
+real(rb), target :: L
+integer,  allocatable, target :: atomType(:)
+real(rb), allocatable, target :: R(:,:), V(:,:), Q(:)
 
 integer(ib) :: step
 type(tEmDee), target :: md
-type(c_ptr), target :: pair, bond
+type(c_ptr), target :: pair !, bond
 
 integer :: i, j, argcount, threads
-character(256) :: line, configFile
+character(256) :: line
 
 argcount = command_argument_count()
 if (argcount == 1) then
@@ -51,8 +54,8 @@ else
 end if
 
 call read_data( file = line )
-call read_configuration( configFile )
-call set_velocities
+!call read_configuration( configFile )
+call create_configuration
 
 if (mod(N,2) /= 0) stop "PLEASE ENTER AN EVEN NUMBER OF ATOMS"
 atomType(1:N/2) = 1
@@ -76,9 +79,9 @@ call EmDee_set_pair_model( md, 1, 1, pair, 1.0_rb )
 call EmDee_set_pair_model( md, 2, 2, pair, 1.0_rb )
 call EmDee_set_pair_model( md, 1, 2, pair, 1.0_rb )
 
-call EmDee_set_coul_model( md, EmDee_coul_sf() )
+!call EmDee_set_coul_model( md, EmDee_coul_sf() )
 
-call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
+!call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 
 do i = 1, N-1
   do j = i+1, N
@@ -86,10 +89,10 @@ do i = 1, N-1
   end do
 end do
 
-bond = EmDee_bond_harmonic( 1.0_rb, 1.0_rb )
-call EmDee_add_bond( md, 1, 2, bond )
-call EmDee_add_bond( md, 2, 3, bond )
-call EmDee_add_bond( md, 4, 5, bond )
+!bond = EmDee_bond_harmonic( 1.0_rb, 1.0_rb )
+!call EmDee_add_bond( md, 1, 2, bond )
+!call EmDee_add_bond( md, 2, 3, bond )
+!call EmDee_add_bond( md, 4, 5, bond )
 
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
@@ -113,19 +116,22 @@ contains
     character(*), intent(in) :: file
     integer  :: inp, i, nseeds, seed
     open( newunit = inp, file = file, status = "old" )
-    read(inp,*); read(inp,*) configFile
+    read(inp,*); read(inp,*) N
     read(inp,*); read(inp,*) Rc
     read(inp,*); read(inp,*) Rs
     read(inp,*); read(inp,*) seed
     read(inp,*); read(inp,*) Dt
     read(inp,*); read(inp,*) Nsteps
     read(inp,*); read(inp,*) Nprop
+    read(inp,*); read(inp,*) rho
     read(inp,*); read(inp,*) Temp
     close(inp)
     call random_seed( size = nseeds )
     call random_seed( put = seed + 37*[(i-1,i=1,nseeds)] )
     Rc2 = Rc**2
+    L = (N/rho)**(1.0_8/3.0_8)
     Dt_2 = 0.5_8*Dt
+    allocate( R(3,N), V(3,N), atomType(N), Q(N) )
   end subroutine read_data
 !---------------------------------------------------------------------------------------------------
   real(rb) function random_normal()
@@ -151,19 +157,6 @@ subroutine create_configuration
   V = sqrt(Temp*(3*N-3)/sum(V*V))*V
   Vcm = sum(V,2)/N
 end subroutine create_configuration
-!---------------------------------------------------------------------------------------------------
-subroutine set_velocities
-  integer :: i
-  real(rb) :: Vcm(3)
-  allocate( V(3,N) )
-  do i = 1, N
-    V(:,i) = [random_normal(), random_normal(), random_normal()]
-  end do
-  Vcm = sum(V,2)/N
-  forall (i=1:N) V(:,i) = V(:,i) - Vcm
-  V = sqrt(Temp*(3*N-3)/sum(V*V))*V
-  Vcm = sum(V,2)/N
-end subroutine set_velocities
 !---------------------------------------------------------------------------------------------------
 end program testfortran
 

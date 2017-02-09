@@ -118,11 +118,12 @@ type :: tData
   logical :: kspace_active
   logical :: multilayer_coulomb
 
-  integer,  allocatable :: other_layers(:)
-  real(rb), allocatable :: layer_energy(:,:)
-  real(rb), allocatable :: layer_virial(:,:)
+  integer,  allocatable :: other_layer(:)
   real(rb), allocatable :: kCoul(:,:,:)
   real(rb), allocatable :: kCoul1D(:,:)
+
+  real(rb), allocatable :: Energy(:,:)
+  real(rb), allocatable :: Virial(:,:)
 
 end type tData
 
@@ -725,14 +726,14 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Potential, Virial )
+  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Epair, Ecoul, Virial )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Virial
 
-    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, layer, ibody
+    integer  :: i, j, k, l, m, n, icell, jcell, npairs, itype, jtype, layer, ibody
     integer  :: nlocal, ntotal, first, last
     real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     logical  :: icharged, ijcharged, include(0:me%maxpairs)
@@ -745,15 +746,16 @@ contains
     Rc2 = me%RcSq*me%invL2
 
     F = zero
-    Potential = zero
+    Epair = zero
+    Ecoul = zero
     Virial = zero
 
     include = .true.
     index = 0
     npairs = 0
-    associate ( neighbor => me%neighbor(thread),     &
-                Elayer => me%layer_energy(:,thread), &
-                Wlayer => me%layer_virial(:,thread)  )
+    associate ( neighbor => me%neighbor(thread), &
+                Elayer => me%Energy(:,thread),   &
+                Wlayer => me%Virial(:,thread)    )
       Elayer = zero
       Wlayer = zero
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
@@ -789,21 +791,21 @@ contains
           Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
           include(xlist) = .false.
-          associate (partner => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
+          associate ( partner => me%pair(:,itype,me%layer), &
+                      multilayer => me%multilayer(:,itype)  )
             do m = k + 1, ntotal
-              if (include(m)) then
-                j = atom(m)
-                if (me%atomBody(j) /= ibody ) then
-                  jtype = me%atomType(j)
-                  if (me%interact(itype,jtype)) then
-                    Rij = Ri - Rs(:,j)
-                    Rij = Rij - anint(Rij)
-                    r2 = sum(Rij*Rij)
-                    if (r2 < xRc2) then
-                      npairs = npairs + 1
-                      neighbor%item(npairs) = j
-                      include "inner_loop.f90"
-                    end if
+              j = atom(m)
+              jtype = me%atomType(j)
+              if (include(m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
+                Rij = Ri - Rs(:,j)
+                Rij = Rij - anint(Rij)
+                r2 = sum(Rij*Rij)
+                if (r2 < xRc2) then
+                  npairs = npairs + 1
+                  neighbor%item(npairs) = j
+                  if (r2 < Rc2) then
+                    invR2 = me%invL2/r2
+                    include "inner_loop.f90"
                   end if
                 end if
               end if
@@ -823,29 +825,32 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, compute, Rs, F, Potential, Virial )
+  subroutine compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Virial )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Virial
 
-    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, layer
+    integer  :: i, j, k, l, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
     logical  :: icharged, ijcharged
 
+    real(rb), allocatable :: Rvec(:,:)
+
     Rc2 = me%RcSq*me%invL2
 
     F = zero
-    Potential = zero
+    Epair = zero
+    Ecoul = zero
     Virial = zero
 
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate ( neighbor => me%neighbor(thread),     &
-                Elayer => me%layer_energy(:,thread), &
-                Wlayer => me%layer_virial(:,thread)  )
+    associate ( neighbor => me%neighbor(thread), &
+                Elayer => me%Energy(:,thread),   &
+                Wlayer => me%Virial(:,thread)    )
       Elayer = zero
       Wlayer = zero
       do m = firstAtom, lastAtom
@@ -855,13 +860,22 @@ contains
         icharged = me%charged(i)
         Ri = Rs(:,i)
         Fi = zero
-        associate (partner => me%pair(:,itype,me%layer), multilayer => me%multilayer(:,itype))
-          do k = neighbor%first(i), neighbor%last(i)
-            j = neighbor%item(k)
-            Rij = Ri - Rs(:,j)
-            Rij = Rij - anint(Rij)
+        associate ( partner => me%pair(:,itype,me%layer), &
+                    multilayer => me%multilayer(:,itype), &
+                    jj => neighbor%item(neighbor%first(i):neighbor%last(i)) )
+          Rvec = Rs(:,jj)
+          forall (k=1:size(jj)) Rvec(:,k) = Ri - Rvec(:,k)
+          Rvec = Rvec - anint(Rvec)
+          do k = 1, size(jj)
+            j = jj(k)
+            Rij = Rvec(:,k)
             r2 = sum(Rij*Rij)
-            include "inner_loop.f90"
+            if (r2 < Rc2) then
+              invR2 = me%invL2/r2
+!invR = me%invL*1.0_rb/sqrt(r2)
+!invR2 = invR*invR
+              include "inner_loop.f90"
+            end if
           end do
         end associate
         F(:,i) = F(:,i) + Fi
