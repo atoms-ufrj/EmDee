@@ -40,6 +40,7 @@ type, extends(cPairModel) :: pair_lj_cut
   contains
     procedure :: setup => pair_lj_cut_setup
     procedure :: compute => pair_lj_cut_compute
+    procedure :: energy => pair_lj_cut_energy
     procedure :: virial => pair_lj_cut_virial
     procedure :: mix => pair_lj_cut_mix
 end type pair_lj_cut
@@ -85,6 +86,24 @@ contains
     Wij = model%eps24*(sr12 + sr12 - sr6)
 
   end subroutine pair_lj_cut_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine pair_lj_cut_energy( model, Eij, noInvR, invR, invR2 )
+    class(pair_lj_cut), intent(in)    :: model
+    real(rb),           intent(out)   :: Eij
+    logical,            intent(inout) :: noInvR
+    real(rb),           intent(inout) :: invR
+    real(rb),           intent(in)    :: invR2
+
+    real(rb) :: sr2, sr6, sr12
+
+    sr2 = model%sigSq*invR2
+    sr6 = sr2*sr2*sr2
+    sr12 = sr6*sr6
+    Eij = model%eps4*(sr12 - sr6)
+
+  end subroutine pair_lj_cut_energy
 
 !---------------------------------------------------------------------------------------------------
 

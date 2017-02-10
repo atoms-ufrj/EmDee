@@ -69,8 +69,8 @@ OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
                      modelClass lists global)
 
 COMPUTES = $(addprefix compute_,$(MODELTERMS))
-#VIRIALCOMPUTES = $(addprefix virial_,$(COMPUTES))
-VIRIALCOMPUTES = $(addprefix virial_,compute_pair compute_coul)
+ENERGYCOMPUTES = $(addprefix energy_compute_,pair coul)
+VIRIALCOMPUTES = $(addprefix virial_compute_,pair coul)
 
 TESTS = $(patsubst %.f90,%,$(wildcard $(TSTDIR)/*.f90))
 
@@ -88,7 +88,7 @@ test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
 
 clean:
 	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(INCDIR)
-	rm -rf $(call src,$(COMPUTES) $(VIRIALCOMPUTES) models)
+	rm -rf $(call src,$(COMPUTES) $(ENERGYCOMPUTES) $(VIRIALCOMPUTES) models)
 	rm -rf $(TESTS) *.gcda *.gcno
 
 install:
@@ -98,7 +98,7 @@ install:
 
 uninstall:
 	rm -f $(PREFIX)/lib/libemdee.so
-	rm -f $(addprefix $(PREFIX)/include/,emdee.h emdee.f03 libemdee.jl) 
+	rm -f $(addprefix $(PREFIX)/include/,emdee.h emdee.f03 libemdee.jl)
 	ldconfig
 
 lib: $(LIBDIR)/libemdee.so
@@ -128,22 +128,22 @@ $(LIBDIR)/libemdee.so: $(OBJECTS)
 	mkdir -p $(LIBDIR)
 	$(FORT) $(F_OPTS) -shared -fPIC -o $@ $(OBJECTS) $(LIBS)
 
-$(INCDIR)/emdee.f03: $(SRCDIR)/emdee_header.f03
+$(INCDIR)/emdee.f03: $(SRCDIR)/emdee_header.f03 $(SRCDIR)/make_f_header.sh
 	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_f_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/emdee.f03
 
-$(INCDIR)/emdee.h: $(SRCDIR)/emdee_header.h
+$(INCDIR)/emdee.h: $(SRCDIR)/emdee_header.h $(SRCDIR)/make_c_header.sh
 	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/emdee.h
 
-$(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl
+$(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl $(SRCDIR)/make_j_header.sh
 	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/libemdee.jl
 
 # Object files:
 
 $(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode inner_loop) \
-                       $(call src,$(COMPUTES) $(VIRIALCOMPUTES)) \
+                       $(call src,$(COMPUTES) $(ENERGYCOMPUTES) $(VIRIALCOMPUTES)) \
                        $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
@@ -171,6 +171,12 @@ $(SRCDIR)/compute_angle.f90: $(call src,$(ANGLEMODELS)) $(SRCDIR)/make_compute.s
 
 $(SRCDIR)/compute_dihedral.f90: $(call src,$(DIHEDMODELS)) $(SRCDIR)/make_compute.sh
 	bash $(SRCDIR)/make_compute.sh dihedral $(DIHEDMODELS) > $@
+
+$(SRCDIR)/energy_compute_pair.f90: $(call src,$(PAIRMODELS)) $(SRCDIR)/make_energy_compute.sh
+	bash $(SRCDIR)/make_energy_compute.sh pair $(PAIRMODELS) > $@
+
+$(SRCDIR)/energy_compute_coul.f90: $(call src,$(COULMODELS)) $(SRCDIR)/make_energy_compute.sh
+	bash $(SRCDIR)/make_energy_compute.sh coul $(COULMODELS) > $@
 
 $(SRCDIR)/virial_compute_pair.f90: $(call src,$(PAIRMODELS)) $(SRCDIR)/make_virial_compute.sh
 	bash $(SRCDIR)/make_virial_compute.sh pair $(PAIRMODELS) > $@

@@ -35,6 +35,7 @@ type, extends(cCoulModel) :: coul_sf
   contains
     procedure :: setup => coul_sf_setup
     procedure :: compute => coul_sf_compute
+    procedure :: energy => coul_sf_energy
     procedure :: virial => coul_sf_virial
 end type coul_sf
 
@@ -79,9 +80,27 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_virial( model, Wij, noInvR, invR, invR2, QiQj )
+  subroutine coul_sf_energy( model, ECij, noInvR, invR, invR2, QiQj )
     class(coul_sf), intent(in)    :: model
-    real(rb),       intent(inout) :: Wij, invR
+    real(rb),       intent(out)   :: ECij
+    logical,        intent(inout) :: noInvR
+    real(rb),       intent(inout) :: invR
+    real(rb),       intent(in)    :: invR2, QiQj
+
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
+    ECij = QiQj*(invR + model%eshift + model%fshift/invR)
+
+  end subroutine coul_sf_energy
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine coul_sf_virial( model, WCij, noInvR, invR, invR2, QiQj )
+    class(coul_sf), intent(in)    :: model
+    real(rb),       intent(out)   :: WCij
+    real(rb),       intent(inout) :: invR
     logical,        intent(inout) :: noInvR
     real(rb),       intent(in)    :: invR2, QiQj
 
@@ -89,7 +108,7 @@ contains
       invR = sqrt(invR2)
       noInvR = .false.
     end if
-    Wij = Wij + QiQj*(invR - model%fshift/invR)
+    WCij = QiQj*(invR - model%fshift/invR)
 
   end subroutine coul_sf_virial
 

@@ -2,18 +2,26 @@ typedef struct {
   int    builds;         // Number of neighbor-list builds
   double pairTime;       // Time taken in force calculations
   double totalTime;      // Total time since initialization
-  double Potential;      // Total potential energy of the system
-  double Kinetic;        // Total kinetic energy of the system
-  double Rotational;     // Rotational kinetic energy of the system
+  struct {
+    double Potential;    // Total potential energy of the system
+    double Dispersion;   // Dispersion (vdW) part of the potential energy
+    double Coulomb;      // Electrostatic part of the potential energy
+    double Fourier;      // Reciprocal part of the electrostatic potential
+    double Kinetic;      // Total kinetic energy of the system
+    double KinPart[3];   // Kinetic energy at each dimension
+    double Rotational;   // Rotational kinetic energy of the system
+    double RotPart[3];   // Rotational kinetic energy around each principal axis
+    _Bool  Compute;      // Flag to activate/deactivate energy computations
+    _Bool  UpToDate;     // Flag to attest whether energies have been computed
+  } Energy;
   double Virial;         // Total internal virial of the system
+  double BodyVirial;     // Rigid body contribution to the internal virial
   int    DOF;            // Total number of degrees of freedom
   int    RDOF;           // Number of rotational degrees of freedom
-  _Bool  UpToDate;       // Flag to attest whether energies have been computed
   void*  Data;           // Pointer to system data
   struct {
     _Bool translate;     // Flag to activate/deactivate translations
     _Bool rotate;        // Flag to activate/deactivate rotations
-    _Bool computeProps;  // Flag to activate/deactivate energy computations
     int   rotationMode;  // Algorithm used for free rotation of rigid bodies
   } Options;
 } tEmDee;

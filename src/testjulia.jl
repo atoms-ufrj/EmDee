@@ -8,7 +8,7 @@ function run(nthreads, file)
   L = fill((N/rho)^(1.0/3.0),3)
   Dt_2 = 0.5*Dt
 
-  md = EmDee.system( nthreads, 1, Rc, Rs, N, fill(1,N), fill(1.0,N), C_NULL )
+  md = EmDee.system( nthreads, 1, Rc, Rs, N, fill(1,N), fill(1.0,N), fill(0,N) )
   lj = EmDee.pair_lj_sf( 1.0, 1.0 )
   EmDee.set_pair_model( md, 1, 1, lj, 1.0 )
 

@@ -32,6 +32,7 @@ type, abstract, extends(cModel) :: cPairModel
   logical  :: shifted_force = .false.
   contains
     procedure(cPairModel_compute), deferred :: compute
+    procedure(cPairModel_energy),  deferred :: energy
     procedure(cPairModel_virial),  deferred :: virial
     procedure(cPairModel_mix),     deferred :: mix
 
@@ -49,6 +50,15 @@ abstract interface
     real(rb),          intent(inout) :: invR
     real(rb),          intent(in)    :: invR2
   end subroutine cPairModel_compute
+
+  subroutine cPairModel_energy( model, Eij, noInvR, invR, invR2 )
+    import
+    class(cPairModel), intent(in)    :: model
+    real(rb),          intent(out)   :: Eij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2
+  end subroutine cPairModel_energy
 
   subroutine cPairModel_virial( model, Wij, noInvR, invR, invR2 )
     import
@@ -83,6 +93,7 @@ type, extends(cPairModel) :: pair_none
   contains
     procedure :: setup => pair_none_setup
     procedure :: compute => pair_none_compute
+    procedure :: energy => pair_none_energy
     procedure :: virial => pair_none_virial
     procedure :: mix => pair_none_mix
 end type pair_none
@@ -207,6 +218,17 @@ contains
     Eij = zero
     Wij = zero
   end subroutine pair_none_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine pair_none_energy( model, Eij, noInvR, invR, invR2 )
+    class(pair_none), intent(in)    :: model
+    real(rb),         intent(out)   :: Eij
+    logical,          intent(inout) :: noInvR
+    real(rb),         intent(inout) :: invR
+    real(rb),         intent(in)    :: invR2
+    Eij = zero
+  end subroutine pair_none_energy
 
 !---------------------------------------------------------------------------------------------------
 

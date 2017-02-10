@@ -79,5 +79,6 @@ for model in "$@"; do
     fi
   done
   echo "void* EmDee_$model( $(csv ${allparams[*]}) );"
+  echo
 done
 

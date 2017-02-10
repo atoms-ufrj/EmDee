@@ -46,6 +46,7 @@ type, extends(cPairModel) :: pair_softcore_cut
   contains
     procedure :: setup => pair_softcore_cut_setup
     procedure :: compute => pair_softcore_cut_compute
+    procedure :: energy => pair_softcore_cut_energy
     procedure :: virial => pair_softcore_cut_virial
     procedure :: mix => pair_softcore_cut_mix
 end type pair_softcore_cut
@@ -100,6 +101,24 @@ contains
     Wij = model%prefactor6*rsig6*(sinvCb + sinvCb - sinvSq)
 
   end subroutine pair_softcore_cut_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine pair_softcore_cut_energy( model, Eij, noInvR, invR, invR2 )
+    class(pair_softcore_cut), intent(in)    :: model
+    real(rb),                 intent(out)   :: Eij
+    logical,                  intent(inout) :: noInvR
+    real(rb),                 intent(inout) :: invR
+    real(rb),                 intent(in)    :: invR2
+
+    real(rb) :: rsig2, rsig6, sinv
+
+    rsig2 = model%invSigSq/invR2
+    rsig6 = rsig2*rsig2*rsig2
+    sinv = one/(rsig6 + model%shift)
+    Eij = model%prefactor*(sinv*sinv - sinv)
+
+  end subroutine pair_softcore_cut_energy
 
 !---------------------------------------------------------------------------------------------------
 

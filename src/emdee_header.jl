@@ -3,21 +3,37 @@ module EmDee
 immutable tOptions
   translate::Int32           # Flag to activate/deactivate translations
   rotate::Int32              # Flag to activate/deactivate rotations
-  computeProps::Int32        # Flag to activate/deactivate energy computations
   rotationMode::Int32        # Algorithm used for free rotation of rigid bodies
+end
+
+immutable tVec3D
+  x::Float64
+  y::Float64
+  z::Float64
+end
+
+immutable tEnergy
+  Potential::Float64         # Total potential energy of the system
+  Dispersion::Float64        # Dispersion (vdW) part of the potential energy
+  Coulomb::Float64           # Electrostatic part of the potential energy
+  Fourier::Float64           # Reciprocal part of the electrostatic potential
+  Kinetic::Float64           # Total kinetic energy of the system
+  KinPart::tVec3D            # Kinetic energy at each dimension
+  Rotational::Float64        # Rotational kinetic energy of the system
+  RotPart::tVec3D            # Rotational kinetic energy around each principal axis
+  Compute::Int32             # Flag to activate/deactivate energy computations
+  UpToDate::Int32            # Flag to attest whether energies have been computed
 end
 
 immutable tEmDee
   builds::Int32              # Number of neighbor-list builds
   pairTime::Float64          # Time taken in force calculations
   totalTime::Float64         # Total time since initialization
-  Potential::Float64         # Total potential energy of the system
-  Kinetic::Float64           # Total kinetic energy of the system
-  Rotational::Float64        # Rotational kinetic energy of the system
+  Energy::tEnergy            # All energy terms
   Virial::Float64            # Total internal virial of the system
+  BodyVirial::Float64        # Rigid body contribution to the internal virial
   DOF::Int32                 # Total number of degrees of freedom
   RDOF::Int32                # Number of rotational degrees of freedom
-  UpToDate::Int32            # Flag to attest whether energies have been computed
   Data::Ref{Void}            # Pointer to EmDee system data
   Options::tOptions          # List of options to change EmDee's behavior
 end
@@ -28,10 +44,11 @@ typealias RealArray{T<:Real} Array{T}
 
 #---------------------------------------------------------------------------------------------------
 function system( threads::Integer, layers::Integer, rc::Real, skin::Real, N::Integer,
-                 types::IntegerArray, masses::RealArray )
+                 types::IntegerArray, masses::RealArray, bodies::IntegerArray )
   return ccall( (:EmDee_system,"libemdee"), tEmDee,
                 (Int32, Int32, Float64, Float64, Int32, Ptr{Int32}, Ptr{Float64}),
-                threads, layers, rc, skin, N, Vector{Int32}(types), Vector{Float64}(masses) )
+                threads, layers, rc, skin, N, Vector{Int32}(types), Vector{Float64}(masses),
+                Vector{Int32}(bodies) )
 end
 #---------------------------------------------------------------------------------------------------
 function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel, kCoul::Real )

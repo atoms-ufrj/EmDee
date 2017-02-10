@@ -50,7 +50,7 @@ call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 
 call run( Nsteps, Nprop )
-print*, md%Potential/kB
+print*, md%Energy%Potential/kB
 
 contains
   include "common/contained.f90"

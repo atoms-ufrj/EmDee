@@ -32,29 +32,32 @@ if (r2 < Rc2) then
         select type ( model => me%coul(me%layer)%model )
           include "compute_coul.f90"
         end select
-      else
-        ECij = zero
-        WCij = zero
+        Ecoul = Ecoul + ECij
+        Eij = Eij + ECij
+        Wij = Wij + WCij
       end if
     end associate
-    Wij = Wij + WCij
+    Epair = Epair + Eij
     Virial = Virial + Wij
     Fij = Wij*invR2*Rij
-    Epair = Epair + Eij
-    Ecoul = Ecoul + ECij
     if (multilayer(jtype)) then
       Elayer(me%layer) = Elayer(me%layer) + Eij
-      Wlayer(me%layer) = Wlayer(me%layer) + Wij
-      associate( pair => me%pair(itype,jtype,:) )
-        do l = 1, me%nlayers-1
-          layer = me%other_layer(l)
-          select type ( model => pair(layer)%model )
-            include "compute_pair.f90"
+      do l = 1, me%nlayers-1
+        layer = me%other_layer(l)
+        associate( pair => me%pair(itype,jtype,layer) )
+          select type ( model => pair%model )
+            include "energy_compute_pair.f90"
           end select
+          if (ijcharged.and.pair%coulomb) then
+            QiQj = pair%kCoul*Qi*me%charge(j)
+            select type ( model => me%coul(me%layer)%model )
+              include "energy_compute_coul.f90"
+            end select
+            Eij = Eij + ECij
+          end if
           Elayer(layer) = Elayer(layer) + Eij
-          Wlayer(layer) = Wlayer(layer) + Wij
-        end do
-      end associate
+        end associate
+      end do
     end if
   else
     associate( pair => partner(jtype) )
@@ -66,6 +69,7 @@ if (r2 < Rc2) then
         select type ( model => me%coul(me%layer)%model )
           include "virial_compute_coul.f90"
         end select
+        Wij = Wij + WCij
       end if
     end associate
     Virial = Virial + Wij
@@ -74,4 +78,3 @@ if (r2 < Rc2) then
   Fi = Fi + Fij
   F(:,j) = F(:,j) - Fij
 end if
-

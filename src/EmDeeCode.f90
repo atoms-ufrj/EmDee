@@ -35,25 +35,35 @@ private
 character(11), parameter :: VERSION = "09 Feb 2017"
 
 type, bind(C) :: tOpts
-  logical(lb) :: translate      ! Flag to activate/deactivate translations
-  logical(lb) :: rotate         ! Flag to activate/deactivate rotations
-  logical(lb) :: computeProps   ! Flag to activate/deactivate energy computations
-  integer(ib) :: rotationMode   ! Algorithm used for free rotation of rigid bodies
+  logical(lb) :: translate            ! Flag to activate/deactivate translations
+  logical(lb) :: rotate               ! Flag to activate/deactivate rotations
+  integer(ib) :: rotationMode         ! Algorithm used for free rotation of rigid bodies
 end type tOpts
 
+type, bind(C) :: tEnergy
+  real(rb)    :: Potential            ! Total potential energy of the system
+  real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
+  real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
+  real(rb)    :: Fourier              ! Reciprocal part of the electrostatic potential
+  real(rb)    :: Kinetic              ! Total kinetic energy of the system
+  real(rb)    :: KinPart(3)           ! Kinetic energy at each dimension
+  real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
+  real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
+  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
+  logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
+end type tEnergy
+
 type, bind(C) :: tEmDee
-  integer(ib) :: builds         ! Number of neighbor list builds
-  real(rb)    :: pairTime       ! Time taken in force calculations
-  real(rb)    :: totalTime      ! Total time since initialization
-  real(rb)    :: Potential      ! Total potential energy of the system
-  real(rb)    :: Kinetic        ! Total kinetic energy of the system
-  real(rb)    :: Rotational     ! Rotational kinetic energy of the system
-  real(rb)    :: Virial         ! Total internal virial of the system
-  integer(ib) :: DOF            ! Total number of degrees of freedom
-  integer(ib) :: rotationDOF    ! Number of rotational degrees of freedom
-  logical(lb) :: UpToDate       ! Flag to attest whether energies have been computed
-  type(c_ptr) :: Data           ! Pointer to system data
-  type(tOpts) :: Options        ! List of options to change EmDee's behavior
+  integer(ib)   :: builds             ! Number of neighbor list builds
+  real(rb)      :: pairTime           ! Time taken in force calculations
+  real(rb)      :: totalTime          ! Total time since initialization
+  type(tEnergy) :: Energy             ! All energy terms
+  real(rb)      :: Virial             ! Total internal virial of the system
+  real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
+  integer(ib)   :: DOF                ! Total number of degrees of freedom
+  integer(ib)   :: rotationDOF        ! Number of rotational degrees of freedom
+  type(c_ptr)   :: Data               ! Pointer to system data
+  type(tOpts)   :: Options            ! List of options to change EmDee's behavior
 end type tEmDee
 
 contains
@@ -154,21 +164,29 @@ contains
     ! Allocate variables related to model layers:
     me%layer = 1
     me%other_layer = [(i,i=2,me%layer)]
-    allocate( me%Energy(layers,threads), me%Virial(layers,threads) )
+    allocate( me%Energy(layers,threads) )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
     EmDee_system % pairTime = zero
     EmDee_system % totalTime = zero
-    EmDee_system % Potential = zero
-    EmDee_system % Kinetic = zero
-    EmDee_system % Rotational = zero
+    EmDee_system % Energy % Potential = zero
+    EmDee_system % Energy % Dispersion = zero
+    EmDee_system % Energy % Coulomb = zero
+    EmDee_system % Energy % Fourier = zero
+    EmDee_system % Energy % Kinetic = zero
+    EmDee_system % Energy % KinPart = zero
+    EmDee_system % Energy % Rotational = zero
+    EmDee_system % Energy % RotPart = zero
+    EmDee_system % Energy % Compute = .true.
+    EmDee_system % Energy % UpToDate = .false.
+    EmDee_system % Virial = zero
+    EmDee_system % BodyVirial = zero
     EmDee_system % DOF = 3*(N - 1)
     EmDee_system % rotationDOF = 0
     EmDee_system % data = c_loc(me)
     EmDee_system % Options % translate = .true.
     EmDee_system % Options % rotate = .true.
-    EmDee_system % Options % computeProps = .true.
     EmDee_system % Options % rotationMode = 0
 
   end function EmDee_system
@@ -584,8 +602,8 @@ contains
         !$omp parallel num_threads(me%nthreads) reduction(+:TwoKEt,TwoKEr)
         call assign_momenta( me, omp_get_thread_num() + 1, Matrix, twoKEt, twoKEr )
         !$omp end parallel
-        md%Kinetic = half*(twoKEt + twoKEr)
-        md%Rotational = half*twoKEr
+        md%Energy%Kinetic = half*(twoKEt + twoKEr)
+        md%Energy%Rotational = half*twoKEr
 
       case ("forces")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -686,14 +704,9 @@ contains
         !$omp end parallel
 
       case ("multienergy")
-        if (.not.md%UpToDate) call error( "download", "layer energies are outdated" )
+        if (.not.md%Energy%UpToDate) call error( "download", "layer energies are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
         vector = sum(me%Energy,2)
-
-      case ("multivirial")
-        if (.not.md%UpToDate) call error( "download", "layer virials are outdated" )
-        call c_f_pointer( address, vector, [me%nlayers] )
-        vector = sum(me%Virial,2)
 
       case default
         call error( "download", "invalid option" )
@@ -760,8 +773,8 @@ contains
       end do
     end associate
     if (adjust == 1) call adjust_momenta
-    md%Rotational = half*TwoKEr
-    md%Kinetic = half*(twoKEt + TwoKEr)
+    md%Energy%Rotational = half*TwoKEr
+    md%Energy%Kinetic = half*(twoKEt + TwoKEr)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -829,10 +842,10 @@ contains
     if (md%Options%translate) then
       KEt = half*twoKEt
     else
-      KEt = md%Kinetic - md%Rotational
+      KEt = md%Energy%Kinetic - md%Energy%Rotational
     end if
-    if (md%Options%rotate) md%Rotational = half*twoKEr
-    md%Kinetic = KEt + md%Rotational
+    if (md%Options%rotate) md%Energy%Rotational = half*twoKEr
+    md%Energy%Kinetic = KEt + md%Energy%Rotational
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -930,7 +943,7 @@ contains
 
     integer  :: M
     real(rb) :: time, Ep, Ec, W
-    logical(lb) :: buildList, compProps
+    logical(lb) :: buildList, compute
     real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
     type(tData),  pointer :: me
 
@@ -948,17 +961,16 @@ contains
       md%builds = md%builds + 1
     endif
 
-    compProps = md%Options%computeProps
+    compute = md%Energy%Compute
     !$omp parallel num_threads(me%nthreads) reduction(+:Ep,Ec,W)
     block
       integer :: thread !, layer
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
-
         if (buildList) then
-          call find_pairs_and_compute( me, thread, compProps, Rs, F, Ep, Ec, W )
+          call find_pairs_and_compute( me, thread, compute, Rs, F, Ep, Ec, W )
         else
-          call compute_pairs( me, thread, compProps, Rs, F, Ep, Ec, W )
+          call compute_pairs( me, thread, compute, Rs, F, Ep, Ec, W )
         end if
         F = me%Lbox*F
 
@@ -966,7 +978,7 @@ contains
 !          call me % kspace % prepare( thread, Rs )
 !          call me % kspace % compute( thread, me%kCoul(:,:,me%layer), Ec, W, F )
 !          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, E, W, F )
-!          if (compProps) then
+!          if (compute) then
 !            do layer = 1, me%nlayers
 !              call me % kspace % compute( thread, me%kCoul(:,:,layer), EL(layer), WL(layer) )
 !              call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,layer), me%R, EL(layer), WL(layer) )
@@ -986,13 +998,13 @@ contains
 
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
-    if (compProps) then
-      md%Potential = Ep + Ec
+    if (compute) then
+      md%Energy%Potential = Ep
 !      me%layer_energy = sum(Elayer,2)
 !      me%layer_virial = sum(Wlayer,2)
     end if
 
-    md%UpToDate = compProps
+    md%Energy%UpToDate = compute
     time = omp_get_wtime()
     md%pairTime = md%pairTime + time
     md%totalTime = time - me%startTime
@@ -1024,7 +1036,7 @@ contains
     !$omp end parallel
 
     me%F = me%F + me%Lbox*sum(DFs,3)
-    md%Potential = md%Potential + DE
+    md%Energy%Potential = md%Energy%Potential + DE
     md%Virial = md%Virial + DW
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 

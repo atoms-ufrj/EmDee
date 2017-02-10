@@ -40,6 +40,7 @@ type, extends(cPairModel) :: pair_lj_sf
   contains
     procedure :: setup => pair_lj_sf_setup
     procedure :: compute => pair_lj_sf_compute
+    procedure :: energy => pair_lj_sf_energy
     procedure :: virial => pair_lj_sf_virial
     procedure :: mix => pair_lj_sf_mix
 end type pair_lj_sf
@@ -93,6 +94,27 @@ contains
     Wij = model%eps24*(sr12 + sr12 - sr6) - rFc
 
   end subroutine pair_lj_sf_compute
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine pair_lj_sf_energy( model, Eij, noInvR, invR, invR2 )
+    class(pair_lj_sf), intent(in)    :: model
+    real(rb),          intent(out)   :: Eij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2
+
+    real(rb) :: sr2, sr6
+
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
+    sr2 = model%sigSq*invR2
+    sr6 = sr2*sr2*sr2
+    Eij = model%eps4*(sr6*sr6 - sr6) + model%eshift + model%fshift/invR
+
+  end subroutine pair_lj_sf_energy
 
 !---------------------------------------------------------------------------------------------------
 

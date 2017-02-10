@@ -24,7 +24,6 @@ use math, only : uerfc
 
 implicit none
 
-
 !> Abstract class for model coul_long
 !!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
@@ -39,6 +38,7 @@ type, extends(cCoulModel) :: coul_long
     procedure :: setup => coul_long_setup
     procedure :: kspace_setup => coul_long_kspace_setup
     procedure :: compute => coul_long_compute
+    procedure :: energy => coul_long_energy
     procedure :: virial => coul_long_virial
 end type coul_long
 
@@ -88,16 +88,36 @@ contains
     x = model%alpha/invR
     expmx2 = exp(-x*x)
     ECij = QiQj*uerfc(x,expmx2)*invR
-!    ECij = QiQj*erfc(x)*invR
     WCij = ECij + QiQj*model%beta*expmx2
 
   end subroutine coul_long_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_long_virial( model, Wij, noInvR, invR, invR2, QiQj )
+  subroutine coul_long_energy( model, ECij, noInvR, invR, invR2, QiQj )
     class(coul_long), intent(in)    :: model
-    real(rb),         intent(inout) :: Wij, invR
+    real(rb),         intent(out)   :: ECij
+    logical,          intent(inout) :: noInvR
+    real(rb),         intent(inout) :: invR
+    real(rb),         intent(in)    :: invR2, QiQj
+
+    real(rb) :: x
+
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
+    x = model%alpha/invR
+    ECij = QiQj*uerfc(x,exp(-x*x))*invR
+
+  end subroutine coul_long_energy
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine coul_long_virial( model, WCij, noInvR, invR, invR2, QiQj )
+    class(coul_long), intent(in)    :: model
+    real(rb),         intent(out)   :: WCij
+    real(rb),         intent(inout) :: invR
     logical,          intent(inout) :: noInvR
     real(rb),         intent(in)    :: invR2, QiQj
 
@@ -109,8 +129,7 @@ contains
     end if
     x = model%alpha/invR
     expmx2 = exp(-x*x)
-    Wij = Wij + QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
-!    Wij = Wij + QiQj*(erfc(x)*invR + model%beta*expmx2)
+    WCij = QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
 
   end subroutine coul_long_virial
 

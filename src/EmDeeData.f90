@@ -123,7 +123,6 @@ type :: tData
   real(rb), allocatable :: kCoul1D(:,:)
 
   real(rb), allocatable :: Energy(:,:)
-  real(rb), allocatable :: Virial(:,:)
 
 end type tData
 
@@ -754,11 +753,8 @@ contains
     include = .true.
     index = 0
     npairs = 0
-    associate ( neighbor => me%neighbor(thread), &
-                Elayer => me%Energy(:,thread),   &
-                Wlayer => me%Virial(:,thread)    )
+    associate ( neighbor => me%neighbor(thread), Elayer => me%Energy(:,thread) )
       Elayer = zero
-      Wlayer = zero
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
         if (neighbor%nitems < npairs + me%maxpairs) then
@@ -846,11 +842,8 @@ contains
 
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate ( neighbor => me%neighbor(thread), &
-                Elayer => me%Energy(:,thread),   &
-                Wlayer => me%Virial(:,thread)    )
+    associate ( neighbor => me%neighbor(thread), Elayer => me%Energy(:,thread) )
       Elayer = zero
-      Wlayer = zero
       do m = firstAtom, lastAtom
         i = me%cellAtom%item(m)
         itype = me%atomType(i)

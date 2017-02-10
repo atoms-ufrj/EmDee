@@ -56,14 +56,16 @@
 
     integer :: step
 
-    print*, 0, mvv2e*md%Potential, mvv2e*md%Virial, mvv2e*(md%Potential + md%Kinetic)
+    print*, 0, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
+            mvv2e*(md%Energy%Potential + md%Energy%Kinetic)
     do step = 1, Nsteps
-      md%options%computeProps = mod(step,Nprop) == 0
+      md%Energy%Compute = mod(step,Nprop) == 0
       call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
       call EmDee_move( md, 1.0_rb, 0.0_rb, Dt )
       call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
       if (mod(step,Nprop) == 0) then
-        print*, step, mvv2e*md%Potential, mvv2e*md%Virial, mvv2e*(md%Potential + md%Kinetic)
+        print*, step, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
+                mvv2e*(md%Energy%Potential + md%Energy%Kinetic)
       end if
     end do
     if (Nsteps > 0) then

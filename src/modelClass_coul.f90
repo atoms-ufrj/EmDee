@@ -34,6 +34,7 @@ type, abstract, extends(cModel) :: cCoulModel
   real(rb) :: alpha = zero
   contains
     procedure(cCoulModel_compute), deferred :: compute
+    procedure(cCoulModel_energy), deferred :: energy
     procedure(cCoulModel_virial), deferred :: virial
     procedure :: shifting_setup => cCoulModel_shifting_setup
     procedure :: kspace_setup => cCoulModel_kspace_setup
@@ -50,10 +51,20 @@ abstract interface
     real(rb),          intent(in)    :: invR2, QiQj
   end subroutine cCoulModel_compute
 
-  subroutine cCoulModel_virial( model, Wij, noInvR, invR, invR2, QiQj )
+  subroutine cCoulModel_energy( model, ECij, noInvR, invR, invR2, QiQj )
     import
     class(cCoulModel), intent(in)    :: model
-    real(rb),          intent(inout) :: Wij, invR
+    real(rb),          intent(out)   :: ECij
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(inout) :: invR
+    real(rb),          intent(in)    :: invR2, QiQj
+  end subroutine cCoulModel_energy
+
+  subroutine cCoulModel_virial( model, WCij, noInvR, invR, invR2, QiQj )
+    import
+    class(cCoulModel), intent(in)    :: model
+    real(rb),          intent(out)   :: WCij
+    real(rb),          intent(inout) :: invR
     logical,           intent(inout) :: noInvR
     real(rb),          intent(in)    :: invR2, QiQj
   end subroutine cCoulModel_virial
@@ -73,6 +84,7 @@ type, extends(cCoulModel) :: coul_none
   contains
     procedure :: setup => coul_none_setup
     procedure :: compute => coul_none_compute
+    procedure :: energy => coul_none_energy
     procedure :: virial => coul_none_virial
 end type coul_none
 
@@ -178,9 +190,21 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_virial( model, Wij, noInvR, invR, invR2, QiQj )
+  subroutine coul_none_energy( model, ECij, noInvR, invR, invR2, QiQj )
     class(coul_none), intent(in)    :: model
-    real(rb),         intent(inout) :: Wij, invR
+    real(rb),         intent(out)   :: ECij
+    logical,          intent(inout) :: noInvR
+    real(rb),         intent(inout) :: invR
+    real(rb),         intent(in)    :: invR2, QiQj
+    ECij = zero
+  end subroutine coul_none_energy
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine coul_none_virial( model, WCij, noInvR, invR, invR2, QiQj )
+    class(coul_none), intent(in)    :: model
+    real(rb),         intent(out)   :: WCij
+    real(rb),         intent(inout) :: invR
     logical,          intent(inout) :: noInvR
     real(rb),         intent(in)    :: invR2, QiQj
   end subroutine coul_none_virial

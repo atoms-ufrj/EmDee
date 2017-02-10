@@ -23,26 +23,38 @@ use iso_c_binding
 
 implicit none
 
-type, bind(C) :: tOptions
-  logical(c_bool) :: translate      ! Flag to activate/deactivate translations
-  logical(c_bool) :: rotate         ! Flag to activate/deactivate rotations
-  logical(c_bool) :: computeProps   ! Flag to activate/deactivate energy computations
-  integer(c_int)  :: rotationMode   ! Algorithm used for free rotation of rigid bodies
-end type tOptions
+integer, parameter, private :: ib = c_int, rb = c_double, lb = c_bool
+
+type, bind(C) :: tOpts
+  logical(lb) :: translate            ! Flag to activate/deactivate translations
+  logical(lb) :: rotate               ! Flag to activate/deactivate rotations
+  integer(ib) :: rotationMode         ! Algorithm used for free rotation of rigid bodies
+end type tOpts
+
+type, bind(C) :: tEnergy
+  real(rb)    :: Potential            ! Total potential energy of the system
+  real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
+  real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
+  real(rb)    :: Fourier              ! Reciprocal part of the electrostatic potential
+  real(rb)    :: Kinetic              ! Total kinetic energy of the system
+  real(rb)    :: KinPart(3)           ! Kinetic energy at each dimension
+  real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
+  real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
+  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
+  logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
+end type tEnergy
 
 type, bind(C) :: tEmDee
-  integer(c_int)  :: builds         ! Number of neighbor-list builds
-  real(c_double)  :: pairTime       ! Time taken in force calculations
-  real(c_double)  :: totalTime      ! Total time since initialization
-  real(c_double)  :: Potential      ! Total potential energy of the system
-  real(c_double)  :: Kinetic        ! Total kinetic energy of the system
-  real(c_double)  :: Rotational     ! Rotational kinetic energy of the system
-  real(c_double)  :: Virial         ! Total internal virial of the system
-  integer(c_int)  :: DOF            ! Total number of degrees of freedom
-  integer(c_int)  :: RDOF           ! Number of rotational degrees of freedom
-  logical(c_bool) :: UpToDate       ! Flag to attest whether energies have been computed
-  type(c_ptr)     :: Data           ! Pointer to EmDee system data
-  type(tOptions)  :: Options        ! List of options to change EmDee's behavior
+  integer(ib)   :: builds             ! Number of neighbor list builds
+  real(rb)      :: pairTime           ! Time taken in force calculations
+  real(rb)      :: totalTime          ! Total time since initialization
+  type(tEnergy) :: Energy             ! All energy terms
+  real(rb)      :: Virial             ! Total internal virial of the system
+  real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
+  integer(ib)   :: DOF                ! Total number of degrees of freedom
+  integer(ib)   :: rotationDOF        ! Number of rotational degrees of freedom
+  type(c_ptr)   :: Data               ! Pointer to system data
+  type(tOpts)   :: Options            ! List of options to change EmDee's behavior
 end type tEmDee
 
 interface

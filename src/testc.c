@@ -142,10 +142,10 @@ int main( int argc, char *argv[] )  {
   EmDee_upload( &md, "momenta", par.V );
   EmDee_random_momenta( &md, par.Temp, 1, par.seed );
 
-  printf("%d %lf %lf %lf\n", 0, md.Potential, md.Virial, md.Potential + kinetic( &par ));
+  printf("%d %lf %lf %lf\n", 0, md.Energy.Potential, md.Virial, md.Energy.Potential + kinetic( &par ));
   for (int step = 1; step <= par.Nsteps; step++) {
     if (step % par.Nprop == 0)
-        printf("%d %lf %lf %lf\n", step, md.Potential, md.Virial, md.Potential + kinetic( &par ));
+        printf("%d %lf %lf %lf\n", step, md.Energy.Potential, md.Virial, md.Energy.Potential + kinetic( &par ));
     EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
     EmDee_move( &md, 1.0, 0.0, par.Dt );
     EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
