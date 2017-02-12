@@ -46,7 +46,6 @@ type, abstract, extends(cModel) :: cKspaceModel
   real(rb), allocatable :: FbyR(:)        ! Unscaled force/distance ratio for each intrabody pair
   real(rb), allocatable :: Erigid(:)      ! Unscaled energy for intrabody pairs of each pair type
   real(rb), allocatable :: Wrigid(:)      ! Unscaled virial for intrabody pairs of each pair type
-  real(rb), allocatable :: Eself(:)       ! Unscaled self-energy of atoms of each type
 
   integer :: nthreads
   integer :: threadAtoms
@@ -87,13 +86,14 @@ abstract interface
     real(rb),            intent(in)    :: Rs(:,:)
   end subroutine cKspaceModel_prepare
 
-  subroutine cKspaceModel_compute( me, thread, lambda, Potential, Virial, F )
+  subroutine cKspaceModel_compute( me, thread, compute, lambda, E, W, F )
     import
     class(cKspaceModel), intent(inout) :: me
-    integer,             intent(in)    :: thread
+    integer(ib),         intent(in)    :: thread
+    logical(lb),         intent(in)    :: compute
     real(rb),            intent(in)    :: lambda(:,:)
-    real(rb),            intent(inout) :: Potential, Virial
-    real(rb), optional,  intent(inout) :: F(:,:)
+    real(rb),            intent(out)   :: E
+    real(rb),            intent(inout) :: W, F(:,:)
   end subroutine cKspaceModel_compute
 
 end interface
@@ -112,7 +112,7 @@ contains
 
     character(*), parameter :: task = "kspace model initialization"
 
-    integer :: i, itype
+    integer :: i
 
     me%nthreads = nthreads
     me%index = pack( [(i,i=1,size(types))], charged )
@@ -132,13 +132,6 @@ contains
     me%threadPairTypes = (me%npairtypes + nthreads - 1)/nthreads
     allocate( me%Erigid(me%npairtypes), me%Wrigid(me%npairtypes) )
 
-    allocate( me%Eself(me%ntypes), source = zero )
-    do i = 1, me%natoms
-      itype = me%type(i)
-      me%Eself(itype) = me%Eself(itype) + me%Q(i)**2
-    end do
-    me%Eself = -me%alpha*me%Eself/sqrt(Pi)
-
   end subroutine cKspaceModel_initialize
 
 !---------------------------------------------------------------------------------------------------
@@ -150,10 +143,10 @@ contains
     logical,             intent(in)    :: charged(:)
 
     integer  :: maxnpairs, npairs, ii, i, jj, j, kk, k, prev, n
-    integer  :: ipos, jpos, itype, jtype
-    real(rb) :: Ri(3), Qi, rsq, Eij, Wij
+    integer  :: ipos, jpos, itype, jtype, pos(me%natoms)
+    real(rb) :: Ri(3), Qi, rsq, Eij, Wij, Eself(me%ntypes)
 
-    integer,  allocatable :: pos(:), pair(:,:)
+    integer,  allocatable :: pair(:,:)
     real(rb), allocatable :: FbyR(:)
 
     pos = [(i,i=1,me%natoms)]
@@ -198,6 +191,17 @@ contains
       prev = prev + n
     end do
 
+    Eself = zero
+    do i = 1, me%natoms
+      itype = me%type(i)
+      Eself(itype) = Eself(itype) + me%Q(i)**2
+    end do
+    Eself = -me%alpha/sqrt(Pi)*Eself
+    do itype = 1, me%ntypes
+      k = symm1D( itype, itype )
+      me%Erigid(k) = me%Erigid(k) + Eself(itype)
+    end do
+
     me%npairs = npairs
     me%threadPairs = (npairs + me%nthreads - 1)/me%nthreads
     me%pair = pair(:,1:npairs)
@@ -207,32 +211,28 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine cKspaceModel_discount_rigid_pairs( me, thread, lambda, R, Potential, Virial, F )
+  subroutine cKspaceModel_discount_rigid_pairs( me, thread, lambda, R, F )
     class(cKspaceModel), intent(inout) :: me
     integer,             intent(in)    :: thread
     real(rb),            intent(in)    :: lambda(:), R(:,:)
-    real(rb),            intent(inout) :: Potential, Virial
-    real(rb), optional,  intent(inout) :: F(:,:)
+    real(rb),            intent(inout) :: F(:,:)
 
-    integer  :: i, j, k, ii, jj, first, last
+    integer  :: i, j, k, m, ii, jj
     real(rb) :: Fij(3)
 
-    if (present(F)) then
-      do k = (thread - 1)*me%threadPairs + 1, min(thread*me%threadPairs,me%npairs)
-        ii = me%pair(1,k)
-        jj = me%pair(2,k)
-        i = me%index(ii)
-        j = me%index(jj)
-        Fij = lambda(symm1D(me%type(ii),me%type(ii)))*me%FbyR(k)*(R(:,i) - R(:,j))
-        F(:,i) = F(:,i) + Fij
-        F(:,j) = F(:,j) - Fij
+    do k = (thread - 1)*me%threadPairs + 1, min(thread*me%threadPairs,me%npairs)
+      ii = me%pair(1,k)
+      jj = me%pair(2,k)
+      i = me%index(ii)
+      j = me%index(jj)
+      Fij = lambda(symm1D(me%type(ii),me%type(ii)))*me%FbyR(k)*(R(:,i) - R(:,j))
+      do m = 1, 3
+        !$omp atomic update
+        F(m,i) = F(m,i) + Fij(m)
+        !$omp atomic update
+        F(m,j) = F(m,j) - Fij(m)
       end do
-    end if
-
-    first = (thread - 1)*me%threadPairTypes + 1
-    last = min(thread*me%threadPairTypes,me%npairtypes)
-
-    Potential = Potential + sum(lambda(first:last)*me%Erigid(first:last))
+    end do
 
   end subroutine cKspaceModel_discount_rigid_pairs
 

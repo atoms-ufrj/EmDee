@@ -1,9 +1,9 @@
 module EmDee
 
 immutable tOptions
-  translate::Int32           # Flag to activate/deactivate translations
-  rotate::Int32              # Flag to activate/deactivate rotations
-  rotationMode::Int32        # Algorithm used for free rotation of rigid bodies
+  Translate::Int32           # Flag to activate/deactivate translations
+  Rotate::Int32              # Flag to activate/deactivate rotations
+  RotationMode::Int32        # Algorithm used for free rotation of rigid bodies
 end
 
 immutable tVec3D
@@ -26,14 +26,14 @@ immutable tEnergy
 end
 
 immutable tEmDee
-  builds::Int32              # Number of neighbor-list builds
-  pairTime::Float64          # Time taken in force calculations
-  totalTime::Float64         # Total time since initialization
+  Builds::Int32              # Number of neighbor-list builds
+  PairTime::Float64          # Time taken in force calculations
+  TotalTime::Float64         # Total time since initialization
   Energy::tEnergy            # All energy terms
   Virial::Float64            # Total internal virial of the system
   BodyVirial::Float64        # Rigid body contribution to the internal virial
-  DOF::Int32                 # Total number of degrees of freedom
-  RDOF::Int32                # Number of rotational degrees of freedom
+  DoF::Int32                 # Total number of degrees of freedom
+  RotDoF::Int32              # Number of rotational degrees of freedom
   Data::Ref{Void}            # Pointer to EmDee system data
   Options::tOptions          # List of options to change EmDee's behavior
 end

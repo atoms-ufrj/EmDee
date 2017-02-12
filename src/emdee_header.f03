@@ -26,9 +26,9 @@ implicit none
 integer, parameter, private :: ib = c_int, rb = c_double, lb = c_bool
 
 type, bind(C) :: tOpts
-  logical(lb) :: translate            ! Flag to activate/deactivate translations
-  logical(lb) :: rotate               ! Flag to activate/deactivate rotations
-  integer(ib) :: rotationMode         ! Algorithm used for free rotation of rigid bodies
+  logical(lb) :: Translate            ! Flag to activate/deactivate translations
+  logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
+  integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
 end type tOpts
 
 type, bind(C) :: tEnergy
@@ -45,14 +45,14 @@ type, bind(C) :: tEnergy
 end type tEnergy
 
 type, bind(C) :: tEmDee
-  integer(ib)   :: builds             ! Number of neighbor list builds
-  real(rb)      :: pairTime           ! Time taken in force calculations
-  real(rb)      :: totalTime          ! Total time since initialization
+  integer(ib)   :: Builds             ! Number of neighbor list builds
+  real(rb)      :: PairTime           ! Time taken in force calculations
+  real(rb)      :: TotalTime          ! Total time since initialization
   type(tEnergy) :: Energy             ! All energy terms
   real(rb)      :: Virial             ! Total internal virial of the system
   real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
-  integer(ib)   :: DOF                ! Total number of degrees of freedom
-  integer(ib)   :: rotationDOF        ! Number of rotational degrees of freedom
+  integer(ib)   :: DoF                ! Total number of degrees of freedom
+  integer(ib)   :: RotDoF             ! Number of rotational degrees of freedom
   type(c_ptr)   :: Data               ! Pointer to system data
   type(tOpts)   :: Options            ! List of options to change EmDee's behavior
 end type tEmDee

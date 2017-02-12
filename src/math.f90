@@ -65,14 +65,6 @@ type, extends(i32rng) :: kiss
     procedure :: i32  => kiss_i32
 end type kiss
 
-interface operator (.dot.)
-  module procedure complex_dot_product
-end interface
-
-interface operator (.cross.)
-  module procedure complex_cross_product
-end interface
-
 contains
 
 !---------------------------------------------------------------------------------------------------
@@ -699,22 +691,6 @@ contains
     t = one/(one + p*x)
     erfcx = t*(a1 + t*(a2 + t*(a3 + t*(a4 + t*a5))))*expmx2
   end function uerfc
-
-!---------------------------------------------------------------------------------------------------
-
-  elemental function complex_dot_product( a, b ) result( c )
-    complex(rb), intent(in) :: a, b
-    real(rb)                :: c
-    c = realpart(a)*realpart(b) + imagpart(a)*imagpart(b)
-  end function complex_dot_product
-
-!---------------------------------------------------------------------------------------------------
-
-  elemental function complex_cross_product( a, b ) result( c )
-    complex(rb), intent(in) :: a, b
-    real(rb)                :: c
-    c = realpart(a)*imagpart(b) - realpart(b)*imagpart(a)
-  end function complex_cross_product
 
 !---------------------------------------------------------------------------------------------------
 

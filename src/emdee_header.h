@@ -1,7 +1,7 @@
 typedef struct {
-  int    builds;         // Number of neighbor-list builds
-  double pairTime;       // Time taken in force calculations
-  double totalTime;      // Total time since initialization
+  int    Builds;         // Number of neighbor-list builds
+  double PairTime;       // Time taken in force calculations
+  double TotalTime;      // Total time since initialization
   struct {
     double Potential;    // Total potential energy of the system
     double Dispersion;   // Dispersion (vdW) part of the potential energy
@@ -16,13 +16,13 @@ typedef struct {
   } Energy;
   double Virial;         // Total internal virial of the system
   double BodyVirial;     // Rigid body contribution to the internal virial
-  int    DOF;            // Total number of degrees of freedom
-  int    RDOF;           // Number of rotational degrees of freedom
+  int    DoF;            // Total number of degrees of freedom
+  int    RotDoF;         // Number of rotational degrees of freedom
   void*  Data;           // Pointer to system data
   struct {
-    _Bool translate;     // Flag to activate/deactivate translations
-    _Bool rotate;        // Flag to activate/deactivate rotations
-    int   rotationMode;  // Algorithm used for free rotation of rigid bodies
+    _Bool Translate;     // Flag to activate/deactivate translations
+    _Bool Rotate;        // Flag to activate/deactivate rotations
+    int   RotationMode;  // Algorithm used for free rotation of rigid bodies
   } Options;
 } tEmDee;
 

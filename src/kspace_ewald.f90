@@ -96,7 +96,7 @@ contains
     me%kmax = two*alpha*s
 
 !me%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
-print*, "alpha = ", alpha
+!print*, "alpha = ", alpha
 !me%kmax = twoPi/Lsqrt(27.0_rb) ! DELETE THIS LINE
 
 !alpha = 0.254674_rb
@@ -237,14 +237,15 @@ print*, "alpha = ", alpha
 
 !===================================================================================================
 
-  subroutine kspace_ewald_compute( me, thread, lambda, Potential, Virial, F )
+  subroutine kspace_ewald_compute( me, thread, compute, lambda, E, W, F )
     class(kspace_ewald), intent(inout) :: me
-    integer,             intent(in)    :: thread
+    integer(ib),         intent(in)    :: thread
+    logical(lb),         intent(in)    :: compute
     real(rb),            intent(in)    :: lambda(:,:)
-    real(rb),            intent(inout) :: Potential, Virial
-    real(rb), optional,  intent(inout) :: F(:,:)
+    real(rb),            intent(out)   :: E
+    real(rb),            intent(inout) :: W, F(:,:)
 
-    integer :: v1, vN, i, j, itype
+    integer :: v1, vN, a1, aN, j
 
     ! Split wave-vectors among threads:
     v1 = (thread - 1)*me%threadVecs + 1
@@ -254,18 +255,29 @@ print*, "alpha = ", alpha
     me%sigma(v1:vN,:) = matmul(me%S(v1:vN,:), lambda)
 
     ! Compute energy related to current thread's vectors:
-    Potential = Potential + sum(me%prefac(v1:vN)*sum(me%S(v1:vn,:).dot.me%sigma(v1:vN,:),2))
+    if (Compute) E = sum(me%prefac(v1:vN)*sum(dot(me%S(v1:vn,:), me%sigma(v1:vN,:)),2))
     !$omp barrier
 
     ! Compute forces on current thread's atoms:
-    if (present(F)) then
-      do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%natoms)
-        i = me%index(j)
-        itype = me%type(j)
-        F(:,i) = F(:,i) + matmul(me%vec, me%sigma(:,itype).cross.me%qeikr(:,j))
-      end do
-    end if
+    a1 = (thread - 1)*me%threadAtoms + 1
+    aN = min(thread*me%threadAtoms, me%natoms)
+    forall (j=a1:aN) F(:,me%index(j)) = F(:,me%index(j)) + &
+                                        matmul(me%vec,cross(me%sigma(:,me%type(j)),me%qeikr(:,j)))
 
+  contains
+    !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    elemental function dot( a, b ) result( c )
+      complex(rb), intent(in) :: a, b
+      real(rb)                :: c
+      c = realpart(a)*realpart(b) + imagpart(a)*imagpart(b)
+    end function dot
+    !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    elemental function cross( a, b ) result( c )
+      complex(rb), intent(in) :: a, b
+      real(rb)                :: c
+      c = realpart(a)*imagpart(b) - realpart(b)*imagpart(a)
+    end function cross
+    !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine kspace_ewald_compute
 
 !===================================================================================================

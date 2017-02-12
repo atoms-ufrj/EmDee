@@ -150,9 +150,9 @@ int main( int argc, char *argv[] )  {
     EmDee_move( &md, 1.0, 0.0, par.Dt );
     EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
   }
-  printf("neighbor list builds = %d\n", md.builds);
-  printf("pair time = %f s.\n", md.pairTime);
-  printf("excecution time = %f s.\n", md.totalTime);
+  printf("neighbor list builds = %d\n", md.Builds);
+  printf("pair time = %f s.\n", md.PairTime);
+  printf("excecution time = %f s.\n", md.TotalTime);
   return EXIT_SUCCESS;
 }
 

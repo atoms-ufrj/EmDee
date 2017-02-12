@@ -17,8 +17,8 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Compute kspace virial
 ! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
-! TODO: Include coulomb multimodels in multilayer energy and virial computations
 ! TODO: Change name of exported Julia wrapper
 ! TODO: Add option of automatic versus manual force calculations
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "09 Feb 2017"
+character(11), parameter :: VERSION = "11 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate            ! Flag to activate/deactivate translations
@@ -60,8 +60,8 @@ type, bind(C) :: tEmDee
   type(tEnergy) :: Energy             ! All energy terms
   real(rb)      :: Virial             ! Total internal virial of the system
   real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
-  integer(ib)   :: DOF                ! Total number of degrees of freedom
-  integer(ib)   :: rotationDOF        ! Number of rotational degrees of freedom
+  integer(ib)   :: DoF                ! Total number of degrees of freedom
+  integer(ib)   :: RotDoF             ! Number of rotational degrees of freedom
   type(c_ptr)   :: Data               ! Pointer to system data
   type(tOpts)   :: Options            ! List of options to change EmDee's behavior
 end type tEmDee
@@ -182,8 +182,8 @@ contains
     EmDee_system % Energy % UpToDate = .false.
     EmDee_system % Virial = zero
     EmDee_system % BodyVirial = zero
-    EmDee_system % DOF = 3*(N - 1)
-    EmDee_system % rotationDOF = 0
+    EmDee_system % DoF = 3*(N - 1)
+    EmDee_system % RotDoF = 0
     EmDee_system % data = c_loc(me)
     EmDee_system % Options % translate = .true.
     EmDee_system % Options % rotate = .true.
@@ -580,7 +580,7 @@ contains
         me%invL2 = me%invL**2
         if (.not.me%initialized) then
           me%initialized = allocated( me%R )
-          if (me%initialized) call perform_initialization( me, md%DOF )
+          if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -592,7 +592,7 @@ contains
         !$omp end parallel
         if (.not.me%initialized) then
           me%initialized = me%Lbox > zero
-          if (me%initialized) call perform_initialization( me, md%DOF )
+          if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         end if
         if (me%initialized) call compute_forces( md )
 
@@ -700,7 +700,13 @@ contains
       case ("forces")
         call c_f_pointer( address, matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call download( omp_get_thread_num() + 1, me%F, matrix )
+        block
+          integer :: thread
+          thread = omp_get_thread_num() + 1
+          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, me%F )
+          !$omp barrier
+          call download( thread, me%F, matrix )
+        end block
         !$omp end parallel
 
       case ("multienergy")
@@ -727,14 +733,14 @@ contains
         end forall
       end subroutine get_momenta
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine download( thread, origin, destiny )
+      subroutine download( thread, origin, destination )
         integer,  intent(in)    :: thread
         real(rb), intent(in)    :: origin(3,me%natoms)
-        real(rb), intent(inout) :: destiny(3,me%natoms)
+        real(rb), intent(inout) :: destination(3,me%natoms)
         integer :: first, last
         first = (thread - 1)*me%threadAtoms + 1
         last = min(thread*me%threadAtoms, me%natoms)
-        destiny(:,first:last) = origin(:,first:last)
+        destination(:,first:last) = origin(:,first:last)
       end subroutine download
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_download
@@ -942,7 +948,7 @@ contains
     type(tEmDee), intent(inout) :: md
 
     integer  :: M
-    real(rb) :: time, Ep, Ec, W
+    real(rb) :: time, Ep, Ec, El, W
     logical(lb) :: buildList, compute
     real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
     type(tData),  pointer :: me
@@ -962,9 +968,9 @@ contains
     endif
 
     compute = md%Energy%Compute
-    !$omp parallel num_threads(me%nthreads) reduction(+:Ep,Ec,W)
+    !$omp parallel num_threads(me%nthreads) reduction(+:Ep,Ec,El,W)
     block
-      integer :: thread !, layer
+      integer :: thread
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
         if (buildList) then
@@ -972,20 +978,7 @@ contains
         else
           call compute_pairs( me, thread, compute, Rs, F, Ep, Ec, W )
         end if
-        F = me%Lbox*F
-
-!        if (me%kspace_active .and. me%coul(me%layer)%model%requires_kspace) then
-!          call me % kspace % prepare( thread, Rs )
-!          call me % kspace % compute( thread, me%kCoul(:,:,me%layer), Ec, W, F )
-!          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, E, W, F )
-!          if (compute) then
-!            do layer = 1, me%nlayers
-!              call me % kspace % compute( thread, me%kCoul(:,:,layer), EL(layer), WL(layer) )
-!              call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,layer), me%R, EL(layer), WL(layer) )
-!            end do
-!          end if
-!        end if
-
+        if (me%kspace_active) call compute_kspace( me, thread, compute, Rs, El, W, F )
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ep, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, Ep, W )
         if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Ep, W )
@@ -999,9 +992,9 @@ contains
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     if (compute) then
-      md%Energy%Potential = Ep
-!      me%layer_energy = sum(Elayer,2)
-!      me%layer_virial = sum(Wlayer,2)
+      md%Energy%Potential = Ep + El
+      md%Energy%Coulomb = Ec + El
+      md%Energy%Fourier = El
     end if
 
     md%Energy%UpToDate = compute
