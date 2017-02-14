@@ -95,12 +95,6 @@ contains
     alpha = s/Rc
     me%kmax = two*alpha*s
 
-!me%alpha = 5.6_rb/30.0_rb ! DELETE THIS LINE
-!print*, "alpha = ", alpha
-!me%kmax = twoPi/Lsqrt(27.0_rb) ! DELETE THIS LINE
-
-!alpha = 0.254674_rb
-
   end subroutine kspace_ewald_set_parameters
 
 !===================================================================================================
@@ -145,7 +139,7 @@ contains
       allocate( me%prefac(nvecs) )
       allocate( me%n(nvecs,3) )
       allocate( me%vec(3,nvecs) )
-      allocate( me%qeikr(nvecs,me%natoms) )
+      allocate( me%qeikr(nvecs,me%charge%nitems) )
       allocate( me%S(nvecs,me%ntypes) )
       allocate( me%sigma(nvecs,me%ntypes) )
     end if
@@ -179,41 +173,43 @@ contains
 
 !===================================================================================================
 
-  subroutine kspace_ewald_prepare( me, thread, Rs )
+  subroutine kspace_ewald_prepare( me, Rs )
     class(kspace_ewald), intent(inout) :: me
-    integer,             intent(in)    :: thread
     real(rb),            intent(in)    :: Rs(:,:)
 
-    integer  :: v1, vN, i, j, itype
-    real(rb) :: theta(3)
-    complex(rb) :: Z(3), G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), &
-                   G3(-me%nmax(3):me%nmax(3))
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer  :: thread, v1, vN, i, j, itype
+      real(rb) :: theta(3)
+      complex(rb) :: Z(3), G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
 
-    ! Compute q*exp(i*k*R) for current thread's atoms:
-    G1(0) = (one,zero)
-    G2(0) = (one,zero)
-    G3(0) = (one,zero)
-    do j = (thread - 1)*me%threadAtoms + 1, min(thread*me%threadAtoms, me%natoms)
-      i = me%index(j)
-      theta = twoPi*Rs(:,i)
-      Z = cmplx(cos(theta),sin(theta),rb)
-      G1(1:me%nmax(1)) = G( Z(1), me%nmax(1) )
-      G2(1:me%nmax(2)) = G( Z(2), me%nmax(2) )
-      G3(1:me%nmax(3)) = G( Z(3), me%nmax(3) )
-      G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
-      G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
-      me%qeikr(:,j) = me%Q(j)*G1(me%n(:,1))*G2(me%n(:,2))*G3(me%n(:,3))
-    end do
-    !$omp barrier
+      thread = omp_get_thread_num() + 1
 
-    ! Compute type-specific structure factors for current thread's vectors:
-    v1 = (thread - 1)*me%threadVecs + 1
-    vN = min(thread*me%threadVecs, me%nvecs)
-    me%S(v1:vN,:) = (zero,zero)
-    do j = 1, me%natoms
-      itype = me%type(j)
-      me%S(v1:vN,itype) = me%S(v1:vN,itype) + me%qeikr(v1:vN,j)
-    end do
+      ! Compute q*exp(i*k*R) for current thread's charges:
+      G1(0) = (one,zero)
+      G2(0) = (one,zero)
+      G3(0) = (one,zero)
+      do j = (thread - 1)*me%threadCharges + 1, min(thread*me%threadCharges, me%charge%nitems)
+        i = me%charge%item(j)
+        theta = twoPi*Rs(:,i)
+        Z = cmplx(cos(theta),sin(theta),rb)
+        G1(1:me%nmax(1)) = G( Z(1), me%nmax(1) )
+        G2(1:me%nmax(2)) = G( Z(2), me%nmax(2) )
+        G3(1:me%nmax(3)) = G( Z(3), me%nmax(3) )
+        G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
+        G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
+        me%qeikr(:,j) = me%charge%value(j)*G1(me%n(:,1))*G2(me%n(:,2))*G3(me%n(:,3))
+      end do
+      !$omp barrier
+
+      ! Compute type-specific structure factors for current thread's vectors:
+      v1 = (thread - 1)*me%threadVecs + 1
+      vN = min(thread*me%threadVecs, me%nvecs)
+      do itype = 1, me%ntypes
+        me%S(v1:vN,itype) = sum(me%qeikr(v1:vN,me%charge%first(itype):me%charge%last(itype)),2)
+      end do
+    end block
+    !$omp end parallel
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -237,34 +233,55 @@ contains
 
 !===================================================================================================
 
-  subroutine kspace_ewald_compute( me, thread, compute, lambda, E, W, F )
+  subroutine kspace_ewald_compute( me, layer, compute, E, W, F )
     class(kspace_ewald), intent(inout) :: me
-    integer(ib),         intent(in)    :: thread
+    integer(ib),         intent(in)    :: layer
     logical(lb),         intent(in)    :: compute
-    real(rb),            intent(in)    :: lambda(:,:)
     real(rb),            intent(out)   :: E
     real(rb),            intent(inout) :: W, F(:,:)
 
-    integer :: v1, vN, a1, aN, j
+    real(rb) :: Energy(me%nthreads)
 
-    ! Split wave-vectors among threads:
-    v1 = (thread - 1)*me%threadVecs + 1
-    vN = min(thread*me%threadVecs, me%nvecs)
+    !$omp parallel num_threads(me%nthreads) reduction(+:Energy)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      call perform_computation( thread, Energy(thread) )
+    end block
+    !$omp end parallel
 
-    ! Compute type-specific structure factors and sigmas for current thread's vectors:
-    me%sigma(v1:vN,:) = matmul(me%S(v1:vN,:), lambda)
-
-    ! Compute energy related to current thread's vectors:
-    if (Compute) E = sum(me%prefac(v1:vN)*sum(dot(me%S(v1:vn,:), me%sigma(v1:vN,:)),2))
-    !$omp barrier
-
-    ! Compute forces on current thread's atoms:
-    a1 = (thread - 1)*me%threadAtoms + 1
-    aN = min(thread*me%threadAtoms, me%natoms)
-    forall (j=a1:aN) F(:,me%index(j)) = F(:,me%index(j)) + &
-                                        matmul(me%vec,cross(me%sigma(:,me%type(j)),me%qeikr(:,j)))
+    E = sum(Energy)
 
   contains
+    !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    subroutine perform_computation( thread, E )
+      integer,  intent(in) :: thread
+      real(rb), intent(out) :: E
+
+      integer :: v1, vN, a1, aN, i, j, itype
+
+      ! Split wave-vectors among threads:
+      v1 = (thread - 1)*me%threadVecs + 1
+      vN = min(thread*me%threadVecs, me%nvecs)
+
+      ! Compute type-specific structure factors and sigmas for current thread's vectors:
+      me%sigma(v1:vN,:) = matmul(me%S(v1:vN,:), me%lambda(:,:,layer))
+
+      ! Compute energy related to current thread's vectors:
+      if (compute) E = sum(me%prefac(v1:vN)*sum(dot(me%S(v1:vn,:), me%sigma(v1:vN,:)),2))
+      !$omp barrier
+
+      ! Compute forces on current thread's atoms:
+      a1 = (thread - 1)*me%threadCharges + 1
+      aN = min(thread*me%threadCharges, me%charge%nitems)
+      itype = me%charge%object( a1 )
+      do j = a1, aN
+        i = me%charge%item(j)
+        if (j > me%charge%last(itype)) itype = itype + 1
+        F(:,i) = F(:,i) + matmul(me%vec,cross(me%sigma(:,itype),me%qeikr(:,j)))
+      end do
+
+    end subroutine perform_computation
     !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     elemental function dot( a, b ) result( c )
       complex(rb), intent(in) :: a, b

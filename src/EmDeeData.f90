@@ -120,7 +120,6 @@ type :: tData
 
   integer,  allocatable :: other_layer(:)
   real(rb), allocatable :: kCoul(:,:,:)
-  real(rb), allocatable :: kCoul1D(:,:)
 
   real(rb), allocatable :: Energy(:,:)
 
@@ -333,10 +332,7 @@ contains
 
     character(*), parameter :: task = "system initialization"
 
-    integer  :: layer, i, j, npairtypes, bodyDoF
-    real(rb) :: L(3)
-
-    integer, allocatable :: indices(:)
+    integer  :: layer, bodyDoF
 
     !$omp parallel num_threads(me%nthreads)
     call update_rigid_bodies( me, omp_get_thread_num() + 1 )
@@ -348,12 +344,8 @@ contains
 
     call check_actual_interactions( me )
 
-    if (me%kspace_active) then
-      L = me%Lbox*[one,one,one]
-      call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charged, me%charge )
-      indices = [(me%body(i)%index,i=1,me%nbodies)]
-      call me % kspace % setup_rigid_pairs( me%body%NP, indices, me%R, me%charged )
-    end if
+    me%kCoul = me%pair%kCoul
+    if (me%kspace_active) call initialize_kspace
 
     do layer = 1, me%nlayers
       associate( coul => me%coul(layer)%model )
@@ -365,16 +357,6 @@ contains
           end if
         end if
       end associate
-    end do
-
-    npairtypes = me%ntypes*(me%ntypes - 1)/2 + me%ntypes
-    allocate( me%kCoul(me%ntypes,me%ntypes,me%nlayers), me%kCoul1D(npairtypes, me%nlayers) )
-    do i = 1, me%ntypes
-      do j = i, me%ntypes
-        me%kCoul(i,j,:) = me%pair(i,j,:)%kCoul
-        me%kCoul(j,i,:) = me%kCoul(i,j,:)
-        me%kCoul1D(symm1D(i,j),:) = me%kCoul(i,j,:)
-      end do
     end do
 
     contains
@@ -396,6 +378,18 @@ contains
         end do
 
       end subroutine update_rigid_bodies
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine initialize_kspace
+        integer  :: i
+        real(rb) :: L(3)
+        integer, allocatable :: bodyAtom(:)
+
+        L = me%Lbox*[one,one,one]
+        bodyAtom = [(me%body(i)%index,i=1,me%nbodies)]
+        call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charge, &
+                                       me%R, me%body%NP, bodyAtom, me%kCoul )
+
+      end subroutine initialize_kspace
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine perform_initialization
 
@@ -907,27 +901,19 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_kspace( me, thread, compute, Rs, Elong, Virial, F )
+  subroutine compute_kspace( me, compute, Rs, Elong, Virial, F )
     type(tData), intent(inout) :: me
-    integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: Elong
     real(rb),    intent(inout) :: Virial, F(3,me%natoms)
 
-    integer :: first, last
-
     if (compute.or.me%coul(me%layer)%model%requires_kspace) then
       associate ( ks => me%kspace )
-        call ks % prepare( thread, Rs )
-        call ks % compute( thread, compute, me%kCoul(:,:,me%layer), Elong, Virial, F )
+        call ks % prepare( Rs )
+        call ks % compute( me%layer, compute, Elong, Virial, F )
         if (compute) then
-          first = (thread - 1)*ks%threadPairTypes + 1
-          last = min(thread*ks%threadPairTypes,ks%npairtypes)
-          associate( lambda => me%kCoul1D(first:last,me%layer) )
-            Elong  = Elong  + sum(lambda*ks%Erigid(first:last))
-            Virial = Virial + sum(lambda*ks%Wrigid(first:last))
-          end associate
+          call ks % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Elong, Virial )
         end if
       end associate
     end if

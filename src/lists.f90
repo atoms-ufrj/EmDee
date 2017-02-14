@@ -19,7 +19,7 @@
 
 module lists
 
-use iso_c_binding
+use global
 
 implicit none
 
@@ -27,21 +27,25 @@ type tList
   integer :: nitems
   integer :: nobjects
   integer :: count
-  integer, allocatable :: first(:)
-  integer, allocatable :: last(:)
-  integer, allocatable :: item(:)
+  integer,  allocatable :: first(:)
+  integer,  allocatable :: last(:)
+  integer,  allocatable :: item(:)
+  logical,  allocatable :: check(:)
+  real(rb), allocatable :: value(:)
   contains
     procedure :: allocate => tList_allocate
     procedure :: resize => tList_resize
+    procedure :: object => tList_object
 end type tList
 
 contains
 
 !---------------------------------------------------------------------------------------------------
 
-  elemental subroutine tList_allocate( list, nitems, nobjects )
-    class(tList), intent(inout) :: list
-    integer,  intent(in)    :: nitems, nobjects
+  elemental subroutine tList_allocate( list, nitems, nobjects, check, value )
+    class(tList),      intent(inout) :: list
+    integer,           intent(in)    :: nitems, nobjects
+    logical, optional, intent(in)    :: check, value
 
     list%nobjects = nobjects
     list%nitems = nitems
@@ -50,26 +54,57 @@ contains
     allocate( list%first(nobjects), list%last(nobjects), list%item(nitems) )
     list%first = 1
     list%last = 0
-
+    if (present(check)) then
+      if (check) allocate( list%check(nitems) )
+    end if
+    if (present(value)) then
+      if (value) allocate( list%value(nitems) )
+    end if
   end subroutine tList_allocate
 
 !---------------------------------------------------------------------------------------------------
 
   subroutine tList_resize( list, size )
     class(tList), intent(inout) :: list
-    integer,  intent(in)    :: size
+    integer,      intent(in)    :: size
 
     integer :: n
-    integer, allocatable :: new(:)
+    integer,  allocatable :: item(:)
+    logical,  allocatable :: check(:)
+    real(rb), allocatable :: value(:)
 
-    allocate( new(size) )
+    allocate( item(size) )
     n = min(list%nitems,size)
-    new(1:n) = list%item(1:n)
+    item(1:n) = list%item(1:n)
     deallocate( list%item )
-    list%item = new
+    list%item = item
     list%nitems = size
+    if (allocated(list%check)) then
+      allocate( check(size) )
+      check(1:n) = list%check(1:n)
+      deallocate( list%check )
+      list%check = check
+    end if
+    if (allocated(list%value)) then
+      allocate( value(size) )
+      value(1:n) = list%value(1:n)
+      deallocate( list%value )
+      list%value = value
+    end if
 
   end subroutine tList_resize
+
+!---------------------------------------------------------------------------------------------------
+
+  pure function tList_object( list, item ) result( object )
+    class(tList), intent(in) :: list
+    integer,      intent(in) :: item
+    integer                  :: object
+    object = 1
+    do while (list%last(object) < item)
+      object = object + 1
+    end do
+  end function tList_object
 
 !---------------------------------------------------------------------------------------------------
 

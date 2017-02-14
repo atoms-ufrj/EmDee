@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "11 Feb 2017"
+character(11), parameter :: VERSION = "14 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate            ! Flag to activate/deactivate translations
@@ -648,7 +648,7 @@ contains
         first = (thread - 1)*me%threadAtoms + 1
         last = min(thread*me%threadAtoms, me%natoms)
         me%charge(first:last) = Qext(first:last)
-        me%charged(first:last) = Qext(first:last) /= zero
+        me%charged(first:last) = abs(Qext(first:last)) > epsilon(one)
       end subroutine assign_charges
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine assign_coordinates( me, thread, Rext )
@@ -699,14 +699,11 @@ contains
 
       case ("forces")
         call c_f_pointer( address, matrix, [3,me%natoms] )
+        if (me%kspace_active) then
+          call me % kspace % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Forces = me%F )
+        end if
         !$omp parallel num_threads(me%nthreads)
-        block
-          integer :: thread
-          thread = omp_get_thread_num() + 1
-          call me % kspace % discount_rigid_pairs( thread, me%kCoul1D(:,me%layer), me%R, me%F )
-          !$omp barrier
-          call download( thread, me%F, matrix )
-        end block
+        call download( omp_get_thread_num() + 1, me%F, matrix )
         !$omp end parallel
 
       case ("multienergy")
@@ -968,7 +965,7 @@ contains
     endif
 
     compute = md%Energy%Compute
-    !$omp parallel num_threads(me%nthreads) reduction(+:Ep,Ec,El,W)
+    !$omp parallel num_threads(me%nthreads) reduction(+:Ep,Ec,W)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
@@ -978,15 +975,15 @@ contains
         else
           call compute_pairs( me, thread, compute, Rs, F, Ep, Ec, W )
         end if
-        if (me%kspace_active) call compute_kspace( me, thread, compute, Rs, El, W, F )
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ep, W )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, Ep, W )
         if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Ep, W )
       end associate
     end block
     !$omp end parallel
-
     me%F = sum(Fs,3)
+    if (me%kspace_active) call compute_kspace( me, compute, Rs, El, W, me%F )
+
     md%Virial = W
 
     if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
