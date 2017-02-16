@@ -74,10 +74,11 @@ contains
 
 !===================================================================================================
 
-  function sorted( x ) result( ind )
-    integer, intent(in) :: x(:)
-    integer             :: ind(size(x))
-    integer :: a(size(x)), N, i, j
+  function sorted( x, indices ) result( y )
+    integer, intent(in)           :: x(:)
+    logical, intent(in), optional :: indices
+    integer                       :: y(size(x))
+    integer :: a(size(x)), ind(size(x)), N, i, j
     logical :: swapped
     N = size(x)
     a = x
@@ -94,6 +95,11 @@ contains
       end do
       if (.not. swapped) exit
     end do
+    if (present(indices)) then
+      y = merge(ind,a,indices)
+    else
+      y = a
+    end if
     contains
       subroutine swap( a, b )
         integer, intent(inout) :: a, b

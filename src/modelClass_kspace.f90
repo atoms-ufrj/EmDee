@@ -27,8 +27,6 @@ use math
 
 implicit none
 
-real(rb), parameter, private :: prefactor = two/sqrt(Pi)
-
 type tRigidPair
   integer(ib) :: i
   integer(ib) :: j
@@ -40,13 +38,14 @@ end type tRigidPair
 !> An abstract class for kspace interaction models:
 type, abstract, extends(cModel) :: cKspaceModel
 
-  real(rb) :: alpha
-  real(rb) :: beta
+  real(rb) :: alpha                               ! Ewald damping parameter alpha
+  real(rb) :: beta                                ! Auxiliary constant: 2*alpha/sqrt(Pi)
 
   integer :: ntypes                               ! Number of distinc types of charged atoms
   integer,  allocatable :: type(:)                ! Distinct types of charged atoms
 
   type(tList) :: charge                           ! List of charged atoms and their charges
+  integer,  allocatable :: ncharges(:)            ! Number of charged atoms of each type
 
   integer :: nTypePairs                           ! Number of types of atoms pairs
   real(rb), allocatable :: Erigid(:)              ! Unscaled energy of intrabody atom pair
@@ -146,7 +145,7 @@ contains
           distinct(me%ntypes) = itype
         end if
       end do
-      me%type = distinct(sorted(distinct(1:me%ntypes)))
+      me%type = sorted(distinct(1:me%ntypes))
     end block
 
     ! Allocate and populate charge list:
@@ -166,6 +165,7 @@ contains
         me%charge%item(first:last) = chargedAtoms
         me%charge%value(first:last) = charge(chargedAtoms)
       end do
+      me%ncharges = me%charge%last - me%charge%first + 1
     end block
 
     ! Set kspace model parameters:
