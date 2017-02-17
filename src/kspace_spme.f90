@@ -220,12 +220,11 @@ contains
 
 !===================================================================================================
 
-  subroutine kspace_spme_compute( me, layer, compute, E, W, F )
+  subroutine kspace_spme_compute( me, layer, E, F )
     class(kspace_spme), intent(inout) :: me
-    integer(ib),         intent(in)    :: layer
-    logical(lb),         intent(in)    :: compute
-    real(rb),            intent(out)   :: E
-    real(rb),            intent(inout) :: W, F(:,:)
+    integer(ib),        intent(in)    :: layer
+    real(rb),           intent(inout) :: E
+    real(rb), optional, intent(inout) :: F(:,:)
 
     integer :: i, j
     real(rb) :: Energy(me%nthreads)
@@ -235,15 +234,18 @@ contains
     call compute_sigma_partial( omp_get_thread_num() + 1 )
     !$omp end parallel
 
-    do i = 1, 3
-      do j = 1, me%ntypes
-        me%f_hat(:,j) = me%kvec(:,i)*sigma(:,j)
-        call nfft_trafo( me%nfft(j) )
-      end do
-      F(i,me%charge%item) = F(i,me%charge%item) - me%charge%value*imagpart(me%f)
-    end do
+    E = E + sum(Energy)
 
-    if (compute) E = sum(Energy)
+    if (present(F)) then
+      do i = 1, 3
+        do j = 1, me%ntypes
+          me%f_hat(:,j) = me%kvec(:,i)*sigma(:,j)
+          call nfft_trafo( me%nfft(j) )
+        end do
+        F(i,me%charge%item) = F(i,me%charge%item) - me%charge%value*imagpart(me%f)
+      end do
+    end if
+
   contains
     !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     subroutine compute_sigma_partial( thread )
@@ -255,7 +257,7 @@ contains
       vN = min(thread*me%threadNodes, me%nNodes)
       associate( S => me%S(v1:vN,:), sig => sigma(v1:vN,:) )
         sig = matmul(S, me%lambda(:,:,layer))
-        if (compute) Energy(thread) = sum(me%prefac(v1:vN)*sum(dot(S,sig),2))
+        Energy(thread) = sum(me%prefac(v1:vN)*sum(dot(S,sig),2))
       end associate
 
     end subroutine compute_sigma_partial

@@ -9,6 +9,13 @@
 \newcommand{\diff}[2]{\frac{\partial #1}{\partial #2}}  % partial derivative
 \newcommand{\im}{\hat{\i}}                              % imaginary number
 
+\newenvironment{smallarray}[1]                          % small arrays
+{\null\,\vcenter\bgroup\scriptsize
+	\renewcommand{\arraystretch}{1.5}
+	\arraycolsep=.13885em
+	\hbox\bgroup$\left[\array{@{}#1@{}}}
+{\endarray\right]$\egroup\egroup\,\null}
+
 \begin{document}
 
 \title{EmDee: A Molecular Dynamics Laboratory}
@@ -151,72 +158,108 @@ Therefore,
 
 \section{Ewald Sum with Type-Pair-Specific Scaling}
 
-\subsection{Real Part}
+\subsection{Real-Space Contribution}
 
 \begin{equation*}
-U_\text{short} = \frac{k_e}{\epsilon} \sum_{i=1}^{N-1} \sum_{j=i+1}^N q_i q_j \frac{\text{erfc}(\alpha r_{ij})}{r_{ij}}
+U^\prime = \frac{k_e}{\epsilon} \sum_{i=1}^{N-1} \sum_{j=i+1}^N q_i q_j \frac{\text{erfc}(\alpha r_{ij})}{r_{ij}}
 \end{equation*}
 
-\subsection{Fourier Part}
+\subsection{Reciprocal-Space Contribution}
 
 Conventionally, for a simulation box with periodic boundary conditions, the long-range electrostatic part of the potential energy is written as
 \begin{equation*}
-U_\text{long} = \frac{2\pi k_e}{\epsilon V} \sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{i=1}^N \sum_{j=1}^N q_i q_j e^{\im \tr{\vt k}({\vt r}_i - {\vt r}_j)},
+U^\star = \frac{2\pi k_e}{\epsilon V} \sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{i=1}^N \sum_{j=1}^N q_i q_j e^{\im \tr{\vt k}({\vt r}_i - {\vt r}_j)},
 \end{equation*}
-where $k_e$ is Coulomb's constant ($k_e = \frac{1}{4\pi\epsilon_0}$), $\epsilon$ is a dielectric constant, $V$ is the box volume, $\vt n \in \mathbb Z^3$ is an integer lattice vector, $\vt k = 2\pi \vt L^{-1}{\vt n}$ is a reciprocal space vector, $k = \|\vt k\|$ is the norm of $\vt k$, and $\im$ is the imaginary unit (that is, $\im^2 = -1$). The summations over indices $i$ and $j$ run for all atoms, which allows us to split them as follows,
+where $k_e$ is Coulomb's constant ($k_e = \frac{1}{4\pi\epsilon_0}$), $\epsilon$ is a dielectric constant, $V$ is the box volume, $\vt n \in \mathbb Z^3$ is an integer lattice vector, $\vt k = 2\pi \vt L^{-1}{\vt n}$ is a reciprocal space vector, $k = \|\vt k\|$ is the norm of $\vt k$, and $\im$ is the imaginary unit ($\im^2 = -1$). The summations over indices $i$ and $j$ run for all atoms, which allows us to split them as follows,
 \begin{equation*}
-U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \Bigg(\sum_{i=1}^N q_i e^{\im \tr{\vt k}{\vt r}_i} \Bigg) \Bigg(\sum_{j=1}^N q_j e^{-\im \tr{\vt k}{\vt r}_j}\Bigg).
+U^\star = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \Bigg(\sum_{i=1}^N q_i e^{\im \tr{\vt k}{\vt r}_i} \Bigg) \Bigg(\sum_{j=1}^N q_j e^{-\im \tr{\vt k}{\vt r}_j}\Bigg).
 \end{equation*}
 
 Defined as $S(\vt k) = \sum_i q_i e^{\im \tr{\vt k}{\vt r}_i}$, the structure factor of the system charges can be identified in the equation above, as well as its complex conjugate ${\overline S}(\vt k)$. Therefore, we can write
 \begin{equation*}
-U_\text{long} = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} |S(\vt k)|^2.
+U^\star = \frac{2\pi k_e}{\epsilon V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} |S(\vt k)|^2.
 \end{equation*}
 
 Now consider that the electrostatic interactions between any atom $i$ of type $I$ with any atom $j$ of type $J$ are scaled by a factor $\lambda_{IJ} = \lambda_{JI} = k_e/\epsilon_{IJ}$. In this case, one can alternatively express the long-range potential per unit box as
 \begin{equation*}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n \sum_{J=1}^n \lambda_{IJ} \sum_{i \in I} \sum_{j \in J} q_i q_j e^{\im \tr{\vt k}({\vt r}_i - {\vt r}_j)}.
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n \sum_{J=1}^n \lambda_{IJ} \sum_{i \in I} \sum_{j \in J} q_i q_j e^{\im \tr{\vt k}({\vt r}_i - {\vt r}_j)}.
 \end{equation*}
 
 It is then convenient to define a type-specific structure factor $S_I(\vt k) = \sum_{i \in I} q_i e^{\im \tr{\vt k}{\vt r}_i}$, which depends solely on the charges and positions of atoms of type $I$. From such definition we can again split the summations over $i$ and $j$ to write
 \begin{equation}
 \label{eq:U_long_by_types_1}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n \sum_{J=1}^n \lambda_{IJ} S_I(\vt k) \overline{S_J}(\vt k).
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n \sum_{J=1}^n \lambda_{IJ} S_I(\vt k) \overline{S_J}(\vt k).
 \end{equation}
 
 The fact that $\lambda_{IJ} = \lambda_{JI}$ for every type pair implies that all imaginary terms in the double above will cancel out, allowing us to simplify the equation as
 \begin{equation}
 \label{eq:U_long_by_types_dot}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n \sum_{J=1}^n \lambda_{IJ} [S_I(\vt k) \cdot S_J(\vt k)],
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n \sum_{J=1}^n \lambda_{IJ} [S_I(\vt k) \cdot S_J(\vt k)],
 \end{equation}
-where the dot product between two complex numbers $x_i = a_i + \im b_i$ and $x_j = a_j + \im b_j$ is a commutative operation defined so that $x_i \cdot x_j = a_i a_j + b_i b_j$. Finally, we define $\sigma_I(\vt k) = \sum_{J=1}^n \lambda_{IJ} S_J(\vt k)$ and rewrite Eq.~\ref{eq:U_long_by_types_dot} as
+where the dot product between two complex numbers $x_i = a_i + \im b_i$ and $x_j = a_j + \im b_j$ is an operation defined as $x_i \cdot x_j = a_i a_j + b_i b_j$. Finally, relying on the distributive property of the dot product, we define $\sigma_I(\vt k) = \sum_{J=1}^n \lambda_{IJ} S_J(\vt k)$ and rewrite Eq.~\ref{eq:U_long_by_types_dot} as
 \begin{equation*}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n S_I(\vt k) \cdot \sigma_I(\vt k).
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n S_I(\vt k) \cdot \sigma_I(\vt k).
 \end{equation*}
+
+We now compute the internal virial associated to variations of the reciprocal-space energy term with respect to isotropic volume changes while all the scaled coordinates $\vt s_i = {\mt L}^{-1}\vt r_i$ kept unchanged. We define such virial as
+\begin{equation*}
+W^\star = -V\left(\diff{U^\star}{V}\right)_{{\vt s}_1,\cdots,{\vt s}_N}.
+\end{equation*}
+
+Before performing the differentiation, we express the type-wise structure factors as $S_I(\vt k) = \sum_{i \in I} e^{-2\pi\im \tr{\vt n}{\vt s}_i}$ so as to make clear that they do not depend on the box volume. Consequently, besides $V$ itself, the only variables in $U^\star$ that do depend on $V$ are the square norms $k^2 = 4\pi^2 \tr{\vt n}{\mt L}^{-2}{\vt n}$. Therefore,
+\begin{equation*}
+\left(\diff{U^\star}{V}\right)_{{\vt s}_1,\cdots,{\vt s}_N} = -\frac{U^\star}{V} - \frac{2\pi}{V} \sum_{\vt n \neq \vt 0} \frac{dk^2}{dV}\left( \frac{1}{4\alpha^2} + \frac{2}{k}\right) \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n S_I(\vt k) \cdot \sigma_I(\vt k)
+\end{equation*}
+
+In the case of isotropic volume variations, we can represent the matrix $\mt L$ as
+\begin{equation*}
+\mt L = \begin{smallarray}{ccc}
+a_1 &  0  &  0  \\
+ 0  & a_2 &  0  \\
+ 0  &  0  & a_3 \\
+\end{smallarray}V^{1/3},
+\end{equation*}
+where $a_1$, $a_2$, and $a_3$ are constant. In this way, we end up with $k^2 = 4\pi^2 \tr{\vt n}{\mt A}^{-2}{\vt n}V^{-2/3}$ and, therefore,
+\begin{equation*}
+\frac{dk^2}{dV} = -\frac{8\pi^2}{3} \tr{\vt n}{\mt A}^{-2}{\vt n}V^{-5/3} = -\frac{2k^2}{3V}.
+\end{equation*}
+
+
+By direct computation, one can deduce that $dk^2/dV = -2k^2/V$. Hence,
+\begin{equation*}
+\left(\diff{U^\star}{V}\right)_{{\vt s}_1,\cdots,{\vt s}_N} = -\frac{U^\star}{V} + \frac{4\pi}{V^2} \sum_{\vt n \neq \vt 0} \left( \frac{k^2}{4\alpha^2} + 2k\right) \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n S_I(\vt k) \cdot \sigma_I(\vt k).
+\end{equation*}
+
+Finally,
+\begin{equation*}
+W^\star = U^\star -\frac{4\pi}{V} \sum_{\vt n \neq \vt 0} \left( \frac{k^2}{4\alpha^2} + 2k\right) \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{I=1}^n S_I(\vt k) \cdot \sigma_I(\vt k).
+\end{equation*}
+
+
 
 Differentiating with respect to the position $\vt r_i$ of an atom $i \in I$, we have
 \begin{equation*}
-\frac{\partial U_\text{long}}{\partial \vt r_i} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{J=1}^n \left[ S_J(\vt k) \cdot \frac{\partial \sigma_J}{\partial \vt r_i} + \sigma_J(\vt k) \cdot \frac{\partial S_J}{\partial \vt r_i}\right],
+\frac{\partial U^\star}{\partial \vt r_i} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_{J=1}^n \left[ S_J(\vt k) \cdot \frac{\partial \sigma_J}{\partial \vt r_i} + \sigma_J(\vt k) \cdot \frac{\partial S_J}{\partial \vt r_i}\right],
 \end{equation*}
 where a trivial scalar$\cdot$vector generalization of the dot product has been employed. We then note that $\partial S_J / \partial \vt r_i = \vt 0$ for all $J \neq I$, which makes $\partial \sigma_J / \partial \vt r_i = \lambda_{IJ} {\partial S_I}/{\partial \vt r_i}$ and, therefore,
 \begin{align*}
-\frac{\partial U_\text{long}}{\partial \vt r_i} &= \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left[ \sigma_I(\vt k) \cdot \frac{\partial S_I}{\partial \vt r_i} + \sum_{J=1}^n S_J(\vt k) \cdot \left( \lambda_{IJ} \frac{\partial S_I}{\partial \vt r_i} \right) \right] = \\
+\frac{\partial U^\star}{\partial \vt r_i} &= \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left[ \sigma_I(\vt k) \cdot \frac{\partial S_I}{\partial \vt r_i} + \sum_{J=1}^n S_J(\vt k) \cdot \left( \lambda_{IJ} \frac{\partial S_I}{\partial \vt r_i} \right) \right] = \\
 &= \frac{4\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \left[ \sigma_I(\vt k) \cdot \frac{\partial S_I}{\partial \vt r_i} \right].
 \end{align*}
 
 From the definition of $S(\vt k)$, we obtain $\frac{\partial S_I}{\partial \vt r_i} = \im q_i e^{\im \tr{\vt k}{\vt r}_i} \vt k$. It is thus convenient to employ the anti-commutative cross product $x_i \times x_j = (\im x_i) \cdot x_j = a_ib_j- b_ia_j$. In this way, we have
 \begin{equation*}
-{\vt F}_i = -\frac{\partial U_\text{long}}{\partial \vt r_i} = \frac{4\pi}{V} q_i \sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} [ \sigma_I(\vt k) \times e^{\im \tr{\vt k}{\vt r}_i} ]{\vt k}.
+{\vt F}_i = -\frac{\partial U^\star}{\partial \vt r_i} = \frac{4\pi}{V} q_i \sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} [ \sigma_I(\vt k) \times e^{\im \tr{\vt k}{\vt r}_i} ]{\vt k}.
 \end{equation*}
 
 \section{DRAFT}
 
 For computational efficiency:
 \begin{equation*}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_I \bigg\{\lambda_{II} \|S_I(\vt k)\|^2 + 2 S_I(\vt k) \cdot \sum_{J > I} \lambda_{IJ} S_J(\vt k)\bigg\}.
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_I \bigg\{\lambda_{II} \|S_I(\vt k)\|^2 + 2 S_I(\vt k) \cdot \sum_{J > I} \lambda_{IJ} S_J(\vt k)\bigg\}.
 \end{equation*}
 
-Note that a position $\vt r_i$ only affects the structure factor of a type $I$ if $i \in I$. In order to facilitate differentiation, we extract from $U_\text{long}$ all terms that involve a given type $I$, which is
+Note that a position $\vt r_i$ only affects the structure factor of a type $I$ if $i \in I$. In order to facilitate differentiation, we extract from $U^\star$ all terms that involve a given type $I$, which is
 \begin{equation*}
 U_I = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \bigg\{\lambda_{II} \|S_I(\vt k)\|^2 + 2 \bigg(\sum_{J \neq I} \lambda_{IJ} S_J(\vt k)\bigg) \cdot S_I(\vt k) \bigg\},
 \end{equation*}
@@ -252,7 +295,7 @@ Defining:
 
 
 \begin{equation*}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_I S_I(\vt k) \cdot \Bigg[
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \sum_I S_I(\vt k) \cdot \Bigg[
 \lambda_{II}S_I(\vt k) + \sum_{J \neq I} \lambda_{IJ} S_J(\vt k)\Bigg],
 \end{equation*}
 
@@ -278,7 +321,7 @@ e^{\im \tr{\vt k}{\vt r}_i} = \cos(\tr{\vt k}{\vt r}_i) + \im \sin(\tr{\vt k}{\v
 
 \begin{equation}
 \label{eq:U_long_by_types_1}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \Bigg\{ \sum_I \lambda_{II} \|S_I(\vt k)\|^2 + 2 \sum_{J>I} \lambda_{IJ} [S_I(\vt k) \cdot S_J(\vt k)] \Bigg\},
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{k^2}{4\alpha^2}}}{k^2} \Bigg\{ \sum_I \lambda_{II} \|S_I(\vt k)\|^2 + 2 \sum_{J>I} \lambda_{IJ} [S_I(\vt k) \cdot S_J(\vt k)] \Bigg\},
 \end{equation}
 where a dot product between two complex numbers is defined so that
 \begin{equation*}
@@ -302,19 +345,19 @@ S_J(\vt g)\overline{S_K(\vt g)} = A_J A_K + i(B_J A_K - A_J B_K) + B_J B_K,
 
 It is clear that the imaginary term above vanishes if $K = J$. Moreover, $\lambda_{JK}$ and $\lambda_{KJ}$ being equal implies that all imaginary terms cancel out in the double sum of Eq.~\ref{eq:U_long_by_types_1}, which thus becomes
 \begin{equation*}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} (A_J A_K + B_J B_K).
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} (A_J A_K + B_J B_K).
 \end{equation*}
 
 This can also be rewritten as
 \begin{equation*}
-U_\text{long} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \left[\lambda_{JJ} |S_J|^2 + 2 \sum_{K>J} \lambda_{JK} S_J \cdot S_K\right],
+U^\star = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \left[\lambda_{JJ} |S_J|^2 + 2 \sum_{K>J} \lambda_{JK} S_J \cdot S_K\right],
 \end{equation*}
 where $|S_J|^2 = A_J^2 + B_J^2$
 
 
 The force exerted on an atom $j$ is
 \begin{equation*}
-F_j^\text{long} = -\frac{\partial U_\text{long}}{\partial \vt r_j} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} (A_J A_K + B_J B_K).
+F_j^\star = -\frac{\partial U^\star}{\partial \vt r_j} = \frac{2\pi}{V}\sum_{\vt n \neq \vt 0} \frac{e^{-\frac{g^2}{4\alpha^2}}}{g^2} \sum_J \sum_K \lambda_{JK} (A_J A_K + B_J B_K).
 \end{equation*}
 
 The needed derivatives are

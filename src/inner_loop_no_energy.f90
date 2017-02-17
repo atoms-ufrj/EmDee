@@ -28,15 +28,16 @@ if (r2 < Rc2) then
     select type ( model => pair%model )
       include "virial_compute_pair.f90"
     end select
+    Wpair = Wpair + Wij
     if (ijcharged.and.pair%coulomb) then
       QiQj = pair%kCoul*Qi*me%charge(j)
       select type ( model => me%coul(me%layer)%model )
         include "virial_compute_coul.f90"
       end select
+      Wcoul = Wcoul + WCij
       Wij = Wij + WCij
     end if
   end associate
-  Virial = Virial + Wij
   Fij = Wij*invR2*Rij
   Fi = Fi + Fij
   F(:,j) = F(:,j) - Fij

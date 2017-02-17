@@ -66,6 +66,7 @@ type :: tData
   integer :: layer = 1                    ! Current layer of pair interaction models
 
   real(rb) :: Lbox = zero                 ! Length of the simulation box
+  real(rb) :: Lbox3(3) = zero
   real(rb) :: invL = huge(one)            ! Inverse length of the simulation box
   real(rb) :: invL2 = huge(one)           ! Squared inverse length of the simulation box
 
@@ -114,14 +115,11 @@ type :: tData
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
-
-  logical :: kspace_active
-  logical :: multilayer_coulomb
-
   integer,  allocatable :: other_layer(:)
-  real(rb), allocatable :: kCoul(:,:,:)
-
   real(rb), allocatable :: Energy(:,:)
+
+  logical :: multilayer_coulomb
+  logical :: kspace_active
 
 end type tData
 
@@ -280,7 +278,7 @@ contains
         integer             :: index(size(body))
 
         ! If body(i) <= 0 or body(i) is unique, then index(i) = 0.
-        ! Otherwise, 1 <= index(i) <= number of distinct non-unique, positive entries in body.
+        ! Otherwise, 1 <= index(i) <= number of distinc positive entries which are non-unique
 
         integer :: i, j, n, ibody
         logical :: not_found
@@ -332,7 +330,10 @@ contains
 
     character(*), parameter :: task = "system initialization"
 
-    integer  :: layer, bodyDoF
+    integer :: i, layer, bodyDoF
+    logical :: kspace_required
+
+    integer, allocatable :: bodyAtom(:)
 
     !$omp parallel num_threads(me%nthreads)
     call update_rigid_bodies( me, omp_get_thread_num() + 1 )
@@ -344,20 +345,32 @@ contains
 
     call check_actual_interactions( me )
 
-    me%kCoul = me%pair%kCoul
-    if (me%kspace_active) call initialize_kspace
-
-    do layer = 1, me%nlayers
-      associate( coul => me%coul(layer)%model )
-        if (coul%requires_kspace) then
-          if (me%kspace_active) then
-            call coul % kspace_setup( me%kspace%alpha )
-          else
-            call error( task, "model "//trim(coul%name)//" requires a kspace solver" )
-          end if
-        end if
-      end associate
+    ! Find out if any coulomb model requires a kspace solver:
+    layer = 0
+    kspace_required = .false.
+    do while (.not.kspace_required.and.(layer < me%nlayers))
+      layer = layer + 1
+      kspace_required = me%coul(layer)%model%requires_kspace
     end do
+
+    ! Now check if demand and supply are inconsistent:
+    if (kspace_required .neqv. me%kspace_active) then
+      if (kspace_required) then
+        call error( task, "a kspace solver is required, but has not been defined" )
+      else
+        ! Deactivate kspace solver once it is not required:
+        me%kspace_active = .false.
+      end if
+    end if
+
+    if (me%kspace_active) then
+      bodyAtom = [(me%body(i)%index,i=1,me%nbodies)]
+      call me % kspace % initialize( me%nthreads, me%Rc, me%Lbox3, me%atomType, me%charge, &
+                                     me%R, me%body%NP, bodyAtom, me%pair%kCoul )
+      do layer = 1, me%nlayers
+        call me % coul(layer) % model % kspace_setup( me%kspace%alpha )
+      end do
+    end if
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -378,18 +391,6 @@ contains
         end do
 
       end subroutine update_rigid_bodies
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine initialize_kspace
-        integer  :: i
-        real(rb) :: L(3)
-        integer, allocatable :: bodyAtom(:)
-
-        L = me%Lbox*[one,one,one]
-        bodyAtom = [(me%body(i)%index,i=1,me%nbodies)]
-        call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charge, &
-                                       me%R, me%body%NP, bodyAtom, me%kCoul )
-
-      end subroutine initialize_kspace
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine perform_initialization
 
@@ -723,12 +724,12 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Epair, Ecoul, Virial )
+  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Virial
+    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
     integer  :: i, j, k, l, m, n, icell, jcell, npairs, itype, jtype, layer, ibody
     integer  :: nlocal, ntotal, first, last
@@ -746,7 +747,8 @@ contains
     F = zero
     Epair = zero
     Ecoul = zero
-    Virial = zero
+    Wpair = zero
+    Wcoul = zero
 
     include = .true.
     index = 0
@@ -839,12 +841,12 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Virial )
+  subroutine compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Virial
+    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
     integer  :: i, j, k, l, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
@@ -857,7 +859,8 @@ contains
     F = zero
     Epair = zero
     Ecoul = zero
-    Virial = zero
+    Wpair = zero
+    Wcoul = zero
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
     associate ( neighbor => me%neighbor(thread), Elayer => me%Energy(:,thread) )
@@ -901,20 +904,33 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_kspace( me, compute, Rs, Elong, Virial, F )
+  subroutine compute_kspace( me, compute, Rs, Elong, F )
     type(tData), intent(inout) :: me
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: Elong
-    real(rb),    intent(inout) :: Virial, F(3,me%natoms)
+    real(rb),    intent(inout) :: Elong, F(3,me%natoms)
 
-    if (compute.or.me%coul(me%layer)%model%requires_kspace) then
-      associate ( ks => me%kspace )
-        call ks % prepare( Rs )
-        call ks % compute( me%layer, compute, Elong, Virial, F )
-        if (compute) then
-          call ks % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Elong, Virial )
-        end if
+    integer :: i, layer
+    logical :: kspace_required
+
+    kspace_required = me%coul(me%layer)%model%requires_kspace
+    if (compute.or.kspace_required) call me % kspace % prepare( Rs )
+
+    if (kspace_required) then
+      call me % kspace % compute( me%layer, Elong, F )
+      call me % kspace % discount_rigid_pairs( me%layer, me%Lbox3, me%R, Elong )
+    end if
+
+    if (compute) then
+      associate ( E => me%Energy(:,1) )
+        if (kspace_required) E(me%layer) = E(me%layer) + Elong
+        do i = 1, me%nlayers-1
+          layer = me%other_layer(i)
+          if (me%coul(layer)%model%requires_kspace) then
+            call me % kspace % compute( layer, E(layer) )
+            call me % kspace % discount_rigid_pairs( layer, me%Lbox3, me%R, E(layer) )
+          end if
+        end do
       end associate
     end if
 
