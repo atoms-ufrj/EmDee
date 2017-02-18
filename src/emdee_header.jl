@@ -18,9 +18,10 @@ immutable tEnergy
   Coulomb::Float64           # Electrostatic part of the potential energy
   Fourier::Float64           # Reciprocal part of the electrostatic potential
   Kinetic::Float64           # Total kinetic energy of the system
-  KinPart::tVec3D            # Kinetic energy at each dimension
+  TransPart::tVec3D          # Translational kinetic energy at each dimension
   Rotational::Float64        # Rotational kinetic energy of the system
   RotPart::tVec3D            # Rotational kinetic energy around each principal axis
+  Layer::Ref{Float64}        # Vector with multilayer energy components
   Compute::Int32             # Flag to activate/deactivate energy computations
   UpToDate::Int32            # Flag to attest whether energies have been computed
 end

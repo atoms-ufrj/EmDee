@@ -66,7 +66,7 @@ KSPACE = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
 
 OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
                      $(ALLMODELS) $(KSPACE) $(addprefix modelClass_,$(MODELTERMS) kspace) \
-                     modelClass lists nfft nfft_binding global)
+                     modelClass lists nfft global)
 
 COMPUTES = $(addprefix compute_,$(MODELTERMS))
 ENERGYCOMPUTES = $(addprefix energy_compute_,pair coul)
@@ -213,12 +213,8 @@ $(OBJDIR)/modelClass_%.o: $(SRCDIR)/modelClass_%.f90 $(OBJDIR)/modelClass.o
 $(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(call obj,lists math nfft)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/nfft.o: $(SRCDIR)/nfft.f90 $(OBJDIR)/nfft_binding.o $(OBJDIR)/global.o
+$(OBJDIR)/nfft.o: $(SRCDIR)/nfft.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
-
-$(OBJDIR)/nfft_binding.o: $(SRCDIR)/nfft_binding.c
-	mkdir -p $(OBJDIR)
-	$(CC) $(C_OPTS) -c -o $@ $<
 
 $(OBJDIR)/lists.o: $(SRCDIR)/lists.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<

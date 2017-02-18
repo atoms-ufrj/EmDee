@@ -117,7 +117,8 @@ type :: tData
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
   integer,  allocatable :: other_layer(:)
-  real(rb), allocatable :: Energy(:,:)
+  real(rb), allocatable :: threadEnergy(:,:)
+  real(rb), pointer     :: Energy(:)
 
   logical :: multilayer_coulomb
   logical :: kspace_active
@@ -132,7 +133,7 @@ contains
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: P(3,me%natoms)
-    real(rb),    intent(out)   :: twoKEt, twoKEr
+    real(rb),    intent(out)   :: twoKEt(3), twoKEr(3)
 
     integer :: i, j
     real(rb) :: L(3), Pj(3)
@@ -142,7 +143,7 @@ contains
     do j = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
       i = me%free(j)
       me%P(:,i) = P(:,i)
-      twoKEt = twoKEt + me%invMass(i)*sum(P(:,i)**2)
+      twoKEt = twoKEt + me%invMass(i)*P(:,i)**2
     end do
     do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
       associate(b => me%body(i))
@@ -153,10 +154,10 @@ contains
           b%pcm = b%pcm + Pj
           L = L + cross_product( b%delta(:,j), Pj )
         end do
-        twoKEt = twoKEt + b%invMass*sum(b%pcm**2)
+        twoKEt = twoKEt + b%invMass*b%pcm**2
         b%pi = matmul( matrix_C(b%q), two*L )
         b%omega= half*b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-        twoKEr = twoKEr + sum(b%MoI*b%omega**2)
+        twoKEr = twoKEr + b%MoI*b%omega**2
       end associate
     end do
 
@@ -399,7 +400,7 @@ contains
 
   subroutine rigid_body_forces( me, Virial )
     type(tData), intent(inout) :: me
-    real(rb),    intent(inout) :: Virial
+    real(rb),    intent(out)   :: Virial
 
     real(rb) :: Wrb(me%nthreads)
 
@@ -410,7 +411,7 @@ contains
       call compute_body_forces( thread, Wrb(thread) )
     end block
     !$omp end parallel
-    Virial = Virial - sum(Wrb)
+    Virial = -sum(Wrb)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -755,7 +756,7 @@ contains
     include = .true.
     index = 0
     npairs = 0
-    associate ( neighbor => me%neighbor(thread), Elayer => me%Energy(:,thread) )
+    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
       Elayer = zero
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
@@ -848,11 +849,10 @@ contains
         integer,     intent(in)    :: j
         real(rb),    intent(in)    :: r2
         integer :: k
-        k = npairs
-        do while ((k > 0).and.(value(k) > r2))
+        do k = npairs, 1, -1
+          if (value(k) < r2) exit
           value(k+1) = value(k)
           item(k+1) = item(k)
-          k = k - 1
         end do
         value(k+1) = r2
         item(k+1) = j
@@ -885,7 +885,7 @@ contains
     Wcoul = zero
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate ( neighbor => me%neighbor(thread), Elayer => me%Energy(:,thread) )
+    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
       Elayer = zero
       do k = firstAtom, lastAtom
         i = me%cellAtom%item(k)
@@ -946,7 +946,7 @@ contains
     end if
 
     if (compute) then
-      associate ( E => me%Energy(:,1) )
+      associate ( E => me%threadEnergy(:,1) )
         if (kspace_required) E(me%layer) = E(me%layer) + Elong
         do i = 1, me%nlayers-1
           layer = me%other_layer(i)

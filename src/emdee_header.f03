@@ -37,9 +37,10 @@ type, bind(C) :: tEnergy
   real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
   real(rb)    :: Fourier              ! Reciprocal part of the electrostatic potential
   real(rb)    :: Kinetic              ! Total kinetic energy of the system
-  real(rb)    :: KinPart(3)           ! Kinetic energy at each dimension
+  real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
   real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
   real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
+  type(c_ptr) :: Layer                ! Vector with multilayer energy components
   logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
@@ -163,10 +164,11 @@ interface
 
   subroutine EmDee_random_momenta( md, kT, adjust, seed ) &
     bind(C,name="EmDee_random_momenta")
-    import :: c_int, c_double, c_ptr, tEmDee
-    type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: kT
-    integer(c_int), value         :: adjust, seed
+    import :: c_int, c_double, c_ptr, c_bool, tEmDee
+    type(tEmDee),    intent(inout) :: md
+    real(c_double),  value         :: kT
+    logical(c_bool), value         :: adjust
+    integer(c_int),  value         :: seed
   end subroutine EmDee_random_momenta
 
 !  subroutine EmDee_save_state( md, rigid )
@@ -193,14 +195,6 @@ interface
     type(tEmDee),   intent(inout) :: md
     real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_move
-
-  ! TEMPORARY:
-  subroutine EmDee_Rotational_Energies( md, Kr ) &
-    bind(C,name="EmDee_Rotational_Energies")
-    import
-    type(tEmDee),   value       :: md
-    real(c_double), intent(out) :: Kr(3) 
-  end subroutine EmDee_Rotational_Energies
 
   ! MODELS:
   type(c_ptr) function EmDee_pair_none( ) &
