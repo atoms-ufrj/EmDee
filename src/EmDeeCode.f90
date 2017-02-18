@@ -17,7 +17,6 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: Compute kspace virial
 ! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
 ! TODO: Change name of exported Julia wrapper
 ! TODO: Add option of automatic versus manual force calculations
@@ -32,7 +31,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "17 Feb 2017"
+character(11), parameter :: VERSION = "18 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate            ! Flag to activate/deactivate translations
@@ -142,7 +141,7 @@ contains
 
     ! Allocate memory for neighbor lists:
     allocate( me%neighbor(threads) )
-    call me % neighbor % allocate( extra, N )
+    call me % neighbor % allocate( extra, N, value = .true. )
 
     ! Allocate memory for the list of pairs excluded from the neighbor lists:
     call me % excluded % allocate( extra, N )

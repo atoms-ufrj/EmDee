@@ -33,14 +33,15 @@ integer, parameter :: extra = 2000
 integer, parameter :: ndiv = 2
 integer, parameter :: nbcells = 62
 integer, parameter :: nb(3,nbcells) = reshape( [ &
-   1, 0, 0,    2, 0, 0,   -2, 1, 0,   -1, 1, 0,    0, 1, 0,    1, 1, 0,    2, 1, 0,   -2, 2, 0,  &
-  -1, 2, 0,    0, 2, 0,    1, 2, 0,    2, 2, 0,   -2,-2, 1,   -1,-2, 1,    0,-2, 1,    1,-2, 1,  &
-   2,-2, 1,   -2,-1, 1,   -1,-1, 1,    0,-1, 1,    1,-1, 1,    2,-1, 1,   -2, 0, 1,   -1, 0, 1,  &
-   0, 0, 1,    1, 0, 1,    2, 0, 1,   -2, 1, 1,   -1, 1, 1,    0, 1, 1,    1, 1, 1,    2, 1, 1,  &
-  -2, 2, 1,   -1, 2, 1,    0, 2, 1,    1, 2, 1,    2, 2, 1,   -2,-2, 2,   -1,-2, 2,    0,-2, 2,  &
-   1,-2, 2,    2,-2, 2,   -2,-1, 2,   -1,-1, 2,    0,-1, 2,    1,-1, 2,    2,-1, 2,   -2, 0, 2,  &
-  -1, 0, 2,    0, 0, 2,    1, 0, 2,    2, 0, 2,   -2, 1, 2,   -1, 1, 2,    0, 1, 2,    1, 1, 2,  &
-   2, 1, 2,   -2, 2, 2,   -1, 2, 2,    0, 2, 2,    1, 2, 2,    2, 2, 2 ], shape(nb) )
+ 0,  0,  1,    0,  1,  0,    1,  0,  0,   -1,  0,  1,   -1,  1,  0,    0, -1,  1,    0,  1,  1, &
+ 1,  0,  1,    1,  1,  0,   -1, -1,  1,   -1,  1,  1,    1, -1,  1,    1,  1,  1,    0,  0,  2, &
+ 0,  2,  0,    2,  0,  0,   -2,  0,  1,   -2,  1,  0,   -1,  0,  2,   -1,  2,  0,    0, -2,  1, &
+ 0, -1,  2,    0,  1,  2,    0,  2,  1,    1,  0,  2,    1,  2,  0,    2,  0,  1,    2,  1,  0, &
+-2, -1,  1,   -2,  1,  1,   -1, -2,  1,   -1, -1,  2,   -1,  1,  2,   -1,  2,  1,    1, -2,  1, &
+ 1, -1,  2,    1,  1,  2,    1,  2,  1,    2, -1,  1,    2,  1,  1,   -2,  0,  2,   -2,  2,  0, &
+ 0, -2,  2,    0,  2,  2,    2,  0,  2,    2,  2,  0,   -2, -2,  1,   -2, -1,  2,   -2,  1,  2, &
+-2,  2,  1,   -1, -2,  2,   -1,  2,  2,    1, -2,  2,    1,  2,  2,    2, -2,  1,    2, -1,  2, &
+ 2,  1,  2,    2,  2,  1,   -2, -2,  2,   -2,  2,  2,    2, -2,  2,    2,  2,  2], shape(nb) )
 
 type, private :: tCell
   integer :: neighbor(nbcells)
@@ -489,7 +490,7 @@ contains
         integer, intent(in)  :: thread
         integer, intent(out) :: maxNatoms
 
-        integer :: i, k, icell, ix, iy, iz, first, last, atoms_per_thread
+        integer :: i, j, k, icell, ix, iy, iz, first, last, atoms_per_thread
         integer :: icoord(3)
         integer, allocatable :: head(:)
 
@@ -499,8 +500,9 @@ contains
           do icell = first, last
             k = icell - 1
             iz = k/MM
-            iy = (k - iz*MM)/M
-            ix = k - (iy*M + iz*MM)
+            j = k - iz*MM
+            iy = j/M
+            ix = j - iy*M
             me%cell(icell)%neighbor = 1 + pbc(ix+nb(1,:)) + pbc(iy+nb(2,:))*M + pbc(iz+nb(3,:))*MM
           end do
           me%threadCell%first(thread) = first
@@ -731,7 +733,7 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
-    integer  :: i, j, k, l, m, n, icell, jcell, npairs, itype, jtype, layer, ibody
+    integer  :: i, j, k, l, m, n, icell, jcell, npairs, itype, jtype, layer, ibody, ipairs
     integer  :: nlocal, ntotal, first, last
     real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     logical  :: icharged, ijcharged, include(0:me%maxpairs), noInvR
@@ -780,7 +782,8 @@ contains
         Ratom = Rs(:,atom(1:ntotal))
         do k = 1, nlocal
           i = atom(k)
-          neighbor%first(i) = npairs + 1
+          first = npairs + 1
+          ipairs = 0
           itype = me%atomType(i)
           ibody = me%atomBody(i)
           Qi = me%charge(i)
@@ -791,7 +794,9 @@ contains
           include(xlist) = .false.
           associate ( partner => me%pair(:,itype,me%layer), &
                       multilayer => me%multilayer(:,itype), &
-                      jlist => atom(k+1:ntotal) )
+                      jlist => atom(k+1:ntotal),            &
+                      item => neighbor%item(first:),        &
+                      value => neighbor%value(first:)       )
             Rvec = Ratom(:,k+1:ntotal)
             forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
             if (compute) then
@@ -801,10 +806,7 @@ contains
                 if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
                   Rij = Rvec(:,m)
                   include "inner_loop.f90"
-                  if (r2 < xRc2) then
-                    npairs = npairs + 1
-                    neighbor%item(npairs) = j
-                  end if
+                  if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
                 end if
               end do
             else
@@ -813,30 +815,50 @@ contains
                 jtype = me%atomType(j)
                 if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
                   include "inner_loop_no_energy.f90"
-                  if (r2 < xRc2) then
-                    npairs = npairs + 1
-                    neighbor%item(npairs) = j
-                  end if
+                  if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
                 end if
               end do
             end if
           end associate
           F(:,i) = F(:,i) + Fi
-          neighbor%last(i) = npairs
           include(xlist) = .true.
+
+          npairs = npairs + ipairs
+          neighbor%first(i) = first
+          neighbor%last(i)  = npairs
+
         end do
         index(atom(1:ntotal)) = 0
       end do
       neighbor%count = npairs
     end associate
     F = me%Lbox*F
-
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental function pbc( x )
         real(rb), intent(in) :: x
         real(rb)              :: pbc
         pbc = x - anint(x)
       end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      pure subroutine insert_neighbor( item, value, npairs, j, r2 )
+        integer,     intent(inout) :: item(:)
+        real(rb),    intent(inout) :: value(:)
+        integer,     intent(inout) :: npairs
+        integer,     intent(in)    :: j
+        real(rb),    intent(in)    :: r2
+        integer :: k
+        k = npairs
+        do while ((k > 0).and.(value(k) > r2))
+          value(k+1) = value(k)
+          item(k+1) = item(k)
+          k = k - 1
+        end do
+        value(k+1) = r2
+        item(k+1) = j
+        npairs = npairs + 1
+      end subroutine insert_neighbor
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine find_pairs_and_compute
 
 !===================================================================================================
@@ -895,11 +917,13 @@ contains
     F = me%Lbox*F
 
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental function pbc( x )
         real(rb), intent(in) :: x
         real(rb)              :: pbc
         pbc = x - anint(x)
       end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_pairs
 
 !===================================================================================================
