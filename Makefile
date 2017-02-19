@@ -45,7 +45,7 @@ LIBDIR = ./lib
 INCDIR = ./include
 TSTDIR = ./test
 
-LIBS = -lgfortran -lm -lgomp -lnfft3 -lfftw3
+LIBS = -lgfortran -lm -lgomp
 EMDEELIB = -L$(LIBDIR) -lemdee
 
 obj = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(1)))
@@ -66,7 +66,7 @@ KSPACE = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
 
 OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
                      $(ALLMODELS) $(KSPACE) $(addprefix modelClass_,$(MODELTERMS) kspace) \
-                     modelClass lists nfft global)
+                     modelClass lists global)
 
 COMPUTES = $(addprefix compute_,$(MODELTERMS))
 ENERGYCOMPUTES = $(addprefix energy_compute_,pair coul)
@@ -210,11 +210,8 @@ $(OBJDIR)/kspace_%.o: $(SRCDIR)/kspace_%.f90  $(OBJDIR)/modelClass_kspace.o
 $(OBJDIR)/modelClass_%.o: $(SRCDIR)/modelClass_%.f90 $(OBJDIR)/modelClass.o
 	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(call obj,lists math nfft)
+$(OBJDIR)/modelClass.o: $(SRCDIR)/modelClass.f90 $(call obj,lists math)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
-
-$(OBJDIR)/nfft.o: $(SRCDIR)/nfft.f90 $(OBJDIR)/global.o
-	$(FORT) $(F_OPTS) -Wno-unused-dummy-argument -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/lists.o: $(SRCDIR)/lists.f90 $(OBJDIR)/global.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<

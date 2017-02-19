@@ -164,7 +164,7 @@ contains
 
     ! Allocate variables related to model layers:
     me%layer = 1
-    me%other_layer = [(i,i=2,me%layer)]
+    me%other_layer = [(i,i=2,me%nlayers)]
     allocate( me%threadEnergy(layers,threads), me%Energy(layers) )
 
     ! Set up mutable entities:
