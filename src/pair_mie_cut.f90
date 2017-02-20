@@ -131,9 +131,8 @@ contains
                             sqrt(this%sigma**3.0_rb*other%sigma**3.0_rb) & 
                             /((half*(this%sigma + other%sigma))**3.0_rb), &
                              half*(this%sigma + other%sigma),  & 
-                             8.19615242270663000_rb,  &
-                             8.19615242270663000_rb] )
-
+                             3.0_rb*( one + sqrt(this%n - 3.0_rb)),  &
+                             3.0_rb + sqrt((this%m - 3.0_rb)*3.0_rb)] )
 
 
       class default
@@ -142,8 +141,6 @@ contains
     end select
 
   end function pair_mie_cut_mix
-
-
 
 !---------------------------------------------------------------------------------------------------
 
