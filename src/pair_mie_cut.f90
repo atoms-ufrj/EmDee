@@ -21,6 +21,7 @@ module pair_mie_cut_module
 
 use global
 use pairModelClass
+use pair_lj_cut_module
 
 implicit none
 
@@ -37,7 +38,7 @@ type, extends(cPairModel) :: pair_mie_cut
   real(rb) :: sigma   !<> Distance at which the potential is zero
   real(rb) :: n !<> Softness/hardness of the repulsion
   real(rb) :: m !<>  Range of the attraction of the intermolecular potential
-  real(rb) :: miem,mien
+  real(rb) :: miem,mien,halfn,halfm,n_mien,m_miem
   contains
     procedure :: setup => pair_mie_cut_setup
     procedure :: compute => pair_mie_cut_compute
@@ -66,7 +67,10 @@ contains
     coeff  = (model%n / (model%n - model%m)) * (model%n / model%m) ** (model%m / (model%n - model%m)) * model%epsilon
     model%mien = coeff * model%sigma ** model%n
     model%miem = coeff * model%sigma ** model%m
-
+    model%halfn = model%n / 2.0_rb
+    model%halfm = model%m / 2.0_rb
+    model%n_mien = model%n * model%mien 
+    model%m_miem = model%m * model%miem 
   end subroutine pair_mie_cut_setup
 
 !---------------------------------------------------------------------------------------------------
@@ -74,15 +78,16 @@ contains
   subroutine pair_mie_cut_compute( model, Eij, Wij, invR, invR2 )
     class(pair_mie_cut), intent(in)  :: model
     real(rb),           intent(out) :: Eij, Wij, invR
-    real(rb),           intent(in)  :: invR2
+    real(rb),           intent(in)  :: InvR2
 
-    real(rb) :: rn, rm
+    real(rb) :: rn, rm, logInvR2
 
-    rm = invr2 ** (model%m / 2.0_rb)
-    rn = rm ** (model%n / model%m)
+    logInvR2 = log(InvR2)
+    rm = exp(logInvR2 * model%halfm)
+    rn =  exp(logInvR2 * model%halfn)
 
     Eij = model%mien * rn - model%miem * rm 
-    Wij = model%n * model%mien * rn - model%m * model%miem * rm
+    Wij = model%n_mien * rn - model%m_miem * rm
 
   end subroutine pair_mie_cut_compute
 
@@ -93,12 +98,13 @@ contains
     real(rb),           intent(out) :: Wij, invR
     real(rb),           intent(in)  :: invR2
 
-    real(rb) :: rn, rm
+    real(rb) :: rn, rm,logInvR2
 
-    rm = invr2 ** (model%m / 2.0_rb)
-    rn = rm ** (model%n / model%m)
+    logInvR2 = log(InvR2)
+    rm = exp(logInvR2 * model%halfm)
+    rn =  exp(logInvR2 * model%halfn)
 
-    Wij = model%n * model%mien * rn - model%m * model%miem * rm
+    Wij = model%n_mien * rn - model%m_miem * rm
 
   end subroutine pair_mie_cut_virial
 
@@ -115,16 +121,29 @@ contains
         allocate(pair_mie_cut :: mixed)
         call mixed % setup( [sqrt(this%epsilon*other%epsilon)*  &
                             sqrt(this%sigma**3.0_rb*other%sigma**3.0_rb) & 
-                            /(half*(this%sigma + other%sigma)), &
+                            /((half*(this%sigma + other%sigma))**3.0_rb), &
                              half*(this%sigma + other%sigma),  &
                              3.0_rb + sqrt((this%n - 3.0_rb)*(other%n - 3.0_rb)),  &
                              3.0_rb + sqrt((this%m - 3.0_rb)*(other%m - 3.0_rb))] )
+     class is (pair_lj_cut)
+        allocate(pair_mie_cut :: mixed)
+        call mixed % setup( [sqrt(this%epsilon*other%epsilon)*  &
+                            sqrt(this%sigma**3.0_rb*other%sigma**3.0_rb) & 
+                            /((half*(this%sigma + other%sigma))**3.0_rb), &
+                             half*(this%sigma + other%sigma),  & 
+                             8.19615242270663000_rb,  &
+                             8.19615242270663000_rb] )
+
+
+
       class default
         mixed => null()
 
     end select
 
   end function pair_mie_cut_mix
+
+
 
 !---------------------------------------------------------------------------------------------------
 
