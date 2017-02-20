@@ -38,8 +38,9 @@ type, extends(cCoulModel) :: coul_long
     procedure :: setup => coul_long_setup
     procedure :: kspace_setup => coul_long_kspace_setup
     procedure :: compute => coul_long_compute
-    procedure :: energy => coul_long_energy
-    procedure :: virial => coul_long_virial
+    procedure :: energy  => coul_long_energy
+    procedure :: virial  => coul_long_virial
+    procedure :: unsplit => coul_long_unsplit
 end type coul_long
 
 contains
@@ -54,12 +55,14 @@ contains
     ! Model name:
     model%name = "long"
 
-    ! Attest that model requires kspace:
+    ! Attest that the model requires kspace:
     model%requires_kspace = .true.
 
   end subroutine coul_long_setup
 
 !---------------------------------------------------------------------------------------------------
+! For a Coulomb model that requires a kspace solver, this subroutine must be used to store the
+! values of parameters that depend on the Ewald splitting constant 'alpha'.
 
   subroutine coul_long_kspace_setup( model, alpha )
     class(coul_long), intent(inout) :: model
@@ -71,6 +74,10 @@ contains
   end subroutine coul_long_kspace_setup
 
 !---------------------------------------------------------------------------------------------------
+! This subroutine must return the Coulombic energy E(r) and virial W(r) = -r*dE/dr of a pair ij
+! whose distance is equal to 1/invR. If argument noInvR is true, then invR must be computed as
+! sqrt(invR2) and noInvR must be switched to false. If the Coulomb model requires a kspace solver,
+! then only the real-space, short-range contribution must be computed here.
 
   subroutine coul_long_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
     class(coul_long), intent(in)    :: model
@@ -93,6 +100,7 @@ contains
   end subroutine coul_long_compute
 
 !---------------------------------------------------------------------------------------------------
+! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
   subroutine coul_long_energy( model, ECij, noInvR, invR, invR2, QiQj )
     class(coul_long), intent(in)    :: model
@@ -113,6 +121,7 @@ contains
   end subroutine coul_long_energy
 
 !---------------------------------------------------------------------------------------------------
+! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
   subroutine coul_long_virial( model, WCij, noInvR, invR, invR2, QiQj )
     class(coul_long), intent(in)    :: model
@@ -132,6 +141,26 @@ contains
     WCij = QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
 
   end subroutine coul_long_virial
+
+!---------------------------------------------------------------------------------------------------
+! If the Coulomb model does not require a kspace solver, then this subroutine must be identical to
+! coulModel_virial. Otherwise, it must return the Coulomb virial W(r) = -r*dE/dr in its complete
+! form, that is, without splitting it into short- and long-range contributions. 
+
+  subroutine coul_long_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
+    class(coul_long), intent(in)    :: model
+    real(rb),         intent(out)   :: WCij
+    real(rb),         intent(inout) :: invR
+    logical,          intent(inout) :: noInvR
+    real(rb),         intent(in)    :: invR2, QiQj
+
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
+    WCij = QiQj*invR
+
+  end subroutine coul_long_unsplit
 
 !---------------------------------------------------------------------------------------------------
 

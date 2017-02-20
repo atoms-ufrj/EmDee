@@ -35,8 +35,9 @@ type, extends(cCoulModel) :: coul_sf
   contains
     procedure :: setup => coul_sf_setup
     procedure :: compute => coul_sf_compute
-    procedure :: energy => coul_sf_energy
-    procedure :: virial => coul_sf_virial
+    procedure :: energy  => coul_sf_energy
+    procedure :: virial  => coul_sf_virial
+    procedure :: unsplit => coul_sf_unsplit
 end type coul_sf
 
 contains
@@ -111,6 +112,23 @@ contains
     WCij = QiQj*(invR - model%fshift/invR)
 
   end subroutine coul_sf_virial
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine coul_sf_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
+    class(coul_sf), intent(in)    :: model
+    real(rb),       intent(out)   :: WCij
+    real(rb),       intent(inout) :: invR
+    logical,        intent(inout) :: noInvR
+    real(rb),       intent(in)    :: invR2, QiQj
+
+    if (noInvR) then
+      invR = sqrt(invR2)
+      noInvR = .false.
+    end if
+    WCij = QiQj*(invR - model%fshift/invR)
+
+  end subroutine coul_sf_unsplit
 
 !---------------------------------------------------------------------------------------------------
 

@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "19 Feb 2017"
+character(11), parameter :: VERSION = "20 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate            ! Flag to activate/deactivate translations
@@ -845,7 +845,8 @@ contains
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: lambda, alpha, dt
 
-    real(rb) :: CP, CF, Ctau, twoKEt(3), twoKEr(3)
+    real(rb) :: CP, CF, Ctau
+    real(rb), allocatable :: twoKEt(:,:), twoKEr(:,:)
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -855,45 +856,46 @@ contains
     CF = lambda*CF
     Ctau = two*CF
 
-    twoKEt = zero
-    twoKEr = zero
-    !$omp parallel num_threads(me%nthreads) reduction(+:twoKEt,twoKEr)
-    call boost( omp_get_thread_num() + 1, twoKEt, twoKEr )
+    allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      call boost_atoms_and_bodies( me, thread, CP, CF, md%Options%translate, md%Options%rotate )
+      call update_kinetic_energies( thread, twoKEt(:,thread), twoKEr(:,thread) )
+    end block
     !$omp end parallel
 
-    if (md%Options%translate) md%Energy%TransPart = half*twoKEt
+    if (md%Options%translate) md%Energy%TransPart = half*sum(twoKEt,2)
     if (md%Options%rotate) then
-      md%Energy%RotPart = half*twoKEr
+      md%Energy%RotPart = half*sum(twoKEr,2)
       md%Energy%Rotational = sum(md%Energy%RotPart)
     end if
     md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine boost( thread, twoKEt, twoKEr )
-        integer,  intent(in)    :: thread
-        real(rb), intent(inout) :: twoKEt(3), twoKEr(3)
-        integer  :: i, j
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => me%body(i))
-            if (md%Options%translate) then
-              b%pcm = CP*b%pcm + CF*b%F
-              twoKEt = twoKEt + b%invMass*b%pcm**2
-            end if
-            if (md%Options%rotate) then
-              call b%assign_momenta( CP*b%pi + matmul( matrix_C(b%q), Ctau*b%tau ) )
-              twoKEr = twoKEr + b%MoI*b%omega*b%Omega
-            end if
-          end associate
-        end do
+      subroutine update_kinetic_energies( thread, twoKEt, twoKEr )
+        integer,  intent(in)  :: thread
+        real(rb), intent(out) :: twoKEt(3), twoKEr(3)
+        integer :: i, j
         if (md%Options%translate) then
+          twoKEt = zero
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+            twoKEt = twoKEt + me%body(i)%invMass*me%body(i)%pcm**2
+          end do
           do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
             j = me%free(i)
-            me%P(:,j) = CP*me%P(:,j) + CF*me%F(:,j)
             twoKEt = twoKEt + me%invMass(j)*me%P(:,j)**2
           end do
         end if
-      end subroutine boost
+        if (md%Options%rotate) then
+          twoKEr = zero
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+            twoKEr = twoKEr + me%body(i)%MoI*me%body(i)%omega**2
+          end do
+        end if
+      end subroutine update_kinetic_energies
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_boost
 
@@ -921,40 +923,61 @@ contains
     end if
     cP = lambda*cP
 
-    !$omp parallel num_threads(me%nthreads)
-    call move( omp_get_thread_num() + 1, cP, cR )
-    !$omp end parallel
+    associate ( Opt => md%Options )
+      !$omp parallel num_threads(me%nthreads)
+      call move_atoms_and_bodies( me, omp_get_thread_num() + 1, cR, cP, dt, &
+                                  Opt%translate, Opt%rotate, Opt%rotationMode )
+      !$omp end parallel
+    end associate
 
     call compute_forces( md )
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine move( thread, cP, cR )
-        integer,  intent(in) :: thread
-        real(rb), intent(in) :: cP, cR
-        integer :: i, j
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => me%body(i))
-            if (md%Options%translate) b%rcm = cR*b%rcm + cP*b%invMass*b%pcm
-            if (md%Options%rotate) then
-              if (md%Options%rotationMode == 0) then
-               call b % rotate_exact( dt )
-              else
-                call b % rotate_no_squish( dt, n = md%options%rotationMode )
-              end if
-              forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
-            end if
-          end associate
-        end do
-        if (md%Options%translate) then
-          do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-            j = me%free(i)
-            me%R(:,j) = cR*me%R(:,j) + cP*me%P(:,j)*me%invMass(j)
-          end do
-        end if
-      end subroutine move
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_move
+
+!===================================================================================================
+
+  subroutine EmDee_respa( md, maxNeigh, nsteps, dt ) bind(C,name="EmDee_respa")
+    type(tEmDee), intent(inout) :: md
+    integer(ib),  intent(in)    :: maxNeigh, nsteps
+    real(rb),     value         :: dt
+
+    integer  :: i
+    real(rb) :: dt_2, smalldt, smalldt_2
+    type(tData),  pointer :: me
+
+    call c_f_pointer( md%data, me )
+    dt_2 = half*dt
+    smalldt = dt/nsteps
+    smalldt_2 = half*smalldt
+
+    call EmDee_boost( md, one, zero, dt_2 )
+    call compute_fast_forces
+    call EmDee_boost( md, one, zero, -dt_2 )
+    do i = 1, nsteps
+      call EmDee_boost( md, one, zero, smalldt_2 )
+      call EmDee_move( md, one, zero, smalldt )
+      call compute_fast_forces
+      call EmDee_boost( md, one, zero, smalldt_2 )
+    end do
+    call EmDee_boost( md, one, zero, -dt_2 )
+    call compute_forces( md )
+    call EmDee_boost( md, one, zero, dt_2 )
+
+    contains
+      subroutine compute_fast_forces
+        real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads)
+
+        Rs = me%invL*me%R
+        !$omp parallel num_threads(me%nthreads)
+        block
+          integer :: thread
+          thread = omp_get_thread_num() + 1
+          call compute_short_range_forces( me, thread, maxNeigh, Rs, Fs(:,:,thread) )
+        end block
+        !$omp end parallel
+        me%F = sum(Fs,3)
+      end subroutine compute_fast_forces
+  end subroutine EmDee_respa
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
@@ -1005,7 +1028,7 @@ contains
 
     if (me%kspace_active) then
       call compute_kspace( me, compute, Rs, Elong, me%F )
-      md%Virial = Wpair - 3.0_rb*Elong
+      md%Virial = Wpair - 3.0_rb*(Ecoul + Elong)
     else
       md%Virial = Wpair + Wcoul
     end if

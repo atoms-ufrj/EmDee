@@ -25,9 +25,11 @@
   subroutine read_data( file )
     character(*), intent(in) :: file
 
-    integer  :: inp, i, nseeds
+    integer, parameter :: inp = 86
 
-    open( newunit = inp, file = file, status = "old" )
+    integer :: i, nseeds
+
+    open( unit = inp, file = file, status = "old" )
     read(inp,*); read(inp,*) configFile
     read(inp,*); read(inp,*) Rc
     read(inp,*); read(inp,*) Rs

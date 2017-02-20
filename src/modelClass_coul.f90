@@ -34,8 +34,9 @@ type, abstract, extends(cModel) :: cCoulModel
   real(rb) :: alpha = zero
   contains
     procedure(cCoulModel_compute), deferred :: compute
-    procedure(cCoulModel_energy), deferred :: energy
-    procedure(cCoulModel_virial), deferred :: virial
+    procedure(cCoulModel_energy),  deferred :: energy
+    procedure(cCoulModel_virial),  deferred :: virial
+    procedure(cCoulModel_unsplit), deferred :: unsplit
     procedure :: shifting_setup => cCoulModel_shifting_setup
     procedure :: kspace_setup => cCoulModel_kspace_setup
 end type cCoulModel
@@ -69,6 +70,15 @@ abstract interface
     real(rb),          intent(in)    :: invR2, QiQj
   end subroutine cCoulModel_virial
 
+  subroutine cCoulModel_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
+    import
+    class(cCoulModel), intent(in)    :: model
+    real(rb),          intent(out)   :: WCij
+    real(rb),          intent(inout) :: invR
+    logical,           intent(inout) :: noInvR
+    real(rb),          intent(in)    :: invR2, QiQj
+  end subroutine cCoulModel_unsplit
+
 end interface
 
 !> Container structure for coul models
@@ -82,10 +92,11 @@ end type coulModelContainer
 !> Class definition for coul model "none"
 type, extends(cCoulModel) :: coul_none
   contains
-    procedure :: setup => coul_none_setup
+    procedure :: setup   => coul_none_setup
     procedure :: compute => coul_none_compute
-    procedure :: energy => coul_none_energy
-    procedure :: virial => coul_none_virial
+    procedure :: energy  => coul_none_energy
+    procedure :: virial  => coul_none_virial
+    procedure :: unsplit => coul_none_virial
 end type coul_none
 
 contains
@@ -208,6 +219,16 @@ contains
     logical,          intent(inout) :: noInvR
     real(rb),         intent(in)    :: invR2, QiQj
   end subroutine coul_none_virial
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine coul_none_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
+    class(coul_none), intent(in)    :: model
+    real(rb),         intent(out)   :: WCij
+    real(rb),         intent(inout) :: invR
+    logical,          intent(inout) :: noInvR
+    real(rb),         intent(in)    :: invR2, QiQj
+  end subroutine coul_none_unsplit
 
 !---------------------------------------------------------------------------------------------------
 

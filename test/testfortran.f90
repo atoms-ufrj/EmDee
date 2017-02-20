@@ -115,8 +115,9 @@ contains
 !---------------------------------------------------------------------------------------------------
   subroutine read_data( file )
     character(*), intent(in) :: file
-    integer  :: inp, i, nseeds, seed
-    open( newunit = inp, file = file, status = "old" )
+    integer, parameter :: inp = 86
+    integer :: i, nseeds, seed
+    open( unit = inp, file = file, status = "old" )
     read(inp,*); read(inp,*) N
     read(inp,*); read(inp,*) Rc
     read(inp,*); read(inp,*) Rs

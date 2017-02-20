@@ -928,6 +928,87 @@ contains
 
 !===================================================================================================
 
+  subroutine compute_short_range_forces( me, thread, maxNeigh, Rs, F )
+    type(tData), intent(inout) :: me
+    integer,     intent(in)    :: thread, maxNeigh
+    real(rb),    intent(in)    :: Rs(3,me%natoms)
+    real(rb),    intent(out)   :: F(3,me%natoms)
+
+    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, first, last
+    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij
+    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    logical  :: icharged, noInvR
+
+    real(rb), allocatable :: Rvec(:,:)
+
+    Rc2 = me%RcSq*me%invL2
+    F = zero
+    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
+    associate ( neighbor => me%neighbor(thread) )
+      do k = firstAtom, lastAtom
+        i = me%cellAtom%item(k)
+        itype = me%atomType(i)
+        Qi = me%charge(i)
+        icharged = me%charged(i)
+        Ri = Rs(:,i)
+        Fi = zero
+        first = neighbor%first(i)
+        last = min(first - 1 + maxNeigh, neighbor%last(i))
+        associate ( partner => me%pair(:,itype,me%layer), jlist => neighbor%item(first:last) )
+          Rvec = Rs(:,jlist)
+          forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
+          do m = 1, size(jlist)
+            j = jlist(m)
+            jtype = me%atomType(j)
+            associate( pair => partner(jtype), coul => me%coul(me%layer)%model )
+              Rij = Rvec(:,m)
+              r2 = sum(Rij*Rij)
+              if (r2 < Rc2) then
+                invR2 = me%invL2/r2
+                noInvR = .true.
+                select type ( model => pair%model )
+                  include "virial_compute_pair.f90"
+                end select
+                if (icharged.and.me%charged(j).and.pair%coulomb) then
+                  QiQj = pair%kCoul*Qi*me%charge(j)
+                  select type ( model => coul )
+                    include "virial_compute_unsplit.f90"
+                  end select
+                  Wij = Wij + WCij
+                end if
+                Fij = Wij*invR2*Rij
+                Fi = Fi + Fij
+                F(:,j) = F(:,j) - Fij
+              else if (coul%requires_kspace.and.icharged.and.me%charged(j).and.pair%coulomb) then
+                QiQj = pair%kCoul*Qi*me%charge(j)
+                select type ( model => coul )
+                  include "virial_compute_unsplit.f90"
+                end select
+                Fij = WCij*invR2*Rij
+                Fi = Fi + Fij
+                F(:,j) = F(:,j) - Fij
+              end if
+            end associate
+          end do
+        end associate
+        F(:,i) = F(:,i) + Fi
+      end do
+    end associate
+    F = me%Lbox*F
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      elemental function pbc( x )
+        real(rb), intent(in) :: x
+        real(rb)              :: pbc
+        pbc = x - anint(x)
+      end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_short_range_forces
+
+!===================================================================================================
+
   subroutine compute_kspace( me, compute, Rs, Elong, F )
     type(tData), intent(inout) :: me
     logical(lb), intent(in)    :: compute
@@ -1025,6 +1106,72 @@ contains
     end associate
 
   end subroutine update_pairs
+
+!===================================================================================================
+
+  subroutine move_atoms_and_bodies( me, thread, R_factor, P_factor, dt, translate, rotate, mode )
+    type(tData), intent(inout) :: me
+    integer,     intent(in)    :: thread
+    real(rb),    intent(in)    :: R_factor, P_factor, dt
+    logical(lb), intent(in)    :: translate, rotate
+    integer(ib), intent(in)    :: mode
+
+    integer :: i, j
+
+    do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+      associate(b => me%body(i))
+        if (translate) b%rcm = R_factor*b%rcm + P_factor*b%invMass*b%pcm
+        if (rotate) then
+          if (mode == 0) then
+           call b % rotate_exact( dt )
+          else
+            call b % rotate_no_squish( dt, n = mode )
+          end if
+          forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
+        end if
+      end associate
+    end do
+    if (translate) then
+      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+        j = me%free(i)
+        me%R(:,j) = R_factor*me%R(:,j) + P_factor*me%P(:,j)*me%invMass(j)
+      end do
+    end if
+
+  end subroutine move_atoms_and_bodies
+
+!===================================================================================================
+
+  subroutine boost_atoms_and_bodies( me, thread, P_factor, F_factor, translate, rotate )
+    type(tData), intent(inout) :: me
+    integer,     intent(in)    :: thread
+    real(rb),    intent(in)    :: P_factor, F_factor
+    logical(lb), intent(in)    :: translate, rotate
+
+    integer  :: i, j
+    real(rb) :: Ctau
+
+    Ctau = two*F_factor
+    if (translate) then
+      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+        associate(b => me%body(i))
+          b%pcm = P_factor*b%pcm + F_factor*b%F
+        end associate
+      end do
+      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+        j = me%free(i)
+         me%P(:,j) = P_factor*me%P(:,j) + F_factor*me%F(:,j)
+      end do
+    end if
+    if (rotate) then
+      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+        associate(b => me%body(i))
+          call b%assign_momenta( P_factor*b%pi + matmul( matrix_C(b%q), Ctau*b%tau ) )
+        end associate
+      end do
+    end if
+
+  end subroutine boost_atoms_and_bodies
 
 !===================================================================================================
 
