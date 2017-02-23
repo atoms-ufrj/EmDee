@@ -805,8 +805,9 @@ contains
                 j = jlist(m)
                 jtype = me%atomType(j)
                 if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
-                  Rij = Rvec(:,m)
-                  include "inner_loop.f90"
+#                 define compute
+#                 include "inner_loop.f90"
+#                 undef compute
                   if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
                 end if
               end do
@@ -815,7 +816,7 @@ contains
                 j = jlist(m)
                 jtype = me%atomType(j)
                 if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
-                  include "inner_loop_no_energy.f90"
+#                 include "inner_loop.f90"
                   if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
                 end if
               end do
@@ -902,12 +903,14 @@ contains
           if (compute) then
             do m = 1, size(jlist)
               j = jlist(m)
-              include "inner_loop.f90"
+#             define compute
+#             include "inner_loop.f90"
+#             undef compute
             end do
           else
             do m = 1, size(jlist)
               j = jlist(m)
-              include "inner_loop_no_energy.f90"
+#             include "inner_loop.f90"
             end do
           end if
         end associate

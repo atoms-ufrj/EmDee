@@ -128,6 +128,7 @@ contains
         model%eshift = -(E + W)
         model%fshift = W/cutoff
       else
+        model%fshift = zero
         model%eshift = -E
       end if
 
