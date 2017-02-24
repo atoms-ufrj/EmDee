@@ -59,19 +59,13 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_sf), intent(in)    :: model
-    real(rb),       intent(out)   :: ECij, WCij
-    logical,        intent(inout) :: noInvR
-    real(rb),       intent(inout) :: invR
-    real(rb),       intent(in)    :: invR2, QiQj
+  subroutine coul_sf_compute( model, ECij, WCij, invR, invR2, QiQj )
+    class(coul_sf), intent(in)  :: model
+    real(rb),       intent(out) :: ECij, WCij
+    real(rb),       intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: rFc, QiQjbyR
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     QiQjbyR = QiQj*invR
     rFc = QiQj*model%fshift/invR
     ECij = QiQjbyR + QiQj*model%eshift + rFc
@@ -81,51 +75,33 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_energy( model, ECij, noInvR, invR, invR2, QiQj )
-    class(coul_sf), intent(in)    :: model
-    real(rb),       intent(out)   :: ECij
-    logical,        intent(inout) :: noInvR
-    real(rb),       intent(inout) :: invR
-    real(rb),       intent(in)    :: invR2, QiQj
+  subroutine coul_sf_energy( model, ECij, invR, invR2, QiQj )
+    class(coul_sf), intent(in)  :: model
+    real(rb),       intent(out) :: ECij
+    real(rb),       intent(in)  :: invR, invR2, QiQj
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     ECij = QiQj*(invR + model%eshift + model%fshift/invR)
 
   end subroutine coul_sf_energy
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_virial( model, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_sf), intent(in)    :: model
-    real(rb),       intent(out)   :: WCij
-    real(rb),       intent(inout) :: invR
-    logical,        intent(inout) :: noInvR
-    real(rb),       intent(in)    :: invR2, QiQj
+  subroutine coul_sf_virial( model, WCij, invR, invR2, QiQj )
+    class(coul_sf), intent(in)  :: model
+    real(rb),       intent(out) :: WCij
+    real(rb),       intent(in)  :: invR, invR2, QiQj
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     WCij = QiQj*(invR - model%fshift/invR)
 
   end subroutine coul_sf_virial
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_sf), intent(in)    :: model
-    real(rb),       intent(out)   :: WCij
-    real(rb),       intent(inout) :: invR
-    logical,        intent(inout) :: noInvR
-    real(rb),       intent(in)    :: invR2, QiQj
+  subroutine coul_sf_unsplit( model, WCij, invR, invR2, QiQj )
+    class(coul_sf), intent(in)  :: model
+    real(rb),       intent(out) :: WCij
+    real(rb),       intent(in)  :: invR, invR2, QiQj
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     WCij = QiQj*(invR - model%fshift/invR)
 
   end subroutine coul_sf_unsplit

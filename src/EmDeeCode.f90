@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "23 Feb 2017"
+character(11), parameter :: VERSION = "24 Feb 2017"
 
 type, bind(C) :: tOpts
   logical(lb) :: translate            ! Flag to activate/deactivate translations
@@ -105,7 +105,7 @@ contains
     me%threadAtoms = (N + threads - 1)/threads
     me%kspace_active = .false.
     me%respa = .false.
-    me%xCoreRcSq = zero
+    me%xRespaRcSq = zero
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -562,6 +562,29 @@ contains
 
 !===================================================================================================
 
+  subroutine EmDee_set_respa( md, Rc, Npair, Nbond ) bind(C,name="EmDee_set_respa")
+    type(tEmDee), intent(inout) :: md
+    real(rb),     value         :: Rc
+    integer(ib),  value         :: Npair, Nbond
+
+    type(tData), pointer :: me
+
+    call c_f_pointer( md%data, me )
+
+    if (me%initialized) call error( "set RESPA", "the system has already been initialized" )
+    if (Rc >= me%Rc) call error( "set RESPA", "provided internal cutoff is too large" )
+
+    me%respa = .true.
+    me%respaRc = Rc
+    me%respaRcSq = Rc**2
+    me%xRespaRcSq = (Rc + me%skin)**2
+    me%Npair = Npair
+    me%Nbond = Nbond
+
+  end subroutine EmDee_set_respa
+
+!===================================================================================================
+
   subroutine EmDee_upload( md, option, address ) bind(C,name="EmDee_upload")
     type(tEmDee),      intent(inout) :: md
     character(c_char), intent(in)    :: option(*)
@@ -844,29 +867,6 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_set_respa( md, coreRc, Ncore, Nbond ) bind(C,name="EmDee_set_respa")
-    type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: coreRc
-    integer(ib),  value         :: Ncore, Nbond
-
-    type(tData), pointer :: me
-
-    call c_f_pointer( md%data, me )
-
-    if (me%initialized) call error( "set RESPA", "the system has already been initialized" )
-    if (coreRc >= me%Rc) call error( "set RESPA", "internal cutoff is too large" )
-
-    me%respa = .true.
-    me%coreRc = coreRc
-    me%coreRcSq = coreRc**2
-    me%xCoreRcSq = (coreRc + me%skin)**2
-    me%Ncore = Ncore
-    me%Nbond = Nbond
-
-  end subroutine EmDee_set_respa
-
-!===================================================================================================
-
   subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: lambda, alpha, dt
@@ -1039,11 +1039,11 @@ contains
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
         if (buildList) call build_neighbor_lists( me, thread, Rs )
-        if (compute) then
+!        if (compute) then
           call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
-        else
-          call compute_pair_forces( me, thread, Rs, F, Wpair, Wcoul )
-        end if
+!        else
+!          call compute_pair_forces( me, thread, Rs, F, Wpair, Wcoul )
+!        end if
         Elong = zero
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Epair, Wpair )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, Epair, Wpair )

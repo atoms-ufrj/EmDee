@@ -146,6 +146,14 @@ interface
     type(c_ptr),    value :: model
   end subroutine EmDee_add_dihedral
 
+  subroutine EmDee_set_respa( md, Rc, Npair, Nbond ) &
+    bind(C,name="EmDee_set_respa")
+    import :: c_double, c_int, tEmDee
+    type(tEmDee),   intent(inout) :: md
+    real(c_double), value         :: Rc
+    integer(c_int), value         :: Npair, Nbond
+  end subroutine EmDee_set_respa
+
   subroutine EmDee_upload( md, item, address ) &
     bind(C,name="EmDee_upload")
     import :: c_ptr, c_char, tEmDee
@@ -197,6 +205,12 @@ interface
   end subroutine EmDee_move
 
   ! MODELS:
+  type(c_ptr) function EmDee_shifted_force( model ) &
+    bind(C,name="EmDee_shifted_force")
+    import :: c_ptr
+    type(c_ptr), value :: model
+  end function EmDee_shifted_force
+
   type(c_ptr) function EmDee_pair_none( ) &
     bind(C,name="EmDee_pair_none")
     import :: c_ptr

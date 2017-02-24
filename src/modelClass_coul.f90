@@ -43,40 +43,32 @@ end type cCoulModel
 
 abstract interface
 
-  subroutine cCoulModel_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
+  subroutine cCoulModel_compute( model, ECij, WCij, invR, invR2, QiQj )
     import
-    class(cCoulModel), intent(in)    :: model
-    real(rb),          intent(out)   :: ECij, WCij
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(inout) :: invR
-    real(rb),          intent(in)    :: invR2, QiQj
+    class(cCoulModel), intent(in)  :: model
+    real(rb),          intent(out) :: ECij, WCij
+    real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_compute
 
-  subroutine cCoulModel_energy( model, ECij, noInvR, invR, invR2, QiQj )
+  subroutine cCoulModel_energy( model, ECij, invR, invR2, QiQj )
     import
-    class(cCoulModel), intent(in)    :: model
-    real(rb),          intent(out)   :: ECij
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(inout) :: invR
-    real(rb),          intent(in)    :: invR2, QiQj
+    class(cCoulModel), intent(in)  :: model
+    real(rb),          intent(out) :: ECij
+    real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_energy
 
-  subroutine cCoulModel_virial( model, WCij, noInvR, invR, invR2, QiQj )
+  subroutine cCoulModel_virial( model, WCij, invR, invR2, QiQj )
     import
-    class(cCoulModel), intent(in)    :: model
-    real(rb),          intent(out)   :: WCij
-    real(rb),          intent(inout) :: invR
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(in)    :: invR2, QiQj
+    class(cCoulModel), intent(in)  :: model
+    real(rb),          intent(out) :: WCij
+    real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_virial
 
-  subroutine cCoulModel_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
+  subroutine cCoulModel_unsplit( model, WCij, invR, invR2, QiQj )
     import
-    class(cCoulModel), intent(in)    :: model
-    real(rb),          intent(out)   :: WCij
-    real(rb),          intent(inout) :: invR
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(in)    :: invR2, QiQj
+    class(cCoulModel), intent(in)  :: model
+    real(rb),          intent(out) :: WCij
+    real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_unsplit
 
 end interface
@@ -110,7 +102,6 @@ contains
     real(rb),          intent(in)    :: cutoff
 
     real(rb) :: invR, invR2, E, W
-    logical  :: noInvR
 
     ! Zero energy and force shifts:
     model%fshift = zero
@@ -121,8 +112,7 @@ contains
       ! Compute energies and virials at cutoff:
       invR = one/cutoff
       invR2 = invR*invR
-      noInvR = .false.
-      call model % compute( E, W, noInvR, invR, invR2, one )
+      call model % compute( E, W, invR, invR2, one )
 
       ! Update van der Waals energy and force shifts:
       if (model%shifted_force) then
@@ -190,45 +180,37 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_none), intent(in)    :: model
-    real(rb),         intent(out)   :: ECij, WCij
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(inout) :: invR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_none_compute( model, ECij, WCij, invR, invR2, QiQj )
+    class(coul_none), intent(in)  :: model
+    real(rb),         intent(out) :: ECij, WCij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
     ECij = zero
     WCij = zero
   end subroutine coul_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_energy( model, ECij, noInvR, invR, invR2, QiQj )
-    class(coul_none), intent(in)    :: model
-    real(rb),         intent(out)   :: ECij
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(inout) :: invR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_none_energy( model, ECij, invR, invR2, QiQj )
+    class(coul_none), intent(in)  :: model
+    real(rb),         intent(out) :: ECij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
     ECij = zero
   end subroutine coul_none_energy
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_virial( model, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_none), intent(in)    :: model
-    real(rb),         intent(out)   :: WCij
-    real(rb),         intent(inout) :: invR
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_none_virial( model, WCij, invR, invR2, QiQj )
+    class(coul_none), intent(in)  :: model
+    real(rb),         intent(out) :: WCij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
   end subroutine coul_none_virial
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_none), intent(in)    :: model
-    real(rb),         intent(out)   :: WCij
-    real(rb),         intent(inout) :: invR
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_none_unsplit( model, WCij, invR, invR2, QiQj )
+    class(coul_none), intent(in)  :: model
+    real(rb),         intent(out) :: WCij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
   end subroutine coul_none_unsplit
 
 !---------------------------------------------------------------------------------------------------

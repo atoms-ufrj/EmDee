@@ -133,7 +133,7 @@ int main( int argc, char *argv[] )  {
   create_configuration( &par );
   tEmDee md = EmDee_system( threads, 1, par.Rc, par.Rs, par.N, NULL, NULL, NULL );
 /*  void* lj = EmDee_pair_lj_cut( 1.0, 1.0 );*/
-  void* lj = EmDee_pair_lj_sf( 1.0, 1.0 );
+  void* lj = EmDee_shifted_force( EmDee_pair_lj_cut( 1.0, 1.0 ) );
   EmDee_set_pair_model( md, 1, 1, lj, 1.0 );
   EmDee_set_coul_model( md, EmDee_coul_sf() );
 

@@ -38,7 +38,7 @@ do i = 1, ntypes
   if (epsilon(i) == 0.0_rb) then
     pair = EmDee_pair_none( )
   else
-    pair = EmDee_pair_lj_sf( epsilon(i), sigma(i) )
+    pair = EmDee_shifted_force( EmDee_pair_lj_cut( epsilon(i), sigma(i) ) )
   end if
   call EmDee_set_pair_model( md, i, i, pair, kCoul )
 end do

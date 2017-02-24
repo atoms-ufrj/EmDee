@@ -75,23 +75,16 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 ! This subroutine must return the Coulombic energy E(r) and virial W(r) = -r*dE/dr of a pair ij
-! whose distance is equal to 1/invR. If argument noInvR is true, then invR must be computed as
-! sqrt(invR2) and noInvR must be switched to false. If the Coulomb model requires a kspace solver,
-! then only the real-space, short-range contribution must be computed here.
+! whose distance is equal to 1/invR. If the Coulomb model requires a kspace solver, then only the
+! real-space, short-range contribution must be computed here.
 
-  subroutine coul_long_compute( model, ECij, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_long), intent(in)    :: model
-    real(rb),         intent(out)   :: ECij, WCij
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(inout) :: invR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_long_compute( model, ECij, WCij, invR, invR2, QiQj )
+    class(coul_long), intent(in)  :: model
+    real(rb),         intent(out) :: ECij, WCij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x, expmx2
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     x = model%alpha/invR
     expmx2 = exp(-x*x)
     ECij = QiQj*uerfc(x,expmx2)*invR
@@ -102,19 +95,13 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
-  subroutine coul_long_energy( model, ECij, noInvR, invR, invR2, QiQj )
-    class(coul_long), intent(in)    :: model
-    real(rb),         intent(out)   :: ECij
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(inout) :: invR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_long_energy( model, ECij, invR, invR2, QiQj )
+    class(coul_long), intent(in)  :: model
+    real(rb),         intent(out) :: ECij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     x = model%alpha/invR
     ECij = QiQj*uerfc(x,exp(-x*x))*invR
 
@@ -123,19 +110,13 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
-  subroutine coul_long_virial( model, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_long), intent(in)    :: model
-    real(rb),         intent(out)   :: WCij
-    real(rb),         intent(inout) :: invR
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_long_virial( model, WCij, invR, invR2, QiQj )
+    class(coul_long), intent(in)  :: model
+    real(rb),         intent(out) :: WCij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x, expmx2
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     x = model%alpha/invR
     expmx2 = exp(-x*x)
     WCij = QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
@@ -147,17 +128,11 @@ contains
 ! coulModel_virial. Otherwise, it must return the Coulomb virial W(r) = -r*dE/dr in its complete
 ! form, that is, without splitting it into short- and long-range contributions. 
 
-  subroutine coul_long_unsplit( model, WCij, noInvR, invR, invR2, QiQj )
-    class(coul_long), intent(in)    :: model
-    real(rb),         intent(out)   :: WCij
-    real(rb),         intent(inout) :: invR
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(in)    :: invR2, QiQj
+  subroutine coul_long_unsplit( model, WCij, invR, invR2, QiQj )
+    class(coul_long), intent(in)  :: model
+    real(rb),         intent(out) :: WCij
+    real(rb),         intent(in)  :: invR, invR2, QiQj
 
-    if (noInvR) then
-      invR = sqrt(invR2)
-      noInvR = .false.
-    end if
     WCij = QiQj*invR
 
   end subroutine coul_long_unsplit

@@ -35,7 +35,7 @@ call unit_conversions
 
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass), c_null_ptr )
 do i = 1, ntypes
-  pair = EmDee_pair_lj_sf( epsilon(i), sigma(i) )
+  pair = EmDee_shifted_force( EmDee_pair_lj_cut( epsilon(i), sigma(i) ) )
   call EmDee_set_pair_model( md, i, i, pair, kCoul )
 end do
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )

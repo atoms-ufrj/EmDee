@@ -107,6 +107,12 @@ function add_dihedral( md::tEmDee, i::Integer, j::Integer, k::Integer, l::Intege
          md, i, j, k, l, model )
 end
 #---------------------------------------------------------------------------------------------------
+function set_respa( md::tEmDee, Rc::Real, Npair::Integer, Nbond::Integer )
+  ccall( (:EmDee_set_respa,"libemdee"), Void,
+         (tEmDee, Float64, Int32, Int32),
+         md, Rc, Npair, Nbond )
+end
+#---------------------------------------------------------------------------------------------------
 function ignore_pair( md::tEmDee, i::Integer, j::Integer )
   ccall( (:EmDee_ignore_pair,"libemdee"), Void,
          (tEmDee, Int32, Int32),
@@ -144,6 +150,10 @@ function move( md::tEmDee, lambda::Real, alpha::Real, dt::Real )
 end
 #---------------------------------------------------------------------------------------------------
 #                                            M O D E L S
+#---------------------------------------------------------------------------------------------------
+function shifted_force( model::tModel )
+  return ccall( (:EmDee_pair_none,"libemdee"), tModel, (tModel), model )
+end
 #---------------------------------------------------------------------------------------------------
 function pair_none()
   return ccall( (:EmDee_pair_none,"libemdee"), tModel, () )

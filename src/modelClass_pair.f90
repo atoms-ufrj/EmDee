@@ -42,31 +42,25 @@ end type cPairModel
 
 abstract interface
 
-  subroutine cPairModel_compute( model, Eij, Wij, noInvR, invR, invR2 )
+  subroutine cPairModel_compute( model, Eij, Wij, invR, invR2 )
     import
     class(cPairModel), intent(in)    :: model
     real(rb),          intent(out)   :: Eij, Wij
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(inout) :: invR
-    real(rb),          intent(in)    :: invR2
+    real(rb),          intent(in)    :: invR, invR2
   end subroutine cPairModel_compute
 
-  subroutine cPairModel_energy( model, Eij, noInvR, invR, invR2 )
+  subroutine cPairModel_energy( model, Eij, invR, invR2 )
     import
     class(cPairModel), intent(in)    :: model
     real(rb),          intent(out)   :: Eij
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(inout) :: invR
-    real(rb),          intent(in)    :: invR2
+    real(rb),          intent(in)    :: invR, invR2
   end subroutine cPairModel_energy
 
-  subroutine cPairModel_virial( model, Wij, noInvR, invR, invR2 )
+  subroutine cPairModel_virial( model, Wij, invR, invR2 )
     import
     class(cPairModel), intent(in)    :: model
     real(rb),          intent(out)   :: Wij
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(inout) :: invR
-    real(rb),          intent(in)    :: invR2
+    real(rb),          intent(in)    :: invR, invR2
   end subroutine cPairModel_virial
 
   function cPairModel_mix( this, other ) result( mixed )
@@ -104,12 +98,35 @@ contains
 !                             P A I R     M O D E L    C L A S S
 !===================================================================================================
 
+  type(c_ptr) function EmDee_shifted_force( model ) bind(C,name="EmDee_shifted_force")
+    type(c_ptr), value :: model
+
+    type(modelContainer),  pointer :: container
+    class(cPairModel), allocatable :: new
+
+    if (.not.c_associated(model)) then
+      call error( "shifted-force assignment", "a valid pair model must be provided" )
+    end if
+    call c_f_pointer( model, container )
+
+    select type ( pair => container%model )
+      class is (cPairModel)
+        allocate( new, source = pair )
+        new%shifted_force = .true.
+        EmDee_shifted_force = new % deliver()
+      class default
+        call error( "shifted-force assignment", "a valid pair model must be provided" )
+    end select
+
+  end function EmDee_shifted_force
+
+!---------------------------------------------------------------------------------------------------
+
   subroutine cPairModel_shifting_setup( model, cutoff )
     class(cPairModel), intent(inout) :: model
     real(rb),          intent(in)    :: cutoff
 
     real(rb) :: invR2, E, W, invR
-    logical  :: noInvR
 
     ! Zero energy and force shifts:
     model%fshift = zero
@@ -120,8 +137,7 @@ contains
       ! Compute energies and virials at cutoff:
       invR = one/cutoff
       invR2 = invR*invR
-      noInvR = .false.
-      call model%compute( E, W, noInvR, invR, invR2 )
+      call model%compute( E, W, invR, invR2 )
 
       ! Update energy and force shifts:
       if (model%shifted_force) then
@@ -193,8 +209,7 @@ contains
 !===================================================================================================
 
   type(c_ptr) function EmDee_pair_none() bind(C,name="EmDee_pair_none")
-    type(pair_none), pointer :: model
-    allocate(model)
+    type(pair_none) :: model
     call model % setup()
     EmDee_pair_none = model % deliver()
   end function EmDee_pair_none
@@ -210,35 +225,29 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_compute( model, Eij, Wij, noInvR, invR, invR2 )
-    class(pair_none),  intent(in)    :: model
-    real(rb),          intent(out)   :: Eij, Wij
-    logical,           intent(inout) :: noInvR
-    real(rb),          intent(inout) :: invR
-    real(rb),          intent(in)    :: invR2
+  subroutine pair_none_compute( model, Eij, Wij, invR, invR2 )
+    class(pair_none),  intent(in)  :: model
+    real(rb),          intent(out) :: Eij, Wij
+    real(rb),          intent(in)  :: invR, invR2
     Eij = zero
     Wij = zero
   end subroutine pair_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_energy( model, Eij, noInvR, invR, invR2 )
-    class(pair_none), intent(in)    :: model
-    real(rb),         intent(out)   :: Eij
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(inout) :: invR
-    real(rb),         intent(in)    :: invR2
+  subroutine pair_none_energy( model, Eij, invR, invR2 )
+    class(pair_none), intent(in)  :: model
+    real(rb),         intent(out) :: Eij
+    real(rb),         intent(in)  :: invR, invR2
     Eij = zero
   end subroutine pair_none_energy
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_virial( model, Wij, noInvR, invR, invR2 )
-    class(pair_none), intent(in)    :: model
-    real(rb),         intent(out)   :: Wij
-    logical,          intent(inout) :: noInvR
-    real(rb),         intent(inout) :: invR
-    real(rb),         intent(in)    :: invR2
+  subroutine pair_none_virial( model, Wij, invR, invR2 )
+    class(pair_none), intent(in)  :: model
+    real(rb),         intent(out) :: Wij
+    real(rb),         intent(in)  :: invR, invR2
     Wij = zero
   end subroutine pair_none_virial
 

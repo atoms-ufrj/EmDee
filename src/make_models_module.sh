@@ -80,8 +80,7 @@ for model in "$@"; do
 
   if [[ -z $allparams ]]; then
 
-    echo "    type($model), pointer :: model"
-    echo "    allocate(model)"
+    echo "    type($model) :: model"
     echo "    call model % setup()"
 
   else
@@ -96,13 +95,12 @@ for model in "$@"; do
     done
 
     # Declare a scalar pointer to model and array pointers to array arguments:
-    echo "    type($model), pointer :: model"
+    echo "    type($model) :: model"
     for ((i=0; i<${#params[@]}; i++)); do
       [ ${array[i]} -eq 1 ] && echo "    ${ftypes[i]}, pointer :: ptr_${params[i]}(:)"
     done
 
     # Allocate model pointer:
-    echo "    allocate(model)"
     for ((i=0; i<${#params[@]}; i++)); do
       [ ${array[i]} -eq 1 ] && echo "    call c_f_pointer( ${params[i]}, ptr_${params[i]}, [$size] )"
       [ ${array[i]} -eq 0 ] && [[ ${types[i]} == "integer" ]] && size=${params[i]}

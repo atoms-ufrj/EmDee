@@ -111,6 +111,7 @@ type :: tData
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
+  type(pairModelContainer), allocatable :: fastPair(:,:,:)
   type(coulModelContainer), allocatable :: coul(:)
   class(cKspaceModel),      allocatable :: kspace
 
@@ -125,10 +126,10 @@ type :: tData
   logical :: kspace_active
 
   logical     :: respa                    ! Flag to determine if RESPA was activated
-  real(rb)    :: coreRc                   ! Internal cutoff distance for RESPA
-  real(rb)    :: coreRcSq                 ! Internal cutoff distance squared
-  real(rb)    :: xCoreRcSq                ! Extended internal cutoff distance squared
-  integer(ib) :: Ncore                    ! Number of core-neighbor sweepings per MD step
+  real(rb)    :: respaRc                   ! Internal cutoff distance for RESPA
+  real(rb)    :: respaRcSq                 ! Internal cutoff distance squared
+  real(rb)    :: xRespaRcSq                ! Extended internal cutoff distance squared
+  integer(ib) :: Npair                    ! Number of core-neighbor sweepings per MD step
   integer(ib) :: Nbond                    ! Number of bonded computations per core sweeping
 
 end type tData
@@ -340,7 +341,7 @@ contains
 
     character(*), parameter :: task = "system initialization"
 
-    integer :: i, layer, bodyDoF
+    integer :: i, j, layer, bodyDoF
     logical :: kspace_required
 
     integer, allocatable :: bodyAtom(:)
@@ -379,6 +380,17 @@ contains
                                      me%R, me%body%NP, bodyAtom, me%pair%kCoul )
       do layer = 1, me%nlayers
         call me % coul(layer) % model % kspace_setup( me%kspace%alpha )
+      end do
+    end if
+
+    if (me%respa) then
+      me%fastPair = me%pair
+      do i = 1, me%ntypes
+        do j = 1, me%ntypes
+          do layer = 1, me%nlayers
+            call me % fastPair(i,j,layer) % model % shifting_setup( me%respaRc )
+          end do
+        end do
       end do
     end if
 
@@ -658,7 +670,6 @@ contains
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi, factor14
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
-    logical  :: noInvR
 
     Rc2 = me%RcSq*me%invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
@@ -751,7 +762,7 @@ contains
     real(rb), allocatable :: Ratom(:,:), Rvec(:,:)
 
     xRc2 = me%xRcSq*me%invL2
-    xInRc2 = me%xCoreRcSq*me%invL2
+    xInRc2 = me%xRespaRcSq*me%invL2
     Rc2 = me%RcSq*me%invL2
 
     include = .true.
@@ -799,7 +810,7 @@ contains
             do m = 1, size(jlist)
               j = jlist(m)
               jtype = me%atomType(j)
-              if (include(k+m) .and. (me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
+              if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
                 Rij = Rvec(:,m)
                 r2 = sum(Rij*Rij)
                 if (r2 < xRc2) then
@@ -860,7 +871,7 @@ contains
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
     real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: icharged, ijcharged, noInvR
+    logical  :: icharged, ijcharged
 
     real(rb), allocatable :: Rvec(:,:)
 
@@ -889,9 +900,9 @@ contains
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
               invR2 = me%invL2/r2
+              invR = sqrt(invR2)
               jtype = me%atomType(j)
               ijcharged = icharged.and.me%charged(j)
-              noInvR = .true.
               associate( pair => partner(jtype) )
                 select type ( model => pair%model )
                     include "virial_compute_pair.f90"
@@ -936,10 +947,10 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
-    integer  :: i, j, k, l, m, itype, jtype, firstAtom, lastAtom, layer
-    real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
-    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: icharged, ijcharged, noInvR
+    integer  :: i, j, k, m, itype, firstAtom, lastAtom
+    real(rb) :: Rc2, r2, Qi
+    real(rb) :: Ri(3), Fi(3)
+    logical  :: icharged
 
     real(rb), allocatable :: Rvec(:,:)
 
@@ -1005,7 +1016,7 @@ contains
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, first, last
     real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: icharged, noInvR
+    logical  :: icharged
 
     real(rb), allocatable :: Rvec(:,:)
 
@@ -1034,7 +1045,6 @@ contains
               r2 = sum(Rij*Rij)
               if (r2 < Rc2) then
                 invR2 = me%invL2/r2
-                noInvR = .true.
                 select type ( model => pair%model )
                   include "virial_compute_pair.f90"
                 end select
@@ -1120,7 +1130,7 @@ contains
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
     real(rb) :: Rc2, r2, invR2, invR, new_Eij, new_Wij, Eij, Wij, Qi, Qj
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: participant(me%ntypes), noInvR
+    logical  :: participant(me%ntypes)
 
     participant = any(me%multilayer,dim=2)
     Rc2 = me%RcSq*me%invL2
