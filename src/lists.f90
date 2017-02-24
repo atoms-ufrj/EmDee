@@ -28,6 +28,7 @@ type tList
   integer :: nobjects
   integer :: count
   integer,  allocatable :: first(:)
+  integer,  allocatable :: middle(:)
   integer,  allocatable :: last(:)
   integer,  allocatable :: item(:)
   logical,  allocatable :: check(:)
@@ -42,10 +43,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  elemental subroutine tList_allocate( list, nitems, nobjects, check, value )
+  elemental subroutine tList_allocate( list, nitems, nobjects, middle, check, value )
     class(tList),      intent(inout) :: list
     integer,           intent(in)    :: nitems, nobjects
-    logical, optional, intent(in)    :: check, value
+    logical, optional, intent(in)    :: middle, check, value
 
     list%nobjects = nobjects
     list%nitems = nitems
@@ -54,6 +55,9 @@ contains
     allocate( list%first(nobjects), list%last(nobjects), list%item(nitems) )
     list%first = 1
     list%last = 0
+    if (present(middle)) then
+      if (middle) allocate( list%middle(nitems) )
+    end if
     if (present(check)) then
       if (check) allocate( list%check(nitems) )
     end if
@@ -77,19 +81,25 @@ contains
     n = min(list%nitems,size)
     item(1:n) = list%item(1:n)
     deallocate( list%item )
-    list%item = item
+    call move_alloc( item, list%item )
     list%nitems = size
+    if (allocated(list%middle)) then
+      allocate( item(size) )
+      item(1:n) = list%middle(1:n)
+      deallocate( list%middle )
+      call move_alloc( item, list%middle )
+    end if
     if (allocated(list%check)) then
       allocate( check(size) )
       check(1:n) = list%check(1:n)
       deallocate( list%check )
-      list%check = check
+      call move_alloc( check, list%check )
     end if
     if (allocated(list%value)) then
       allocate( value(size) )
       value(1:n) = list%value(1:n)
       deallocate( list%value )
-      list%value = value
+      call move_alloc( value, list%value )
     end if
 
   end subroutine tList_resize

@@ -72,6 +72,7 @@ type :: tData
   real(rb) :: invL2 = huge(one)           ! Squared inverse length of the simulation box
 
   real(rb) :: Rc                          ! Cut-off distance
+  real(rb) :: skin                        ! Neighbor list skin width
   real(rb) :: RcSq                        ! Cut-off distance squared
   real(rb) :: xRc                         ! Extended cutoff distance (including skin)
   real(rb) :: xRcSq                       ! Extended cutoff distance squared
@@ -122,6 +123,13 @@ type :: tData
 
   logical :: multilayer_coulomb
   logical :: kspace_active
+
+  logical     :: respa                    ! Flag to determine if RESPA was activated
+  real(rb)    :: coreRc                   ! Internal cutoff distance for RESPA
+  real(rb)    :: coreRcSq                 ! Internal cutoff distance squared
+  real(rb)    :: xCoreRcSq                ! Extended internal cutoff distance squared
+  integer(ib) :: Ncore                    ! Number of core-neighbor sweepings per MD step
+  integer(ib) :: Nbond                    ! Number of bonded computations per core sweeping
 
 end type tData
 
@@ -727,37 +735,29 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
+  subroutine build_neighbor_lists( me, thread, Rs )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
-    logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
-    integer  :: i, j, k, l, m, n, icell, jcell, npairs, itype, jtype, layer, ibody, ipairs
+    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, ibody, ipairs, imiddle
     integer  :: nlocal, ntotal, first, last
-    real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
-    logical  :: icharged, ijcharged, include(0:me%maxpairs), noInvR
+    real(rb) :: xRc2, xInRc2, Rc2, r2
+    logical  :: include(0:me%maxpairs)
     integer  :: atom(me%maxpairs), index(me%natoms)
-    real(rb) :: Ri(3), Rij(3), Fi(3), Fij(3)
+    real(rb) :: Ri(3), Rij(3)
 
     integer,  allocatable :: xlist(:)
     real(rb), allocatable :: Ratom(:,:), Rvec(:,:)
 
     xRc2 = me%xRcSq*me%invL2
+    xInRc2 = me%xCoreRcSq*me%invL2
     Rc2 = me%RcSq*me%invL2
-
-    F = zero
-    Epair = zero
-    Ecoul = zero
-    Wpair = zero
-    Wcoul = zero
 
     include = .true.
     index = 0
     npairs = 0
-    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
-      Elayer = zero
+    associate ( neighbor => me%neighbor(thread) )
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
         if (neighbor%nitems < npairs + me%maxpairs) then
@@ -785,48 +785,35 @@ contains
           i = atom(k)
           first = npairs + 1
           ipairs = 0
+          imiddle = 0
           itype = me%atomType(i)
           ibody = me%atomBody(i)
-          Qi = me%charge(i)
-          icharged = me%charged(i)
           Ri = Rs(:,i)
-          Fi = zero
           xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
           include(xlist) = .false.
-          associate ( partner => me%pair(:,itype,me%layer), &
-                      multilayer => me%multilayer(:,itype), &
-                      jlist => atom(k+1:ntotal),            &
-                      item => neighbor%item(first:),        &
-                      value => neighbor%value(first:)       )
+          associate ( jlist => atom(k+1:ntotal),      &
+                      item => neighbor%item(first:),  &
+                      value => neighbor%value(first:) )
             Rvec = Ratom(:,k+1:ntotal)
             forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
-            if (compute) then
-              do m = 1, size(jlist)
-                j = jlist(m)
-                jtype = me%atomType(j)
-                if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
-#                 define compute
-#                 include "inner_loop.f90"
-#                 undef compute
-                  if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
+            do m = 1, size(jlist)
+              j = jlist(m)
+              jtype = me%atomType(j)
+              if (include(k+m) .and. (me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
+                Rij = Rvec(:,m)
+                r2 = sum(Rij*Rij)
+                if (r2 < xRc2) then
+                  call insert_neighbor( item, value, ipairs, j, r2 )
+                  if (r2 < xInRc2) imiddle = imiddle + 1
                 end if
-              end do
-            else
-              do m = 1, size(jlist)
-                j = jlist(m)
-                jtype = me%atomType(j)
-                if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
-#                 include "inner_loop.f90"
-                  if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
-                end if
-              end do
-            end if
+              end if
+            end do
           end associate
-          F(:,i) = F(:,i) + Fi
           include(xlist) = .true.
 
-          npairs = npairs + ipairs
           neighbor%first(i) = first
+          neighbor%middle(i) = npairs + imiddle
+          npairs = npairs + ipairs
           neighbor%last(i)  = npairs
 
         end do
@@ -834,7 +821,7 @@ contains
       end do
       neighbor%count = npairs
     end associate
-    F = me%Lbox*F
+
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental function pbc( x )
@@ -860,7 +847,85 @@ contains
         npairs = npairs + 1
       end subroutine insert_neighbor
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine find_pairs_and_compute
+  end subroutine build_neighbor_lists
+
+!===================================================================================================
+
+  subroutine compute_pair_forces( me, thread, Rs, F, Wpair, Wcoul )
+    type(tData), intent(inout) :: me
+    integer,     intent(in)    :: thread
+    real(rb),    intent(in)    :: Rs(3,me%natoms)
+    real(rb),    intent(out)   :: F(3,me%natoms), Wpair, Wcoul
+
+    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
+    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij
+    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    logical  :: icharged, ijcharged, noInvR
+
+    real(rb), allocatable :: Rvec(:,:)
+
+    Rc2 = me%RcSq*me%invL2
+    F = zero
+    Wpair = zero
+    Wcoul = zero
+    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
+    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
+      Elayer = zero
+      do k = firstAtom, lastAtom
+        i = me%cellAtom%item(k)
+        itype = me%atomType(i)
+        Qi = me%charge(i)
+        icharged = me%charged(i)
+        Ri = Rs(:,i)
+        Fi = zero
+        associate ( partner => me%pair(:,itype,me%layer), &
+                    jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
+          Rvec = Rs(:,jlist)
+          forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
+          do m = 1, size(jlist)
+            j = jlist(m)
+            Rij = Rvec(:,m)
+            r2 = sum(Rij*Rij)
+            if (r2 < Rc2) then
+              invR2 = me%invL2/r2
+              jtype = me%atomType(j)
+              ijcharged = icharged.and.me%charged(j)
+              noInvR = .true.
+              associate( pair => partner(jtype) )
+                select type ( model => pair%model )
+                    include "virial_compute_pair.f90"
+                end select
+                Wpair = Wpair + Wij
+                if (ijcharged.and.pair%coulomb) then
+                  QiQj = pair%kCoul*Qi*me%charge(j)
+                  select type ( model => me%coul(me%layer)%model )
+                    include "virial_compute_coul.f90"
+                  end select
+                  Wcoul = Wcoul + WCij
+                  Wij = Wij + WCij
+                end if
+              end associate
+              Fij = Wij*invR2*Rij
+              Fi = Fi + Fij
+              F(:,j) = F(:,j) - Fij
+            end if
+          end do
+        end associate
+        F(:,i) = F(:,i) + Fi
+      end do
+    end associate
+    F = me%Lbox*F
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      elemental function pbc( x )
+        real(rb), intent(in) :: x
+        real(rb)              :: pbc
+        pbc = x - anint(x)
+      end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine compute_pair_forces
 
 !===================================================================================================
 

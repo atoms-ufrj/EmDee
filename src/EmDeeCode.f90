@@ -96,6 +96,7 @@ contains
     me%nthreads = threads
     me%nlayers = layers
     me%Rc = rc
+    me%skin = skin
     me%RcSq = rc*rc
     me%xRc = rc + skin
     me%xRcSq = me%xRc**2
@@ -103,6 +104,8 @@ contains
     me%natoms = N
     me%threadAtoms = (N + threads - 1)/threads
     me%kspace_active = .false.
+    me%respa = .false.
+    me%xCoreRcSq = zero
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -143,7 +146,7 @@ contains
 
     ! Allocate memory for neighbor lists:
     allocate( me%neighbor(threads) )
-    call me % neighbor % allocate( extra, N, value = .true. )
+    call me % neighbor % allocate( extra, N, middle = .true., value = .true. )
 
     ! Allocate memory for the list of pairs excluded from the neighbor lists:
     call me % excluded % allocate( extra, N )
@@ -841,6 +844,29 @@ contains
 
 !===================================================================================================
 
+  subroutine EmDee_set_respa( md, coreRc, Ncore, Nbond ) bind(C,name="EmDee_set_respa")
+    type(tEmDee), intent(inout) :: md
+    real(rb),     value         :: coreRc
+    integer(ib),  value         :: Ncore, Nbond
+
+    type(tData), pointer :: me
+
+    call c_f_pointer( md%data, me )
+
+    if (me%initialized) call error( "set RESPA", "the system has already been initialized" )
+    if (coreRc >= me%Rc) call error( "set RESPA", "internal cutoff is too large" )
+
+    me%respa = .true.
+    me%coreRc = coreRc
+    me%coreRcSq = coreRc**2
+    me%xCoreRcSq = (coreRc + me%skin)**2
+    me%Ncore = Ncore
+    me%Nbond = Nbond
+
+  end subroutine EmDee_set_respa
+
+!===================================================================================================
+
   subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: lambda, alpha, dt
@@ -1012,10 +1038,11 @@ contains
       integer :: thread
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
-        if (buildList) then
-          call find_pairs_and_compute( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
-        else
+        if (buildList) call build_neighbor_lists( me, thread, Rs )
+        if (compute) then
           call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
+        else
+          call compute_pair_forces( me, thread, Rs, F, Wpair, Wcoul )
         end if
         Elong = zero
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Epair, Wpair )
