@@ -143,10 +143,16 @@ function boost( md::tEmDee, lambda::Real, alpha::Real, dt::Real )
          Ref(md), lambda, alpha, dt )
 end
 #---------------------------------------------------------------------------------------------------
-function move( md::tEmDee, lambda::Real, alpha::Real, dt::Real )
-  ccall( (:EmDee_move,"libemdee"), Void,
+function displace( md::tEmDee, lambda::Real, alpha::Real, dt::Real )
+  ccall( (:EmDee_displace,"libemdee"), Void,
          (Ptr{tEmDee}, Float64, Float64, Float64),
          Ref(md), lambda, alpha, dt )
+end
+#---------------------------------------------------------------------------------------------------
+function advance( md::tEmDee, lambda_R::Real, alpha_R::Real, lambda_P::Real, alpha_P::Real, dt::Real )
+  ccall( (:EmDee_advance,"libemdee"), Void,
+         (Ptr{tEmDee}, Float64, Float64, Float64, Float64, Float64),
+         Ref(md), lambda_R, alpha_R, lambda_P, alpha_P, dt )
 end
 #---------------------------------------------------------------------------------------------------
 #                                            M O D E L S

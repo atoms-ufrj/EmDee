@@ -7,7 +7,7 @@
 #commands+=("./test_coul_sf 2 spce_sample.inp")
 #commands+=("./test_coul_long 2 spce_sample.inp")
 #commands+=("./test_rigid_body_exact 2 spce_sample.inp")
-#commands+=("./test_rigid_body_miller 2 spce_sample.inp")
+commands+=("./test_rigid_body_miller 2 spce_sample.inp")
 commands+=("./test_respa 2 spce_sample.inp")
 #commands+=("./testfortran 2 lj_sample.inp")
 

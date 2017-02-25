@@ -111,7 +111,6 @@ type :: tData
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairModelContainer), allocatable :: pair(:,:,:)
-  type(pairModelContainer), allocatable :: fastPair(:,:,:)
   type(coulModelContainer), allocatable :: coul(:)
   class(cKspaceModel),      allocatable :: kspace
 
@@ -129,8 +128,12 @@ type :: tData
   real(rb)    :: respaRc                   ! Internal cutoff distance for RESPA
   real(rb)    :: respaRcSq                 ! Internal cutoff distance squared
   real(rb)    :: xRespaRcSq                ! Extended internal cutoff distance squared
+  real(rb)    :: fshift
   integer(ib) :: Npair                    ! Number of core-neighbor sweepings per MD step
   integer(ib) :: Nbond                    ! Number of bonded computations per core sweeping
+
+  type(pairModelContainer), allocatable :: shortPair(:,:,:)
+  real(rb),                 allocatable :: shortF(:,:)
 
 end type tData
 
@@ -384,14 +387,19 @@ contains
     end if
 
     if (me%respa) then
-      me%fastPair = me%pair
+      me%shortPair = me%pair
+      allocate( me%shortF(3,me%natoms) )
       do i = 1, me%ntypes
         do j = 1, me%ntypes
           do layer = 1, me%nlayers
-            call me % fastPair(i,j,layer) % model % shifting_setup( me%respaRc )
+            associate ( pair => me%shortPair(i,j,layer)%model )
+              pair%shifted_force = .true.
+              call pair % shifting_setup( me%respaRc )
+            end associate
           end do
         end do
       end do
+
     end if
 
     contains
@@ -419,8 +427,8 @@ contains
 !===================================================================================================
 
   subroutine rigid_body_forces( me, Virial )
-    type(tData), intent(inout) :: me
-    real(rb),    intent(out)   :: Virial
+    type(tData), intent(inout)         :: me
+    real(rb),    intent(out), optional :: Virial
 
     real(rb) :: Wrb(me%nthreads)
 
@@ -431,7 +439,7 @@ contains
       call compute_body_forces( thread, Wrb(thread) )
     end block
     !$omp end parallel
-    Virial = -sum(Wrb)
+    if (present(Virial)) Virial = -sum(Wrb)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -751,9 +759,9 @@ contains
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
 
-    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, ibody, ipairs, imiddle
+    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, ibody, ipairs, middle
     integer  :: nlocal, ntotal, first, last
-    real(rb) :: xRc2, xInRc2, Rc2, r2
+    real(rb) :: xRc2, xInRc2, r2
     logical  :: include(0:me%maxpairs)
     integer  :: atom(me%maxpairs), index(me%natoms)
     real(rb) :: Ri(3), Rij(3)
@@ -763,7 +771,6 @@ contains
 
     xRc2 = me%xRcSq*me%invL2
     xInRc2 = me%xRespaRcSq*me%invL2
-    Rc2 = me%RcSq*me%invL2
 
     include = .true.
     index = 0
@@ -796,7 +803,7 @@ contains
           i = atom(k)
           first = npairs + 1
           ipairs = 0
-          imiddle = 0
+          middle = 0
           itype = me%atomType(i)
           ibody = me%atomBody(i)
           Ri = Rs(:,i)
@@ -815,7 +822,7 @@ contains
                 r2 = sum(Rij*Rij)
                 if (r2 < xRc2) then
                   call insert_neighbor( item, value, ipairs, j, r2 )
-                  if (r2 < xInRc2) imiddle = imiddle + 1
+                  if (r2 < xInRc2) middle = middle + 1
                 end if
               end if
             end do
@@ -823,7 +830,7 @@ contains
           include(xlist) = .true.
 
           neighbor%first(i) = first
-          neighbor%middle(i) = npairs + imiddle
+          neighbor%middle(i) = npairs + middle
           npairs = npairs + ipairs
           neighbor%last(i)  = npairs
 
@@ -868,65 +875,10 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms), Wpair, Wcoul
 
-    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij
-    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: icharged, ijcharged
-
-    real(rb), allocatable :: Rvec(:,:)
+    real(rb) :: Rc2
 
     Rc2 = me%RcSq*me%invL2
-    F = zero
-    Wpair = zero
-    Wcoul = zero
-    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
-    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
-      Elayer = zero
-      do k = firstAtom, lastAtom
-        i = me%cellAtom%item(k)
-        itype = me%atomType(i)
-        Qi = me%charge(i)
-        icharged = me%charged(i)
-        Ri = Rs(:,i)
-        Fi = zero
-        associate ( partner => me%pair(:,itype,me%layer), &
-                    jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
-          Rvec = Rs(:,jlist)
-          forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
-          do m = 1, size(jlist)
-            j = jlist(m)
-            Rij = Rvec(:,m)
-            r2 = sum(Rij*Rij)
-            if (r2 < Rc2) then
-              invR2 = me%invL2/r2
-              invR = sqrt(invR2)
-              jtype = me%atomType(j)
-              ijcharged = icharged.and.me%charged(j)
-              associate( pair => partner(jtype) )
-                select type ( model => pair%model )
-                    include "virial_compute_pair.f90"
-                end select
-                Wpair = Wpair + Wij
-                if (ijcharged.and.pair%coulomb) then
-                  QiQj = pair%kCoul*Qi*me%charge(j)
-                  select type ( model => me%coul(me%layer)%model )
-                    include "virial_compute_coul.f90"
-                  end select
-                  Wcoul = Wcoul + WCij
-                  Wij = Wij + WCij
-                end if
-              end associate
-              Fij = Wij*invR2*Rij
-              Fi = Fi + Fij
-              F(:,j) = F(:,j) - Fij
-            end if
-          end do
-        end associate
-        F(:,i) = F(:,i) + Fi
-      end do
-    end associate
-    F = me%Lbox*F
+#   include "compute.f90"
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -947,53 +899,16 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
-    integer  :: i, j, k, m, itype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, Qi
-    real(rb) :: Ri(3), Fi(3)
-    logical  :: icharged
-
-    real(rb), allocatable :: Rvec(:,:)
+    real(rb) :: Rc2
 
     Rc2 = me%RcSq*me%invL2
-    F = zero
-    Epair = zero
-    Ecoul = zero
-    Wpair = zero
-    Wcoul = zero
-    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
-    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
-      Elayer = zero
-      do k = firstAtom, lastAtom
-        i = me%cellAtom%item(k)
-        itype = me%atomType(i)
-        Qi = me%charge(i)
-        icharged = me%charged(i)
-        Ri = Rs(:,i)
-        Fi = zero
-        associate ( partner => me%pair(:,itype,me%layer), &
-                    multilayer => me%multilayer(:,itype), &
-                    jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
-          Rvec = Rs(:,jlist)
-          forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
-          if (compute) then
-            do m = 1, size(jlist)
-              j = jlist(m)
-#             define compute
-#             include "inner_loop.f90"
-#             undef compute
-            end do
-          else
-            do m = 1, size(jlist)
-              j = jlist(m)
-#             include "inner_loop.f90"
-            end do
-          end if
-        end associate
-        F(:,i) = F(:,i) + Fi
-      end do
-    end associate
-    F = me%Lbox*F
+    if (compute) then
+#     define compute
+#     include "compute.f90"
+#     undef compute
+    else
+#     include "compute.f90"
+    end if
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1005,26 +920,26 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_pairs
 
+
 !===================================================================================================
 
-  subroutine compute_short_range_forces( me, thread, maxNeigh, Rs, F )
+  subroutine compute_short_range_forces( me, thread, Rs, F )
     type(tData), intent(inout) :: me
-    integer,     intent(in)    :: thread, maxNeigh
+    integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms)
 
-    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom, first, last
-    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij
+    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
+    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: icharged
-
+    logical  :: icharged, ijcharged
     real(rb), allocatable :: Rvec(:,:)
 
-    Rc2 = me%RcSq*me%invL2
+    Rc2 = me%respaRcSq*me%invL2
     F = zero
-    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
-    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
     associate ( neighbor => me%neighbor(thread) )
+      firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+      lastAtom = me%cellAtom%last(me%threadCell%last(thread))
       do k = firstAtom, lastAtom
         i = me%cellAtom%item(k)
         itype = me%atomType(i)
@@ -1032,42 +947,37 @@ contains
         icharged = me%charged(i)
         Ri = Rs(:,i)
         Fi = zero
-        first = neighbor%first(i)
-        last = min(first - 1 + maxNeigh, neighbor%last(i))
-        associate ( partner => me%pair(:,itype,me%layer), jlist => neighbor%item(first:last) )
+        associate ( partner => me%shortPair(:,itype,me%layer), &
+                    jlist => neighbor%item(neighbor%first(i):neighbor%middle(i)) )
           Rvec = Rs(:,jlist)
           forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
           do m = 1, size(jlist)
             j = jlist(m)
-            jtype = me%atomType(j)
-            associate( pair => partner(jtype), coul => me%coul(me%layer)%model )
-              Rij = Rvec(:,m)
-              r2 = sum(Rij*Rij)
-              if (r2 < Rc2) then
-                invR2 = me%invL2/r2
+            Rij = Rvec(:,m)
+            r2 = sum(Rij*Rij)
+            if (r2 < Rc2) then
+              invR2 = me%invL2/r2
+              invR = sqrt(invR2)
+              jtype = me%atomType(j)
+              ijcharged = icharged.and.me%charged(j)
+              associate( pair => partner(jtype) )
                 select type ( model => pair%model )
                   include "virial_compute_pair.f90"
                 end select
-                if (icharged.and.me%charged(j).and.pair%coulomb) then
+                if (pair%model%shifted_force) then
+                  rFc = pair%model%fshift/invR
+                  Wij = Wij - rFc
+                end if
+                if (ijcharged.and.pair%coulomb) then
                   QiQj = pair%kCoul*Qi*me%charge(j)
-                  select type ( model => coul )
-                    include "virial_compute_unsplit.f90"
-                  end select
+                  WCij = QiQj*(invR - me%fshift/invR)
                   Wij = Wij + WCij
                 end if
-                Fij = Wij*invR2*Rij
-                Fi = Fi + Fij
-                F(:,j) = F(:,j) - Fij
-              else if (coul%requires_kspace.and.icharged.and.me%charged(j).and.pair%coulomb) then
-                QiQj = pair%kCoul*Qi*me%charge(j)
-                select type ( model => coul )
-                  include "virial_compute_unsplit.f90"
-                end select
-                Fij = WCij*invR2*Rij
-                Fi = Fi + Fij
-                F(:,j) = F(:,j) - Fij
-              end if
-            end associate
+              end associate
+              Fij = Wij*invR2*Rij
+              Fi = Fi + Fij
+              F(:,j) = F(:,j) - Fij
+            end if
           end do
         end associate
         F(:,i) = F(:,i) + Fi
@@ -1187,7 +1097,7 @@ contains
 
 !===================================================================================================
 
-  subroutine move_atoms_and_bodies( me, thread, R_factor, P_factor, dt, translate, rotate, mode )
+  subroutine move( me, thread, R_factor, P_factor, dt, translate, rotate, mode )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: R_factor, P_factor, dt
@@ -1216,11 +1126,11 @@ contains
       end do
     end if
 
-  end subroutine move_atoms_and_bodies
+  end subroutine move
 
 !===================================================================================================
 
-  subroutine boost_atoms_and_bodies( me, thread, P_factor, F_factor, translate, rotate )
+  subroutine boost( me, thread, P_factor, F_factor, translate, rotate )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: P_factor, F_factor
@@ -1249,7 +1159,7 @@ contains
       end do
     end if
 
-  end subroutine boost_atoms_and_bodies
+  end subroutine boost
 
 !===================================================================================================
 

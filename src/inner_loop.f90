@@ -22,7 +22,7 @@ block
   integer  :: jtype
   real(rb) :: invR2, invR, Wij, QiQj, WCij, rFc
   real(rb) :: Rij(3), Fij(3)
-  logical  :: ijcharged, noInvR
+  logical  :: ijcharged
 # if defined(compute)
   integer  :: l, layer
   real(rb) :: Eij, ECij
@@ -35,7 +35,6 @@ block
     invR = sqrt(invR2)
     jtype = me%atomType(j)
     ijcharged = icharged.and.me%charged(j)
-    noInvR = .false.
     associate( pair => partner(jtype) )
       associate ( model => pair%model )
         select type ( model )
@@ -46,10 +45,6 @@ block
 #         endif
         end select
         if (model%shifted_force) then
-          if (noInvR) then
-            invR = sqrt(invR2)
-            noInvR = .false.
-          end if
           rFc = model%fshift/invR
           Wij = Wij - rFc
 #         if defined(compute)

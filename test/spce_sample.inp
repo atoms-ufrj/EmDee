@@ -7,9 +7,9 @@ NIST_spce_sample.mol
 [Seed for random number generation]
 86245
 [Integration time step]
-1.0
+3.0
 [Number of integration steps]
-100
+1000
 [Interval for property printing]
 20
 [Temperature]

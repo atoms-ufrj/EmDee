@@ -197,12 +197,19 @@ interface
     real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_boost
 
-  subroutine EmDee_move( md, lambda, alpha, dt ) &
-    bind(C,name="EmDee_move")
+  subroutine EmDee_displace( md, lambda, alpha, dt ) &
+    bind(C,name="EmDee_displace")
     import :: c_double, c_ptr, tEmDee
     type(tEmDee),   intent(inout) :: md
     real(c_double), value         :: lambda, alpha, dt
-  end subroutine EmDee_move
+  end subroutine EmDee_displace
+
+  subroutine EmDee_advance( md, lambda_R, alpha_R, lambda_P, alpha_P, dt ) &
+    bind(C,name="EmDee_advance")
+    import :: c_double, tEmDee
+    type(tEmDee),   intent(inout) :: md
+    real(c_double), value         :: lambda_R, alpha_R, lambda_P, alpha_P, dt
+  end subroutine EmDee_advance
 
   ! MODELS:
   type(c_ptr) function EmDee_shifted_force( model ) &

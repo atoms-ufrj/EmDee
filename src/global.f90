@@ -74,6 +74,16 @@ contains
 
 !===================================================================================================
 
+  elemental subroutine swap( a, b )
+    real(rb), intent(inout) :: a, b
+    real(rb) :: c
+    c = a
+    a = b
+    b = c
+  end subroutine swap
+
+!===================================================================================================
+
   function sorted( x, indices ) result( y )
     integer, intent(in)           :: x(:)
     logical, intent(in), optional :: indices

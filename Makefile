@@ -142,12 +142,12 @@ $(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl $(SRCDIR)/make_j_header.sh
 
 # Object files:
 
-$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode inner_loop) \
+$(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode) \
                        $(call src,$(COMPUTES) $(ENERGYCOMPUTES) $(VIRIALCOMPUTES)) \
                        $(call obj,EmDeeData ArBee structs models lists global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/EmDeeData.o: $(call src,EmDeeData inner_loop) \
+$(OBJDIR)/EmDeeData.o: $(call src,EmDeeData compute) \
                        $(call obj,ArBee structs models lists math global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 

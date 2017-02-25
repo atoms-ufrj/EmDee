@@ -58,12 +58,11 @@ void EmDee_download( tEmDee md, char *option, double* address );
 
 void EmDee_random_momenta( tEmDee* md, double kT, _Bool adjust, int seed );
 
-//void EmDee_save_state( tEmDee md, int rigid );
-//void EmDee_restore_state( tEmDee md );
-
 void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 
-void EmDee_move( tEmDee* md, double lambda, double alpha, double dt );
+void EmDee_displace( tEmDee* md, double lambda, double alpha, double dt );
+
+void EmDee_advance( tEmDee* md, double lambda_R, double alpha_R, double lambda_P, double alpha_P, double dt );
 
 void* EmDee_shifted_force( void* model );
 
