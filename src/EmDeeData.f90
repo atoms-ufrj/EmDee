@@ -121,9 +121,9 @@ type :: tData
   real(rb)    :: fshift
   integer(ib) :: Npair                     ! Number of core-neighbor sweepings per MD step
   integer(ib) :: Nbond                     ! Number of bonded computations per core sweeping
-
+  logical     :: fast_required
   real(rb),            allocatable :: F_fast(:,:)
-  type(pairContainer), allocatable :: shortPair(:,:,:)
+  type(pairContainer), allocatable :: closePair(:,:,:)
 
 end type tData
 
@@ -377,12 +377,12 @@ contains
     end if
 
     if (me%respa_active) then
-      me%shortPair = me%pair
+      me%closePair = me%pair
       allocate( me%F_fast(3,me%natoms) )
       do i = 1, me%ntypes
         do j = 1, me%ntypes
           do layer = 1, me%nlayers
-            associate ( pair => me%shortPair(i,j,layer)%model )
+            associate ( pair => me%closePair(i,j,layer)%model )
               pair%shifted_force = .true.
               call pair % shifting_setup( me%respaRc )
             end associate
@@ -578,29 +578,6 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_pair_forces( me, thread, Rs, F, Wpair, Wcoul )
-    type(tData), intent(inout) :: me
-    integer,     intent(in)    :: thread
-    real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Wpair, Wcoul
-
-    real(rb) :: Rc2
-
-    Rc2 = me%RcSq*me%invL2
-#   include "compute.f90"
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      elemental function pbc( x )
-        real(rb), intent(in) :: x
-        real(rb)              :: pbc
-        pbc = x - anint(x)
-      end function pbc
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine compute_pair_forces
-
-!===================================================================================================
-
   subroutine compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
@@ -638,61 +615,12 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms)
 
-    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc
-    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
-    logical  :: icharged, ijcharged
-    real(rb), allocatable :: Rvec(:,:)
+    real(rb) :: Rc2
 
     Rc2 = me%respaRcSq*me%invL2
-    F = zero
-    associate ( neighbor => me%neighbor(thread) )
-      firstAtom = me%cellAtom%first(me%threadCell%first(thread))
-      lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-      do k = firstAtom, lastAtom
-        i = me%cellAtom%item(k)
-        itype = me%atomType(i)
-        Qi = me%charge(i)
-        icharged = me%charged(i)
-        Ri = Rs(:,i)
-        Fi = zero
-        associate ( partner => me%shortPair(:,itype,me%layer), &
-                    jlist => neighbor%item(neighbor%first(i):neighbor%middle(i)) )
-          Rvec = Rs(:,jlist)
-          forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
-          do m = 1, size(jlist)
-            j = jlist(m)
-            Rij = Rvec(:,m)
-            r2 = sum(Rij*Rij)
-            if (r2 < Rc2) then
-              invR2 = me%invL2/r2
-              invR = sqrt(invR2)
-              jtype = me%atomType(j)
-              ijcharged = icharged.and.me%charged(j)
-              associate( pair => partner(jtype) )
-                select type ( model => pair%model )
-                  include "virial_compute_pair.f90"
-                end select
-                if (pair%model%shifted_force) then
-                  rFc = pair%model%fshift/invR
-                  Wij = Wij - rFc
-                end if
-                if (ijcharged.and.pair%coulomb) then
-                  QiQj = pair%kCoul*Qi*me%charge(j)
-                  WCij = QiQj*(invR - me%fshift/invR)
-                  Wij = Wij + WCij
-                end if
-              end associate
-              Fij = Wij*invR2*Rij
-              Fi = Fi + Fij
-              F(:,j) = F(:,j) - Fij
-            end if
-          end do
-        end associate
-        F(:,i) = F(:,i) + Fi
-      end do
-    end associate
-    F = me%Lbox*F
+#   define fast
+#   include "compute.f90"
+#   undef fast
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -913,21 +841,28 @@ contains
     type(tData), intent(in) :: me
     real(rb)                :: Virial
 
-    !$omp parallel num_threads(me%nthreads) reduction(+:Virial)
-    Virial = partial_body_virial( omp_get_thread_num() + 1 )
+    real(rb) :: W(me%nthreads)
+
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      call partial_body_virial( thread, W(thread) )
+    end block
     !$omp end parallel
+    Virial = -sum(W)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      function partial_body_virial( thread ) result (Virial )
+      subroutine partial_body_virial( thread, W )
         integer,  intent(in)  :: thread
-        real(rb)              :: Virial
+        real(rb), intent(out) :: W
         integer :: i
-        Virial = zero
+        W = zero
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          Virial = Virial - sum(me%F(:,me%body(i)%index)*me%body(i)%delta)
+          W = W + sum(me%F(:,me%body(i)%index)*me%body(i)%delta)
         end do
-      end function partial_body_virial
+      end subroutine partial_body_virial
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end function rigid_body_virial
 

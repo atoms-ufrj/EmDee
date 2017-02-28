@@ -271,44 +271,48 @@ contains
     real(rb) :: E(me%nthreads)
 
     !$omp parallel num_threads(me%nthreads)
-    block
-      integer  :: thread, first, last, k, m
-      real(rb) :: invL(3), Rij(3), Fij(3)
-
-      thread = omp_get_thread_num() + 1
-
-      first = (thread - 1)*me%threadTypePairs + 1
-      last = min(thread*me%threadTypePairs,me%nTypePairs)
-
-      if (present(Energy)) then
-        E(thread) = sum(me%lambda1D(first:last,layer)*me%Erigid(first:last))
-      end if
-
-      if (present(Forces)) then
-        invL = one/L
-        first = (thread - 1)*me%threadRigidPairs + 1
-        last = min( thread*me%threadRigidPairs, me%nRigidPairs )
-        associate ( lambda => me%lambda1D(:,layer) )
-          do k = first, last
-            associate ( pair => me%rigidPair(k) )
-              Rij = R(:,pair%i) - R(:,pair%j)
-              Rij = Rij - L*anint(invL*Rij)
-              Fij = lambda(symm1D(pair%itype,pair%jtype))*pair%FbyR*Rij
-              do m = 1, 3
-                !$omp atomic update
-                Forces(m,pair%i) = Forces(m,pair%i) + Fij(m)
-                !$omp atomic update
-                Forces(m,pair%j) = Forces(m,pair%i) - Fij(m)
-              end do
-            end associate
-          end do
-        end associate
-      end if
-
-    end block
+    call discount( omp_get_thread_num() + 1 )
     !$omp end parallel
 
     if (present(Energy)) Energy = Energy + sum(E)
+
+    contains
+
+      subroutine discount( thread )
+        integer, intent(in) :: thread
+
+        integer  :: first, last, k, m
+        real(rb) :: invL(3), Rij(3), Fij(3)
+
+        first = (thread - 1)*me%threadTypePairs + 1
+        last = min(thread*me%threadTypePairs,me%nTypePairs)
+
+        if (present(Energy)) then
+          E(thread) = sum(me%lambda1D(first:last,layer)*me%Erigid(first:last))
+        end if
+
+        if (present(Forces)) then
+          invL = one/L
+          first = (thread - 1)*me%threadRigidPairs + 1
+          last = min( thread*me%threadRigidPairs, me%nRigidPairs )
+          associate ( lambda => me%lambda1D(:,layer) )
+            do k = first, last
+              associate ( pair => me%rigidPair(k) )
+                Rij = R(:,pair%i) - R(:,pair%j)
+                Rij = Rij - L*anint(invL*Rij)
+                Fij = lambda(symm1D(pair%itype,pair%jtype))*pair%FbyR*Rij
+                do m = 1, 3
+                  !$omp atomic update
+                  Forces(m,pair%i) = Forces(m,pair%i) + Fij(m)
+                  !$omp atomic update
+                  Forces(m,pair%j) = Forces(m,pair%i) - Fij(m)
+                end do
+              end associate
+            end do
+          end associate
+        end if
+
+      end subroutine discount
 
   end subroutine cKspaceModel_discount_rigid_pairs
 

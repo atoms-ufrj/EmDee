@@ -70,7 +70,7 @@ OBJECTS = $(call obj,EmDeeCode neighbor_lists EmDeeData ArBee math structs model
 
 COMPUTES = $(addprefix compute_,$(MODELTERMS))
 ENERGYCOMPUTES = $(addprefix energy_compute_,pair coul)
-VIRIALCOMPUTES = $(addprefix virial_compute_,pair coul unsplit)
+VIRIALCOMPUTES = $(addprefix virial_compute_,pair coul)
 
 TESTS = $(patsubst %.f90,%,$(wildcard $(TSTDIR)/*.f90))
 
@@ -186,9 +186,6 @@ $(SRCDIR)/virial_compute_pair.f90: $(call src,$(PAIRMODELS)) $(SRCDIR)/make_viri
 
 $(SRCDIR)/virial_compute_coul.f90: $(call src,$(COULMODELS)) $(SRCDIR)/make_virial_compute.sh
 	bash $(SRCDIR)/make_virial_compute.sh coul $(COULMODELS) > $@
-
-$(SRCDIR)/virial_compute_unsplit.f90: $(call src,$(COULMODELS)) $(SRCDIR)/make_unsplit_compute.sh
-	bash $(SRCDIR)/make_unsplit_compute.sh $(COULMODELS) > $@
 
 $(OBJDIR)/models.o: $(call obj,$(ALLMODELS) $(addprefix modelClass_,$(MODELTERMS))) \
                     $(call obj,$(KSPACE) modelClass_kspace) $(SRCDIR)/make_models_module.sh

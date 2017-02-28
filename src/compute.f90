@@ -29,8 +29,10 @@ block
   real(rb), allocatable :: Rvec(:,:)
 
   F = zero
+#ifndef fast
   Wpair = zero
   Wcoul = zero
+#endif
 #if defined(compute)
   associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
     Epair = zero
@@ -52,7 +54,7 @@ block
       associate ( partner => me%pair(:,itype,me%layer), &
                   jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
 #elif defined(fast)
-      associate ( partner => me%fastPair(:,itype,me%layer), &
+      associate ( partner => me%closePair(:,itype,me%layer), &
                   jlist => neighbor%item(neighbor%first(i):neighbor%middle(i)) )
 #else
       associate ( partner => me%pair(:,itype,me%layer), &
@@ -89,7 +91,9 @@ block
 #if defined(compute)
               Epair = Epair + Eij
 #endif
+#ifndef fast
               Wpair = Wpair + Wij
+#endif
               if (ijcharged.and.pair%coulomb) then
                 QiQj = pair%kCoul*Qi*me%charge(j)
 #if defined(fast)
@@ -105,7 +109,9 @@ block
                   include "virial_compute_coul.f90"
                 end select
 #endif
+#ifndef fast
                 Wcoul = Wcoul + WCij
+#endif
                 Wij = Wij + WCij
               end if
             end associate

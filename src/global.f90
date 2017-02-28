@@ -15,7 +15,7 @@
 !
 !    Author: Charlles R. A. Abreu (abreu@eq.ufrj.br)
 !            Applied Thermodynamics and Molecular Simulation
-!            Federal University of Rio de Janeiro, Brazilmodule lists
+!            Federal University of Rio de Janeiro, Brazil
 
 module global
 
@@ -71,16 +71,6 @@ contains
       ranged = (i(j) > 0).and.(i(j) <= imax)
     end do
   end function ranged
-
-!===================================================================================================
-
-  elemental subroutine swap( a, b )
-    real(rb), intent(inout) :: a, b
-    real(rb) :: c
-    c = a
-    a = b
-    b = c
-  end subroutine swap
 
 !===================================================================================================
 

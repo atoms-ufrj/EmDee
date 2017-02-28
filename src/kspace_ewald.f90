@@ -15,7 +15,7 @@
 !
 !    Author: Charlles R. A. Abreu (abreu@eq.ufrj.br)
 !            Applied Thermodynamics and Molecular Simulation
-!            Federal University of Rio de Janeiro, Brazilmodule lists
+!            Federal University of Rio de Janeiro, Brazil
 
 module kspace_ewald_module
 
@@ -148,21 +148,7 @@ contains
       me%Volume = product(L)
       fourPiByV = 4.0_rb*Pi/me%Volume
       !$omp parallel num_threads(me%nthreads)
-      block
-        integer  :: thread, v1, vN, i
-        real(rb) :: k(3), ksq
-
-        thread = omp_get_thread_num() + 1
-        v1 = (thread - 1)*me%threadVecs + 1
-        vN = min(thread*me%threadVecs, nvecs)
-        do i = v1, vN
-          me%n(i,:) = n(:,i)
-          k = unit*n(:,i)
-          ksq = sum(k*k)
-          me%prefac(i) = fourPiByV*exp(ksq*B)/ksq
-          me%vec(:,i) = two*me%prefac(i)*k
-        end do
-      end block
+      call set_vectors( omp_get_thread_num() + 1 )
       !$omp end parallel
 
     else
@@ -174,6 +160,26 @@ contains
 
     end if
 
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine set_vectors( thread )
+        integer, intent(in) :: thread
+
+        integer  :: v1, vN, i
+        real(rb) :: k(3), ksq
+
+        v1 = (thread - 1)*me%threadVecs + 1
+        vN = min(thread*me%threadVecs, nvecs)
+        do i = v1, vN
+          me%n(i,:) = n(:,i)
+          k = unit*n(:,i)
+          ksq = sum(k*k)
+          me%prefac(i) = fourPiByV*exp(ksq*B)/ksq
+          me%vec(:,i) = two*me%prefac(i)*k
+        end do
+
+      end subroutine set_vectors
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine kspace_ewald_update
 
 !===================================================================================================
@@ -183,40 +189,44 @@ contains
     real(rb),            intent(in)    :: Rs(:,:)
 
     !$omp parallel num_threads(me%nthreads)
-    block
-      integer  :: thread, v1, vN, i, j, itype
-      real(rb) :: theta(3)
-      complex(rb) :: Z(3), G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
-
-      thread = omp_get_thread_num() + 1
-
-      ! Compute q*exp(i*k*R) for current thread's charges:
-      G1(0) = (one,zero)
-      G2(0) = (one,zero)
-      G3(0) = (one,zero)
-      do j = (thread - 1)*me%threadCharges + 1, min(thread*me%threadCharges, me%charge%nitems)
-        i = me%charge%item(j)
-        theta = twoPi*Rs(:,i)
-        Z = cmplx(cos(theta),sin(theta),rb)
-        G1(1:me%nmax(1)) = recursion( Z(1), me%nmax(1) )
-        G2(1:me%nmax(2)) = recursion( Z(2), me%nmax(2) )
-        G3(1:me%nmax(3)) = recursion( Z(3), me%nmax(3) )
-        G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
-        G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
-        me%qeikr(:,j) = me%charge%value(j)*G1(me%n(:,1))*G2(me%n(:,2))*G3(me%n(:,3))
-      end do
-      !$omp barrier
-
-      ! Compute type-specific structure factors for current thread's vectors:
-      v1 = (thread - 1)*me%threadVecs + 1
-      vN = min(thread*me%threadVecs, me%nvecs)
-      forall (itype=1:me%ntypes)
-        me%S(v1:vN,itype) = sum(me%qeikr(v1:vN,me%charge%first(itype):me%charge%last(itype)),2)
-      end forall
-    end block
+    call prepare( omp_get_thread_num() + 1 )
     !$omp end parallel
 
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine prepare( thread )
+        integer, intent(in) :: thread
+
+        integer  :: v1, vN, i, j, itype
+        real(rb) :: theta(3)
+        complex(rb) :: Z(3)
+        complex(rb) :: G1(0:me%nmax(1)), G2(-me%nmax(2):me%nmax(2)), G3(-me%nmax(3):me%nmax(3))
+
+        ! Compute q*exp(i*k*R) for current thread's charges:
+        G1(0) = (one,zero)
+        G2(0) = (one,zero)
+        G3(0) = (one,zero)
+        do j = (thread - 1)*me%threadCharges + 1, min(thread*me%threadCharges, me%charge%nitems)
+          i = me%charge%item(j)
+          theta = twoPi*Rs(:,i)
+          Z = cmplx(cos(theta),sin(theta),rb)
+          G1(1:me%nmax(1)) = recursion( Z(1), me%nmax(1) )
+          G2(1:me%nmax(2)) = recursion( Z(2), me%nmax(2) )
+          G3(1:me%nmax(3)) = recursion( Z(3), me%nmax(3) )
+          G2(-me%nmax(2):-1) = conjg(G2(me%nmax(2):1:-1))
+          G3(-me%nmax(2):-1) = conjg(G3(me%nmax(2):1:-1))
+          me%qeikr(:,j) = me%charge%value(j)*G1(me%n(:,1))*G2(me%n(:,2))*G3(me%n(:,3))
+        end do
+        !$omp barrier
+
+        ! Compute type-specific structure factors for current thread's vectors:
+        v1 = (thread - 1)*me%threadVecs + 1
+        vN = min(thread*me%threadVecs, me%nvecs)
+        forall (itype=1:me%ntypes)
+          me%S(v1:vN,itype) = sum(me%qeikr(v1:vN,me%charge%first(itype):me%charge%last(itype)),2)
+        end forall
+
+      end subroutine prepare
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       pure function recursion( Z, n ) result( G )
         complex(rb), intent(in) :: Z

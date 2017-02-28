@@ -236,11 +236,5 @@ interface
     import :: c_ptr
   end function EmDee_dihedral_none
 
-!  function total_virial( md ) result( virial ) bind(C,name="total_virial")
-!    import :: c_double, tEmDee
-!    type(tEmDee), intent(in) :: md
-!    real(c_double)           :: virial
-!  end function total_virial
-
 end interface
 end module

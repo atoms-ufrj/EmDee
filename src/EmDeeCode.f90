@@ -20,7 +20,6 @@
 ! TODO: Include coul and kspace terms in subroutine update_forces.
 ! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
 ! TODO: Change name of exported Julia wrapper
-! TODO: Add option of automatic versus manual force calculations
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
 
@@ -33,9 +32,9 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "27 Feb 2017"
+character(11), parameter :: VERSION = "28 Feb 2017"
 
-type, bind(C) :: tOpts
+type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
   logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
@@ -45,7 +44,7 @@ type, bind(C) :: tOpts
   real(rb)    :: Alpha_P              ! Momentum-multiplying constant in momentum equations
 end type tOpts
 
-type, bind(C) :: tEnergy
+type, bind(C), public :: tEnergy
   real(rb)    :: Potential            ! Total potential energy of the system
   real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
   real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
@@ -59,7 +58,7 @@ type, bind(C) :: tEnergy
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
 
-type, bind(C) :: tEmDee
+type, bind(C), public :: tEmDee
   integer(ib)   :: Builds             ! Number of neighbor list builds
   real(rb)      :: PairTime           ! Time taken in force calculations
   real(rb)      :: TotalTime          ! Total time since initialization
@@ -219,7 +218,9 @@ contains
 
     call c_f_pointer( md%data, me )
     if (layer /= me%layer) then
-      if ((layer < 1).or.(layer > me%nlayers)) call error( "switch_model_layer", "out of range" )
+      if ((layer < 1).or.(layer > me%nlayers)) then
+        call error( "model layer switch", "selected layer is out of range" )
+      end if
       if (me%initialized) call update_forces( md, layer )
       me%layer = layer
       me%other_layer = [(i,i=1,layer-1), (i,i=layer+1,me%nlayers)]
@@ -624,7 +625,7 @@ contains
           me%initialized = allocated( me%R )
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         end if
-        if (me%initialized) call update_forces
+        if (me%initialized) call compute_all_forces( md )
 
       case ("coordinates")
         if (.not.allocated( me%R )) allocate( me%R(3,me%natoms) )
@@ -636,7 +637,7 @@ contains
           me%initialized = me%Lbox > zero
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         end if
-        if (me%initialized) call update_forces
+        if (me%initialized) call compute_all_forces( md )
 
       case ("momenta")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -686,11 +687,6 @@ contains
         me%charge(first:last) = Qext(first:last)
         me%charged(first:last) = abs(Qext(first:last)) > epsilon(one)
       end subroutine assign_charges
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine update_forces
-        call compute_all_forces( md )
-        if (me%respa_active) call compute_fast_forces( md )
-      end subroutine update_forces
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine upload( thread, origin, destination )
         integer,  intent(in)    :: thread
@@ -972,6 +968,8 @@ contains
 
       allocate( F_slow(3,me%natoms) )
 
+      if (me%fast_required) call compute_fast_forces( md )
+
       !$omp parallel num_threads(me%nthreads)
       block
         integer :: thread, i
@@ -999,6 +997,7 @@ contains
           me%Lbox = CR*me%Lbox
           me%InvL = one/me%Lbox
           me%invL2 = me%invL*me%invL
+          me%Lbox3 = me%Lbox
         end if
 
         call compute_fast_forces( md )
@@ -1045,6 +1044,7 @@ contains
         me%Lbox = CR*me%Lbox
         me%InvL = one/me%Lbox
         me%invL2 = me%invL*me%invL
+        me%Lbox3 = me%Lbox
       end if
 
       call compute_all_forces( md )
@@ -1070,8 +1070,6 @@ contains
       end if
       md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
     end if
-
-    if (changeBox) me%Lbox3 = me%Lbox
 
   end subroutine EmDee_advance
 
@@ -1131,6 +1129,8 @@ contains
       me%Energy = sum(me%threadEnergy,2)
     end if
 
+    me%fast_required = me%respa_active
+
     md%Energy%UpToDate = compute
     time = omp_get_wtime()
     md%pairTime = md%pairTime + time
@@ -1172,26 +1172,6 @@ contains
 
 !===================================================================================================
 
-!  subroutine compute_fast_forces( me )
-!    type(tData), intent(inout) :: me
-
-!    real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads)
-
-!    Rs = me%invL*me%R
-!    !$omp parallel num_threads(me%nthreads)
-!    block
-!      integer :: thread
-!      thread = omp_get_thread_num() + 1
-!      call compute_short_range_forces( me, thread, Rs, Fs(:,:,thread) )
-!    end block
-!    !$omp end parallel
-!    me%F = sum(Fs,3)
-!!    if (me%nbodies /= 0) call rigid_body_forces( me )
-
-!  end subroutine compute_fast_forces
-
-!===================================================================================================
-
   subroutine update_forces( md, layer )
     type(tEmDee), intent(inout) :: md
     integer,      intent(in)    :: layer
@@ -1224,60 +1204,6 @@ contains
     md%totalTime = time - me%startTime
 
   end subroutine update_forces
-
-!===================================================================================================
-
-!  function total_virial( md ) result( virial ) bind(C,name="total_virial")
-!    type(tEmDee), intent(in) :: md
-!    real(rb)                 :: virial
-
-!    integer  :: ib, jb, ik, jk, i, j, itype, jtype
-!    real(rb) :: Fij(3), Rij(3), r2, invR2, invR, Wij, QiQj, WCij, rFc, fshift
-!    type(tData), pointer :: me
-
-!    call c_f_pointer( md%data, me )
-!    fshift = one/me%RcSq
-
-!    virial = zero
-!    do ib = 1, me%nbodies-1
-!      do jb = ib+1, me%nbodies
-!        Fij = zero
-!        do ik = 1, me%body(ib)%NP
-!          i = me%body(ib)%index(ik)
-!          itype = me%atomType(i)
-!          do jk = 1, me%body(jb)%NP
-!            j = me%body(jb)%index(jk)
-!            Rij = me%R(:,i) - me%R(:,j)
-!            Rij = Rij - me%Lbox*anint(me%invL*Rij)
-!            r2 = sum(Rij*Rij)
-!            if (r2 < me%RcSq) then
-!              invR2 = one/r2
-!              invR = sqrt(invR2)
-!              jtype = me%atomType(j)
-!              associate( pair => me%pair(itype,jtype,me%layer) )
-!                select type ( model => pair%model )
-!                  include "virial_compute_pair.f90"
-!                end select
-!                if (pair%model%shifted_force) then
-!                  rFc = pair%model%fshift/invR
-!                  Wij = Wij - rFc
-!                end if
-!                if (me%charged(i).and.me%charged(j).and.pair%coulomb) then
-!                  QiQj = pair%kCoul*me%charge(i)*me%charge(j)
-!                  WCij = QiQj*(invR - fshift/invR)
-!                  Wij = Wij + WCij
-!                end if
-!              end associate
-!              Fij = Fij + Wij*invR2*Rij
-!            end if
-!          end do
-!        end do
-!        Rij = me%body(ib)%rcm - me%body(jb)%rcm
-!        Rij = Rij - me%Lbox*anint(me%invL*Rij)
-!        Virial = Virial + sum(Fij*Rij)
-!      end do
-!    end do
-!  end function total_virial
 
 !===================================================================================================
 

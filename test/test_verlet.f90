@@ -31,6 +31,7 @@ implicit none
 call command_line_arguments( filename, threads )
 call read_data( filename )
 call read_configuration( configFile )
+call unit_conversions
 
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass), c_null_ptr )
 do i = 1, ntypes

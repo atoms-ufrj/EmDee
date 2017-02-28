@@ -31,6 +31,7 @@ implicit none
 call command_line_arguments( filename, threads )
 call read_data( filename )
 call read_configuration( configFile )
+call unit_conversions
 
 where (mod(molecule,3) == 0) molecule = 0
 md = EmDee_system( threads, 1, Rc, Rs, N, c_loc(atomType), c_loc(mass), c_loc(molecule) )

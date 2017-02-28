@@ -40,7 +40,6 @@ type, extends(cCoulModel) :: coul_long
     procedure :: compute => coul_long_compute
     procedure :: energy  => coul_long_energy
     procedure :: virial  => coul_long_virial
-    procedure :: unsplit => coul_long_unsplit
 end type coul_long
 
 contains
@@ -122,20 +121,6 @@ contains
     WCij = QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
 
   end subroutine coul_long_virial
-
-!---------------------------------------------------------------------------------------------------
-! If the Coulomb model does not require a kspace solver, then this subroutine must be identical to
-! coulModel_virial. Otherwise, it must return the Coulomb virial W(r) = -r*dE/dr in its complete
-! form, that is, without splitting it into short- and long-range contributions. 
-
-  subroutine coul_long_unsplit( model, WCij, invR, invR2, QiQj )
-    class(coul_long), intent(in)  :: model
-    real(rb),         intent(out) :: WCij
-    real(rb),         intent(in)  :: invR, invR2, QiQj
-
-    WCij = QiQj*invR
-
-  end subroutine coul_long_unsplit
 
 !---------------------------------------------------------------------------------------------------
 

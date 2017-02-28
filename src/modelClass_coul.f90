@@ -36,7 +36,6 @@ type, abstract, extends(cModel) :: cCoulModel
     procedure(cCoulModel_compute), deferred :: compute
     procedure(cCoulModel_energy),  deferred :: energy
     procedure(cCoulModel_virial),  deferred :: virial
-    procedure(cCoulModel_unsplit), deferred :: unsplit
     procedure :: shifting_setup => cCoulModel_shifting_setup
     procedure :: kspace_setup => cCoulModel_kspace_setup
 end type cCoulModel
@@ -64,13 +63,6 @@ abstract interface
     real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_virial
 
-  subroutine cCoulModel_unsplit( model, WCij, invR, invR2, QiQj )
-    import
-    class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: WCij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
-  end subroutine cCoulModel_unsplit
-
 end interface
 
 !> Container structure for coul models
@@ -88,7 +80,6 @@ type, extends(cCoulModel) :: coul_none
     procedure :: compute => coul_none_compute
     procedure :: energy  => coul_none_energy
     procedure :: virial  => coul_none_virial
-    procedure :: unsplit => coul_none_virial
 end type coul_none
 
 contains
@@ -204,14 +195,6 @@ contains
     real(rb),         intent(out) :: WCij
     real(rb),         intent(in)  :: invR, invR2, QiQj
   end subroutine coul_none_virial
-
-!---------------------------------------------------------------------------------------------------
-
-  subroutine coul_none_unsplit( model, WCij, invR, invR2, QiQj )
-    class(coul_none), intent(in)  :: model
-    real(rb),         intent(out) :: WCij
-    real(rb),         intent(in)  :: invR, invR2, QiQj
-  end subroutine coul_none_unsplit
 
 !---------------------------------------------------------------------------------------------------
 

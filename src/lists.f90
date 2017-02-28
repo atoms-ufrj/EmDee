@@ -15,7 +15,7 @@
 !
 !    Author: Charlles R. A. Abreu (abreu@eq.ufrj.br)
 !            Applied Thermodynamics and Molecular Simulation
-!            Federal University of Rio de Janeiro, Brazilmodule lists
+!            Federal University of Rio de Janeiro, Brazil
 
 module lists
 
