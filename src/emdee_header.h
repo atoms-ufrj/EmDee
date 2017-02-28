@@ -1,29 +1,33 @@
 typedef struct {
-  int    Builds;         // Number of neighbor-list builds
-  double PairTime;       // Time taken in force calculations
-  double TotalTime;      // Total time since initialization
+  int    Builds;            // Number of neighbor-list builds
+  double PairTime;          // Time taken in force calculations
+  double TotalTime;         // Total time since initialization
   struct {
-    double Potential;    // Total potential energy of the system
-    double Dispersion;   // Dispersion (vdW) part of the potential energy
-    double Coulomb;      // Electrostatic part of the potential energy
-    double Fourier;      // Reciprocal part of the electrostatic potential
-    double Kinetic;      // Total kinetic energy of the system
-    double TransPart[3]; // Translational kinetic energy at each dimension
-    double Rotational;   // Rotational kinetic energy of the system
-    double RotPart[3];   // Rotational kinetic energy around each principal axis
-    double *Layer;       // Vector with multilayer energy components
-    _Bool  Compute;      // Flag to activate/deactivate energy computations
-    _Bool  UpToDate;     // Flag to attest whether energies have been computed
+    double Potential;       // Total potential energy of the system
+    double Dispersion;      // Dispersion (vdW) part of the potential energy
+    double Coulomb;         // Electrostatic part of the potential energy
+    double Fourier;         // Reciprocal part of the electrostatic potential
+    double Kinetic;         // Total kinetic energy of the system
+    double TransPart[3];    // Translational kinetic energy at each dimension
+    double Rotational;      // Rotational kinetic energy of the system
+    double RotPart[3];      // Rotational kinetic energy around each principal axis
+    double *Layer;          // Vector with multilayer energy components
+    _Bool  Compute;         // Flag to activate/deactivate energy computations
+    _Bool  UpToDate;        // Flag to attest whether energies have been computed
   } Energy;
-  double Virial;         // Total internal virial of the system
-  double BodyVirial;     // Rigid body contribution to the internal virial
-  int    DoF;            // Total number of degrees of freedom
-  int    RotDoF;         // Number of rotational degrees of freedom
-  void*  Data;           // Pointer to system data
+  double Virial;            // Total internal virial of the system
+  double BodyVirial;        // Rigid body contribution to the internal virial
+  int    DoF;               // Total number of degrees of freedom
+  int    RotDoF;            // Number of rotational degrees of freedom
+  void*  Data;              // Pointer to system data
   struct {
-    _Bool Translate;     // Flag to activate/deactivate translations
-    _Bool Rotate;        // Flag to activate/deactivate rotations
-    int   RotationMode;  // Algorithm used for free rotation of rigid bodies
+    _Bool  Translate;       // Flag to activate/deactivate translations
+    _Bool  Rotate;          // Flag to activate/deactivate rotations
+    int    RotationMode;    // Algorithm used for free rotation of rigid bodies
+    double Lambda_R;        // Momentum-multiplying constant in position equations
+    double Alpha_R;         // Position-multiplying constant in position equations
+    double Lambda_P;        // Force-multiplying constant in momentum equations
+    double Alpha_P;         // Momentum-multiplying constant in momentum equations
   } Options;
 } tEmDee;
 
@@ -58,11 +62,11 @@ void EmDee_download( tEmDee md, char *option, double* address );
 
 void EmDee_random_momenta( tEmDee* md, double kT, _Bool adjust, int seed );
 
-void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
+void EmDee_boost( tEmDee* md, double dt );
 
-void EmDee_displace( tEmDee* md, double lambda, double alpha, double dt );
+void EmDee_displace( tEmDee* md, double dt );
 
-void EmDee_advance( tEmDee* md, double lambda_R, double alpha_R, double lambda_P, double alpha_P, double dt );
+void EmDee_advance( tEmDee* md, double dt );
 
 void* EmDee_shifted_force( void* model );
 

@@ -74,12 +74,12 @@ abstract interface
 end interface
 
 !> Container structure for coul models
-type coulModelContainer
+type coulContainer
   class(cCoulModel), allocatable :: model
   contains
-    procedure :: coulModelContainer_assign
-    generic :: assignment(=) => coulModelContainer_assign
-end type coulModelContainer
+    procedure :: coulContainer_assign
+    generic :: assignment(=) => coulContainer_assign
+end type coulContainer
 
 !> Class definition for coul model "none"
 type, extends(cCoulModel) :: coul_none
@@ -141,8 +141,8 @@ contains
 !                         C O U L     M O D E L    C O N T A I N E R
 !===================================================================================================
 
-  subroutine coulModelContainer_assign( new, old )
-    class(coulModelContainer), intent(inout) :: new
+  subroutine coulContainer_assign( new, old )
+    class(coulContainer), intent(inout) :: new
     type(modelContainer), intent(in)    :: old
 
     if (allocated(new%model)) deallocate( new%model )
@@ -156,7 +156,7 @@ contains
       end select
     end if
 
-  end subroutine coulModelContainer_assign
+  end subroutine coulContainer_assign
 
 !===================================================================================================
 !                                   C O U L     N O N E

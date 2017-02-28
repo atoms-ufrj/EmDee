@@ -4,6 +4,10 @@ immutable tOptions
   Translate::Int32           # Flag to activate/deactivate translations
   Rotate::Int32              # Flag to activate/deactivate rotations
   RotationMode::Int32        # Algorithm used for free rotation of rigid bodies
+  Lambda_R::Float64          # Momentum-multiplying constant in position equations
+  Alpha_R::Float64           # Position-multiplying constant in position equations
+  Lambda_P::Float64          # Force-multiplying constant in momentum equations
+  Alpha_P::Float64           # Momentum-multiplying constant in momentum equations
 end
 
 immutable tVec3D
@@ -137,22 +141,22 @@ function random_momenta( md::tEmDee, kT::Real, adjust::Integer, seed::Integer )
          Ref(md), kT, adjust, seed )
 end
 #---------------------------------------------------------------------------------------------------
-function boost( md::tEmDee, lambda::Real, alpha::Real, dt::Real )
+function boost( md::tEmDee, dt::Real )
   ccall( (:EmDee_boost,"libemdee"), Void,
-         (Ptr{tEmDee}, Float64, Float64, Float64),
-         Ref(md), lambda, alpha, dt )
+         (Ptr{tEmDee}, Float64),
+         Ref(md), dt )
 end
 #---------------------------------------------------------------------------------------------------
-function displace( md::tEmDee, lambda::Real, alpha::Real, dt::Real )
+function displace( md::tEmDee, dt::Real )
   ccall( (:EmDee_displace,"libemdee"), Void,
-         (Ptr{tEmDee}, Float64, Float64, Float64),
-         Ref(md), lambda, alpha, dt )
+         (Ptr{tEmDee}, Float64),
+         Ref(md), dt )
 end
 #---------------------------------------------------------------------------------------------------
-function advance( md::tEmDee, lambda_R::Real, alpha_R::Real, lambda_P::Real, alpha_P::Real, dt::Real )
+function advance( md::tEmDee, dt::Real )
   ccall( (:EmDee_advance,"libemdee"), Void,
-         (Ptr{tEmDee}, Float64, Float64, Float64, Float64, Float64),
-         Ref(md), lambda_R, alpha_R, lambda_P, alpha_P, dt )
+         (Ptr{tEmDee}, Float64),
+         Ref(md), dt )
 end
 #---------------------------------------------------------------------------------------------------
 #                                            M O D E L S

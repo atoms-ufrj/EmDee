@@ -27,17 +27,22 @@
 module EmDeeCode
 
 use EmDeeData
+use neighbor_lists
 
 implicit none
 
 private
 
-character(11), parameter :: VERSION = "25 Feb 2017"
+character(11), parameter :: VERSION = "27 Feb 2017"
 
 type, bind(C) :: tOpts
-  logical(lb) :: translate            ! Flag to activate/deactivate translations
-  logical(lb) :: rotate               ! Flag to activate/deactivate rotations
-  integer(ib) :: rotationMode         ! Algorithm used for free rotation of rigid bodies
+  logical(lb) :: Translate            ! Flag to activate/deactivate translations
+  logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
+  integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
+  real(rb)    :: Lambda_R             ! Momentum-multiplying constant in position equations
+  real(rb)    :: Alpha_R              ! Position-multiplying constant in position equations
+  real(rb)    :: Lambda_P             ! Force-multiplying constant in momentum equations
+  real(rb)    :: Alpha_P              ! Momentum-multiplying constant in momentum equations
 end type tOpts
 
 type, bind(C) :: tEnergy
@@ -55,9 +60,9 @@ type, bind(C) :: tEnergy
 end type tEnergy
 
 type, bind(C) :: tEmDee
-  integer(ib)   :: builds             ! Number of neighbor list builds
-  real(rb)      :: pairTime           ! Time taken in force calculations
-  real(rb)      :: totalTime          ! Total time since initialization
+  integer(ib)   :: Builds             ! Number of neighbor list builds
+  real(rb)      :: PairTime           ! Time taken in force calculations
+  real(rb)      :: TotalTime          ! Total time since initialization
   type(tEnergy) :: Energy             ! All energy terms
   real(rb)      :: Virial             ! Total internal virial of the system
   real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
@@ -84,8 +89,8 @@ contains
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
-    type(pairModelContainer) :: noPair
-    type(coulModelContainer) :: noCoul
+    type(pairContainer) :: noPair
+    type(coulContainer) :: noCoul
 
     write(*,'("EmDee (version: ",A11,")")') VERSION
 
@@ -104,7 +109,7 @@ contains
     me%natoms = N
     me%threadAtoms = (N + threads - 1)/threads
     me%kspace_active = .false.
-    me%respa = .false.
+    me%respa_active = .false.
     me%xRespaRcSq = zero
 
     ! Set up atom types:
@@ -174,6 +179,7 @@ contains
     EmDee_system % builds = 0
     EmDee_system % pairTime = zero
     EmDee_system % totalTime = zero
+
     EmDee_system % Energy % Potential = zero
     EmDee_system % Energy % Dispersion = zero
     EmDee_system % Energy % Coulomb = zero
@@ -185,14 +191,20 @@ contains
     EmDee_system % Energy % Layer = c_loc(me%Energy(1))
     EmDee_system % Energy % Compute = .true.
     EmDee_system % Energy % UpToDate = .false.
+
     EmDee_system % Virial = zero
     EmDee_system % BodyVirial = zero
     EmDee_system % DoF = 3*(N - 1)
     EmDee_system % RotDoF = 0
     EmDee_system % data = c_loc(me)
     EmDee_system % Options % translate = .true.
-    EmDee_system % Options % rotate = .true.
-    EmDee_system % Options % rotationMode = 0
+
+    EmDee_system % Options % Rotate = .true.
+    EmDee_system % Options % RotationMode = 0
+    EmDee_system % Options % Lambda_R = one
+    EmDee_system % Options % Alpha_R  = zero
+    EmDee_system % Options % Lambda_P = one
+    EmDee_system % Options % Alpha_P  = zero
 
   end function EmDee_system
 
@@ -574,7 +586,7 @@ contains
     if (me%initialized) call error( "set RESPA", "the system has already been initialized" )
     if (Rc >= me%Rc) call error( "set RESPA", "provided internal cutoff is too large" )
 
-    me%respa = .true.
+    me%respa_active = .true.
     me%respaRc = Rc
     me%respaRcSq = Rc**2
     me%xRespaRcSq = (Rc + me%skin)**2
@@ -618,7 +630,7 @@ contains
         if (.not.allocated( me%R )) allocate( me%R(3,me%natoms) )
         call c_f_pointer( address, Matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call assign_coordinates( me, omp_get_thread_num() + 1, Matrix )
+        call upload( omp_get_thread_num() + 1, Matrix, me%R )
         !$omp end parallel
         if (.not.me%initialized) then
           me%initialized = me%Lbox > zero
@@ -646,7 +658,7 @@ contains
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
         call c_f_pointer( address, Matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
-        call assign_forces( omp_get_thread_num() + 1, Matrix )
+        call upload( omp_get_thread_num() + 1, Matrix, me%F )
         !$omp end parallel
 
       case ("charges")
@@ -656,7 +668,7 @@ contains
         !$omp parallel num_threads(me%nthreads)
         call assign_charges( omp_get_thread_num() + 1, Vector )
         !$omp end parallel
-        if (me%initialized) call compute_forces( md )
+        if (me%initialized) call compute_all_forces( md )
 
       case default
         call error( "upload", "invalid option" )
@@ -664,19 +676,6 @@ contains
     end select
 
     contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_forces( thread, Fext )
-        integer,  intent(in) :: thread
-        real(rb), intent(in) :: Fext(3,me%natoms)
-        integer :: i, j
-        do j = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-          i = me%free(j)
-          me%F(:,i) = Fext(:,i)
-        end do
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          call me % body(i) % force_torque_virial( Fext )
-        end do
-      end subroutine assign_forces
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       subroutine assign_charges( thread, Qext )
         integer,  intent(in) :: thread
@@ -688,24 +687,20 @@ contains
         me%charged(first:last) = abs(Qext(first:last)) > epsilon(one)
       end subroutine assign_charges
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine assign_coordinates( me, thread, Rext )
-        type(tData), intent(inout) :: me
-        integer,     intent(in)    :: thread
-        real(rb),    intent(in)    :: Rext(3,me%natoms)
+      subroutine update_forces
+        call compute_all_forces( md )
+        if (me%respa_active) call compute_fast_forces( md )
+      end subroutine update_forces
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine upload( thread, origin, destination )
+        integer,  intent(in)    :: thread
+        real(rb), intent(in)    :: origin(3,me%natoms)
+        real(rb), intent(inout) :: destination(3,me%natoms)
         integer :: first, last
         first = (thread - 1)*me%threadAtoms + 1
         last = min(thread*me%threadAtoms, me%natoms)
-        me%R(:,first:last) = Rext(:,first:last)
-      end subroutine assign_coordinates
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine update_forces
-        call compute_forces( md )
-        if (me%respa) then
-          me%shortF = me%F
-          call compute_fast_forces( me )
-          call swap( me%shortF, me%F )
-        end if
-      end subroutine update_forces
+        destination(:,first:last) = origin(:,first:last)
+      end subroutine upload
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 
@@ -755,7 +750,7 @@ contains
       case ("multienergy")
         if (.not.md%Energy%UpToDate) call error( "download", "layer energies are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
-        vector = sum(me%threadEnergy,2)
+        vector = me%Energy
 
       case default
         call error( "download", "invalid option" )
@@ -861,25 +856,9 @@ contains
 
 !===================================================================================================
 
-!  subroutine EmDee_save_state( md, rigid )
-!    type(tEmDee), intent(inout) :: md
-!    integer(ib),  intent(in)    :: rigid
-!    if (rigid /= 0) then
-!    else
-!    end if
-!  end subroutine EmDee_save_state
-
-!===================================================================================================
-
-!  subroutine EmDee_restore_state( md )
-!    type(tEmDee), intent(inout) :: md
-!  end subroutine EmDee_restore_state
-
-!===================================================================================================
-
-  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
+  subroutine EmDee_boost( md, dt ) bind(C,name="EmDee_boost")
     type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: lambda, alpha, dt
+    real(rb),     value         :: dt
 
     real(rb) :: CP, CF
     real(rb), allocatable :: twoKEt(:,:), twoKEr(:,:)
@@ -887,67 +866,48 @@ contains
 
     call c_f_pointer( md%data, me )
 
-    CF = phi(alpha*dt)*dt
-    CP = one - alpha*CF
-    CF = lambda*CF
+    CF = phi(md%Options%alpha_P*dt)*dt
+    CP = one - md%Options%alpha_P*CF
+    CF = md%Options%lambda_P*CF
 
-    allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
+    if (md%Energy%compute) allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
     !$omp parallel num_threads(me%nthreads)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
-      call boost( me, thread, CP, CF, md%Options%translate, md%Options%rotate )
-      call update_kinetic_energies( thread, twoKEt(:,thread), twoKEr(:,thread) )
+      call boost( me, thread, CP, CF, me%F, md%Options%translate, md%Options%rotate )
+      if (md%Energy%compute) then
+        call kinetic_energies( me, thread, md%Options%translate, md%Options%rotate, &
+                               twoKEt(:,thread), twoKEr(:,thread) )
+      end if
     end block
     !$omp end parallel
 
-    if (md%Options%translate) md%Energy%TransPart = half*sum(twoKEt,2)
-    if (md%Options%rotate) then
-      md%Energy%RotPart = half*sum(twoKEr,2)
-      md%Energy%Rotational = sum(md%Energy%RotPart)
+    if (md%Energy%compute) then
+      if (md%Options%translate) md%Energy%TransPart = half*sum(twoKEt,2)
+      if (md%Options%rotate) then
+        md%Energy%RotPart = half*sum(twoKEr,2)
+        md%Energy%Rotational = sum(md%Energy%RotPart)
+      end if
+      md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
     end if
-    md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine update_kinetic_energies( thread, twoKEt, twoKEr )
-        integer,  intent(in)  :: thread
-        real(rb), intent(out) :: twoKEt(3), twoKEr(3)
-        integer :: i, j
-        if (md%Options%translate) then
-          twoKEt = zero
-          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-            twoKEt = twoKEt + me%body(i)%invMass*me%body(i)%pcm**2
-          end do
-          do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-            j = me%free(i)
-            twoKEt = twoKEt + me%invMass(j)*me%P(:,j)**2
-          end do
-        end if
-        if (md%Options%rotate) then
-          twoKEr = zero
-          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-            twoKEr = twoKEr + me%body(i)%MoI*me%body(i)%omega**2
-          end do
-        end if
-      end subroutine update_kinetic_energies
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_boost
 
 !===================================================================================================
 
-  subroutine EmDee_displace( md, lambda, alpha, dt ) bind(C,name="EmDee_displace")
+  subroutine EmDee_displace( md, dt ) bind(C,name="EmDee_displace")
     type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: lambda, alpha, dt
+    real(rb),     value         :: dt
 
     real(rb) :: cR, cP
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
 
-    if (alpha /= zero) then
-      cP = phi(alpha*dt)*dt
-      cR = one - alpha*cP
+    if (md%Options%alpha_R /= zero) then
+      cP = phi(md%Options%alpha_R*dt)*dt
+      cR = one - md%Options%alpha_R*cP
       me%Lbox = cR*me%Lbox
       me%Lbox3 = me%Lbox
       me%InvL = one/me%Lbox
@@ -956,7 +916,7 @@ contains
       cP = dt
       cR = one
     end if
-    cP = lambda*cP
+    cP = md%Options%lambda_R*cP
 
     associate ( Opt => md%Options )
       !$omp parallel num_threads(me%nthreads)
@@ -965,146 +925,165 @@ contains
       !$omp end parallel
     end associate
 
-    call compute_forces( md )
+    call compute_all_forces( md )
 
   end subroutine EmDee_displace
 
 !===================================================================================================
 
-  subroutine EmDee_advance( md, lambda_R, alpha_R, lambda_P, alpha_P, dt ) bind(C,name="EmDee_advance")
+  subroutine EmDee_advance( md, dt ) bind(C,name="EmDee_advance")
     type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: lambda_R, alpha_R, lambda_P, alpha_P, dt
+    real(rb),     value         :: dt
 
-    real(rb) :: phiDt, CRR, CRP, CPP, CPF, dt_2, smalldt, smalldt_2
-    type(tData), pointer :: me
-
-    logical(lb) :: trans, rot
-    integer(ib) :: mode
-    real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
+    integer(ib) :: mode, step
+    logical(lb) :: trans, rot, changeBox
+    real(rb)    :: dt_2, smalldt, smalldt_2, CPex, CFex, CPin, CFin, CR, CP
+    real(rb), allocatable :: F_slow(:,:)
+    real(rb), allocatable :: twoKEt(:,:), twoKEr(:,:)
+    type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
 
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
+    if (md%Energy%compute) allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
 
     dt_2 = half*dt
     trans = md%Options%translate
     rot   = md%Options%rotate
     mode  = md%Options%rotationMode
 
-    if (me%respa) then
+    CFex = phi(md%Options%alpha_P*dt_2)*dt_2
+    CPex = one - md%Options%alpha_P*CFex
+    CFex = md%Options%lambda_P*CFex
 
-!    phiDt = phi(alpha_R*dt)*dt
-!    CRR = one - alpha_R*phiDt
-!    CRP = lambda_R*phiDt
+    changeBox = md%Options%alpha_R /= zero
 
-!    phiDt = phi(alpha_P*dt)*dt
-!    CPP = one - alpha_P*phiDt
-!    CPF = lambda_P*phiDt
+    if (me%respa_active) then
 
       smalldt = dt/me%Npair
       smalldt_2 = half*smalldt
 
+      CFin = phi(md%Options%alpha_P*smalldt_2)*smalldt_2
+      CPin = one - md%Options%alpha_P*CFin
+      CFin = md%Options%lambda_P*CFin
+
+      CP = phi(md%Options%alpha_R*smalldt)*smalldt
+      CR = one - md%Options%alpha_R*CP
+      CP = md%Options%lambda_R*CP
+
+      allocate( F_slow(3,me%natoms) )
+
       !$omp parallel num_threads(me%nthreads)
       block
-        integer :: thread, a1, aN, b1, bN, i, step
-
+        integer :: thread, i
         thread = omp_get_thread_num() + 1
-
-        call boost( me, thread, one, dt_2, trans, rot )
+        forall (i = (thread-1)*me%threadAtoms+1 : min(thread*me%threadAtoms, me%natoms))
+          F_slow(:,i) = me%F(:,i) - me%F_fast(:,i)
+        end forall
         !$omp barrier
+        call boost( me, thread, CPex, CFex, F_slow, trans, rot )
+      end block
+      !$omp end parallel
 
-        a1 = (thread - 1)*me%threadAtoms + 1
-        aN = min(thread*me%threadAtoms, me%natoms)
-        b1 = (thread - 1)*me%threadBodies + 1
-        bN = min(thread*me%threadBodies, me%nbodies)
-
-        me%F(:,a1:aN) = me%shortF(:,a1:aN)
-        do i = b1, bN
-          call me % body(i) % force_torque_virial( me%shortF )
-        end do
-        !$omp barrier
-
-        call boost( me, thread, one, -dt_2+smalldt_2, trans, rot )
-        !$omp barrier
-
-        do step = 1, me%Npair-1
-          call move_and_compute_forces( thread, a1, aN, b1, bN )
+      do step = 1, me%Npair
+        !$omp parallel num_threads(me%nthreads)
+        block
+          integer :: thread
+          thread = omp_get_thread_num() + 1
+          call boost( me, thread, CPin, CFin, me%F_fast, trans, rot )
           !$omp barrier
+          call move( me, thread, CR, CP, smalldt, trans, rot, mode )
+        end block
+        !$omp end parallel
 
-          call boost( me, thread, one, smalldt, trans, rot )
-          !$omp barrier
-        end do
+        if (changeBox) then
+          me%Lbox = CR*me%Lbox
+          me%InvL = one/me%Lbox
+          me%invL2 = me%invL*me%invL
+        end if
 
-        call move_and_compute_forces( thread, a1, aN, b1, bN )
+        call compute_fast_forces( md )
+
+        !$omp parallel num_threads(me%nthreads)
+        call boost( me, omp_get_thread_num() + 1, CPin, CFin, me%F_fast, trans, rot )
+        !$omp end parallel
+      end do
+
+      call compute_all_forces( md )
+
+      !$omp parallel num_threads(me%nthreads)
+      block
+        integer :: thread, i
+        thread = omp_get_thread_num() + 1
+        forall (i = (thread-1)*me%threadAtoms+1 : min(thread*me%threadAtoms, me%natoms))
+          F_slow(:,i) = me%F(:,i) - me%F_fast(:,i)
+        end forall
         !$omp barrier
-
-        call boost( me, thread, one, -dt_2+smalldt_2, trans, rot )
-        me%shortF(:,a1:aN) = me%F(:,a1:aN)
-
+        call boost( me, thread, CPex, CFex, F_slow, trans, rot )
+        if (md%Energy%compute) then
+          call kinetic_energies( me, thread, trans, rot, twoKEt(:,thread), twoKEr(:,thread) )
+        end if
       end block
       !$omp end parallel
 
     else
 
+      CP = phi(md%Options%alpha_R*dt)*dt
+      CR = one - md%Options%alpha_R*CP
+      CP = md%Options%lambda_R*CP
+
       !$omp parallel num_threads(me%nthreads)
       block
         integer :: thread
-
         thread = omp_get_thread_num() + 1
-
-        call boost( me, thread, one, dt_2, trans, rot )
+        call boost( me, thread, CPex, CFex, me%F, trans, rot )
         !$omp barrier
+        call move( me, thread, CR, CP, dt, trans, rot, mode )
+      end block
+      !$omp end parallel
 
-        call move( me, thread, one, dt, dt, trans, rot, mode )
+      if (changeBox) then
+        me%Lbox = CR*me%Lbox
+        me%InvL = one/me%Lbox
+        me%invL2 = me%invL*me%invL
+      end if
 
+      call compute_all_forces( md )
+
+      !$omp parallel num_threads(me%nthreads)
+      block
+        integer :: thread
+        thread = omp_get_thread_num() + 1
+        call boost( me, thread, CPex, CFex, me%F, trans, rot )
+        if (md%Energy%compute) then
+          call kinetic_energies( me, thread, trans, rot, twoKEt(:,thread), twoKEr(:,thread) )
+        end if
       end block
       !$omp end parallel
 
     end if
 
-    call compute_forces( md )
-    call EmDee_boost( md, one, zero, dt_2 )
+    if (md%Energy%compute) then
+      if (md%Options%translate) md%Energy%TransPart = half*sum(twoKEt,2)
+      if (md%Options%rotate) then
+        md%Energy%RotPart = half*sum(twoKEr,2)
+        md%Energy%Rotational = sum(md%Energy%RotPart)
+      end if
+      md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
+    end if
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine move_and_compute_forces( thread, a1, aN, b1, bN )
-        integer, intent(in) :: thread, a1, aN, b1, bN
+    if (changeBox) me%Lbox3 = me%Lbox
 
-        integer :: i
-
-        call move( me, thread, one, smalldt, smalldt, trans, rot, mode )
-        !$omp barrier
-
-        Rs(:,a1:aN) = me%invL*me%R(:,a1:aN)
-        !$omp barrier
-
-        call compute_short_range_forces( me, thread, Rs, Fs(:,:,thread) )
-        !$omp barrier
-
-        me%F(:,a1:aN) = Fs(:,a1:aN,1)
-        do i = 2, me%nthreads
-          me%F(:,a1:aN) = me%F(:,a1:aN) + Fs(:,a1:aN,i)
-        end do
-        !$omp barrier
-
-        do i = b1, bN
-          call me % body(i) % force_torque_virial( me%F )
-        end do
-
-    end subroutine move_and_compute_forces
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_advance
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
 !===================================================================================================
 
-  subroutine compute_forces( md )
+  subroutine compute_all_forces( md )
     type(tEmDee), intent(inout) :: md
 
-    integer  :: M
     real(rb) :: time, Epair, Ecoul, Elong, Wpair, Wcoul
-    logical(lb) :: buildList, compute
+    logical(lb) :: compute
     real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
     type(tData),  pointer :: me
 
@@ -1114,13 +1093,7 @@ contains
     allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
 
-    buildList = maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq
-    if (buildList) then
-      M = floor(ndiv*me%Lbox/me%xRc)
-      call distribute_atoms( me, max(M,2*ndiv+1), Rs )
-      me%R0 = me%R
-      md%builds = md%builds + 1
-    endif
+    call handle_neighbor_lists( me, md%builds, Rs )
 
     compute = md%Energy%Compute
     !$omp parallel num_threads(me%nthreads) reduction(+:Epair,Ecoul,Elong,Wpair,Wcoul)
@@ -1128,7 +1101,6 @@ contains
       integer :: thread
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
-        if (buildList) call build_neighbor_lists( me, thread, Rs )
         call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
         Elong = zero
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Epair, Wpair )
@@ -1147,7 +1119,7 @@ contains
     end if
 
     if (me%nbodies /= 0) then
-      call rigid_body_forces( me, md%BodyVirial )
+      md%BodyVirial = rigid_body_virial( me )
       md%Virial = md%Virial + md%BodyVirial
     end if
 
@@ -1164,16 +1136,25 @@ contains
     md%pairTime = md%pairTime + time
     md%totalTime = time - me%startTime
 
-  end subroutine compute_forces
+  end subroutine compute_all_forces
 
 !===================================================================================================
 
-  subroutine compute_fast_forces( me )
-    type(tData), intent(inout) :: me
+  subroutine compute_fast_forces( md )
+    type(tEmDee), intent(inout) :: md
 
-    real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads)
+    real(rb) :: time
+    real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
+    type(tData),  pointer :: me
 
+    call c_f_pointer( md%data, me )
+    md%pairTime = md%pairTime - omp_get_wtime()
+
+    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
+
+    call handle_neighbor_lists( me, md%builds, Rs )
+
     !$omp parallel num_threads(me%nthreads)
     block
       integer :: thread
@@ -1181,10 +1162,33 @@ contains
       call compute_short_range_forces( me, thread, Rs, Fs(:,:,thread) )
     end block
     !$omp end parallel
-    me%F = sum(Fs,3)
-    if (me%nbodies /= 0) call rigid_body_forces( me )
+    me%F_fast = sum(Fs,3)
+
+    time = omp_get_wtime()
+    md%pairTime = md%pairTime + time
+    md%totalTime = time - me%startTime
 
   end subroutine compute_fast_forces
+
+!===================================================================================================
+
+!  subroutine compute_fast_forces( me )
+!    type(tData), intent(inout) :: me
+
+!    real(rb) :: Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads)
+
+!    Rs = me%invL*me%R
+!    !$omp parallel num_threads(me%nthreads)
+!    block
+!      integer :: thread
+!      thread = omp_get_thread_num() + 1
+!      call compute_short_range_forces( me, thread, Rs, Fs(:,:,thread) )
+!    end block
+!    !$omp end parallel
+!    me%F = sum(Fs,3)
+!!    if (me%nbodies /= 0) call rigid_body_forces( me )
+
+!  end subroutine compute_fast_forces
 
 !===================================================================================================
 
@@ -1213,7 +1217,7 @@ contains
     me%F = me%F + me%Lbox*sum(DFs,3)
     md%Energy%Potential = md%Energy%Potential + DE
     md%Virial = md%Virial + DW
-    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
+!    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     time = omp_get_wtime()
     md%pairTime = md%pairTime + time
@@ -1223,15 +1227,57 @@ contains
 
 !===================================================================================================
 
-  character(sl) function string( carray )
-    character(c_char), intent(in) :: carray(*)
-    integer :: i
-    string = ""
-    do i = 1, sl
-      if (carray(i) == c_null_char) return
-      string(i:i) = carray(i)
-    end do
-  end function string
+!  function total_virial( md ) result( virial ) bind(C,name="total_virial")
+!    type(tEmDee), intent(in) :: md
+!    real(rb)                 :: virial
+
+!    integer  :: ib, jb, ik, jk, i, j, itype, jtype
+!    real(rb) :: Fij(3), Rij(3), r2, invR2, invR, Wij, QiQj, WCij, rFc, fshift
+!    type(tData), pointer :: me
+
+!    call c_f_pointer( md%data, me )
+!    fshift = one/me%RcSq
+
+!    virial = zero
+!    do ib = 1, me%nbodies-1
+!      do jb = ib+1, me%nbodies
+!        Fij = zero
+!        do ik = 1, me%body(ib)%NP
+!          i = me%body(ib)%index(ik)
+!          itype = me%atomType(i)
+!          do jk = 1, me%body(jb)%NP
+!            j = me%body(jb)%index(jk)
+!            Rij = me%R(:,i) - me%R(:,j)
+!            Rij = Rij - me%Lbox*anint(me%invL*Rij)
+!            r2 = sum(Rij*Rij)
+!            if (r2 < me%RcSq) then
+!              invR2 = one/r2
+!              invR = sqrt(invR2)
+!              jtype = me%atomType(j)
+!              associate( pair => me%pair(itype,jtype,me%layer) )
+!                select type ( model => pair%model )
+!                  include "virial_compute_pair.f90"
+!                end select
+!                if (pair%model%shifted_force) then
+!                  rFc = pair%model%fshift/invR
+!                  Wij = Wij - rFc
+!                end if
+!                if (me%charged(i).and.me%charged(j).and.pair%coulomb) then
+!                  QiQj = pair%kCoul*me%charge(i)*me%charge(j)
+!                  WCij = QiQj*(invR - fshift/invR)
+!                  Wij = Wij + WCij
+!                end if
+!              end associate
+!              Fij = Fij + Wij*invR2*Rij
+!            end if
+!          end do
+!        end do
+!        Rij = me%body(ib)%rcm - me%body(jb)%rcm
+!        Rij = Rij - me%Lbox*anint(me%invL*Rij)
+!        Virial = Virial + sum(Fij*Rij)
+!      end do
+!    end do
+!  end function total_virial
 
 !===================================================================================================
 

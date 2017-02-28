@@ -64,7 +64,7 @@ ALLMODELS   = $(shell bash $(SRCDIR)/make_pair_list.sh $(PAIRMODELS)) \
 
 KSPACE = $(patsubst $(SRCDIR)/%.f90,%,$(wildcard $(SRCDIR)/kspace_*.f90))
 
-OBJECTS = $(call obj,EmDeeCode EmDeeData ArBee math structs models \
+OBJECTS = $(call obj,EmDeeCode neighbor_lists EmDeeData ArBee math structs models \
                      $(ALLMODELS) $(KSPACE) $(addprefix modelClass_,$(MODELTERMS) kspace) \
                      modelClass lists global)
 
@@ -144,7 +144,10 @@ $(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl $(SRCDIR)/make_j_header.sh
 
 $(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode) \
                        $(call src,$(COMPUTES) $(ENERGYCOMPUTES) $(VIRIALCOMPUTES)) \
-                       $(call obj,EmDeeData ArBee structs models lists global)
+                       $(call obj,neighbor_lists EmDeeData ArBee structs models lists global)
+	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
+
+$(OBJDIR)/neighbor_lists.o: $(SRCDIR)/neighbor_lists.f90 $(OBJDIR)/EmDeeData.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
 $(OBJDIR)/EmDeeData.o: $(call src,EmDeeData compute) \

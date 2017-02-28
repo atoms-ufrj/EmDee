@@ -20,9 +20,9 @@ function run(nthreads, file)
 
   println(0, " ", md.Potential, " ", md.Virial)
   for step = 1:Nsteps
-    EmDee.boost( md, 1.0, 0.0, Dt_2 )
-    EmDee.move( md, 1.0, 0.0, Dt, 1, 1 )
-    EmDee.boost( md, 1.0, 0.0, Dt_2 )
+    EmDee.boost( md, Dt_2 )
+    EmDee.move( md, Dt )
+    EmDee.boost( md, Dt_2 )
     mod(step,50) == 0 && println(step, " ", md.Potential, " ", md.Virial)
   end
   println("Pair time  = ",md.pairTime," s.")

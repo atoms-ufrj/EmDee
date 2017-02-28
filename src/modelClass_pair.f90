@@ -72,15 +72,15 @@ abstract interface
 end interface
 
 !> Container structure for pair models
-type pairModelContainer
+type pairContainer
   class(cPairModel), allocatable :: model
   logical  :: coulomb = .false.
   real(rb) :: kCoul = zero
   contains
-    procedure :: assign => pairModelContainer_assign
+    procedure :: assign => pairContainer_assign
     generic :: assignment(=) => assign
-    procedure :: mix => pairModelContainer_mix
-end type pairModelContainer
+    procedure :: mix => pairContainer_mix
+end type pairContainer
 
 !> Class definition for pair model "none"
 type, extends(cPairModel) :: pair_none
@@ -163,8 +163,8 @@ contains
 !                         P A I R     M O D E L    C O N T A I N E R
 !===================================================================================================
 
-  subroutine pairModelContainer_assign( new, old )
-    class(pairModelContainer), intent(inout) :: new
+  subroutine pairContainer_assign( new, old )
+    class(pairContainer), intent(inout) :: new
     type(modelContainer),      intent(in)    :: old
 
     if (allocated(new%model)) deallocate( new%model )
@@ -178,13 +178,13 @@ contains
       end select
     end if
 
-  end subroutine pairModelContainer_assign
+  end subroutine pairContainer_assign
 
 !---------------------------------------------------------------------------------------------------
 
-  function pairModelContainer_mix( a, b ) result( c )
-    class(pairModelContainer), intent(in) :: a, b
-    type(pairModelContainer)              :: c
+  function pairContainer_mix( a, b ) result( c )
+    class(pairContainer), intent(in) :: a, b
+    type(pairContainer)              :: c
 
     class(cPairModel), pointer :: mixed
 
@@ -202,7 +202,7 @@ contains
     c%Coulomb = a%Coulomb .and. b%Coulomb
     if (c%Coulomb) c%kCoul = sqrt(a%kCoul*b%kCoul)
 
-  end function pairModelContainer_mix
+  end function pairContainer_mix
 
 !===================================================================================================
 !                                   P A I R     N O N E

@@ -58,13 +58,13 @@
 
     integer :: step
 
-    print*, 0, 0.0_rb, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
+    print*, 0, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
             mvv2e*(md%Energy%Potential + md%Energy%Kinetic)
     do step = 1, Nsteps
       md%Energy%Compute = mod(step,Nprop) == 0
-      call EmDee_advance( md, 1.0_rb, 0.0_rb, 1.0_rb, 0.0_rb, dt )
+      call EmDee_advance( md, dt )
       if (mod(step,Nprop) == 0) then
-        print*, step, step*dt, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
+        print*, step, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
                 mvv2e*(md%Energy%Potential + md%Energy%Kinetic)
       end if
     end do

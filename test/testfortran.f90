@@ -101,9 +101,9 @@ call EmDee_upload( md, "momenta"//c_null_char, c_loc(V(1,1)) )
 print*, 0, md%Energy%Potential, md%Virial, md%Energy%Potential + md%Energy%Kinetic
 do step = 1, Nsteps
   md%Energy%Compute = mod(step,Nprop) == 0
-  call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
-  call EmDee_displace( md, 1.0_rb, 0.0_rb, Dt )
-  call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
+  call EmDee_boost( md, Dt_2 )
+  call EmDee_displace( md, Dt )
+  call EmDee_boost( md, Dt_2 )
   if (mod(step,Nprop) == 0) print*, step, md%Energy%Potential, md%Virial, &
                                     md%Energy%Potential + md%Energy%Kinetic
 end do

@@ -32,16 +32,6 @@ integer, parameter :: extra = 2000
 
 integer, parameter :: ndiv = 2
 integer, parameter :: nbcells = 62
-integer, parameter :: nb(3,nbcells) = reshape( [ &
- 0,  0,  1,    0,  1,  0,    1,  0,  0,   -1,  0,  1,   -1,  1,  0,    0, -1,  1,    0,  1,  1, &
- 1,  0,  1,    1,  1,  0,   -1, -1,  1,   -1,  1,  1,    1, -1,  1,    1,  1,  1,    0,  0,  2, &
- 0,  2,  0,    2,  0,  0,   -2,  0,  1,   -2,  1,  0,   -1,  0,  2,   -1,  2,  0,    0, -2,  1, &
- 0, -1,  2,    0,  1,  2,    0,  2,  1,    1,  0,  2,    1,  2,  0,    2,  0,  1,    2,  1,  0, &
--2, -1,  1,   -2,  1,  1,   -1, -2,  1,   -1, -1,  2,   -1,  1,  2,   -1,  2,  1,    1, -2,  1, &
- 1, -1,  2,    1,  1,  2,    1,  2,  1,    2, -1,  1,    2,  1,  1,   -2,  0,  2,   -2,  2,  0, &
- 0, -2,  2,    0,  2,  2,    2,  0,  2,    2,  2,  0,   -2, -2,  1,   -2, -1,  2,   -2,  1,  2, &
--2,  2,  1,   -1, -2,  2,   -1,  2,  2,    1, -2,  2,    1,  2,  2,    2, -2,  1,    2, -1,  2, &
- 2,  1,  2,    2,  2,  1,   -2, -2,  2,   -2,  2,  2,    2, -2,  2,    2,  2,  2], shape(nb) )
 
 type, private :: tCell
   integer :: neighbor(nbcells)
@@ -110,9 +100,9 @@ type :: tData
   type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
-  type(pairModelContainer), allocatable :: pair(:,:,:)
-  type(coulModelContainer), allocatable :: coul(:)
-  class(cKspaceModel),      allocatable :: kspace
+  type(pairContainer), allocatable :: pair(:,:,:)
+  type(coulContainer), allocatable :: coul(:)
+  class(cKspaceModel), allocatable :: kspace
 
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
@@ -124,16 +114,16 @@ type :: tData
   logical :: multilayer_coulomb
   logical :: kspace_active
 
-  logical     :: respa                    ! Flag to determine if RESPA was activated
+  logical     :: respa_active              ! Flag to determine if RESPA was activated
   real(rb)    :: respaRc                   ! Internal cutoff distance for RESPA
   real(rb)    :: respaRcSq                 ! Internal cutoff distance squared
   real(rb)    :: xRespaRcSq                ! Extended internal cutoff distance squared
   real(rb)    :: fshift
-  integer(ib) :: Npair                    ! Number of core-neighbor sweepings per MD step
-  integer(ib) :: Nbond                    ! Number of bonded computations per core sweeping
+  integer(ib) :: Npair                     ! Number of core-neighbor sweepings per MD step
+  integer(ib) :: Nbond                     ! Number of bonded computations per core sweeping
 
-  type(pairModelContainer), allocatable :: shortPair(:,:,:)
-  real(rb),                 allocatable :: shortF(:,:)
+  real(rb),            allocatable :: F_fast(:,:)
+  type(pairContainer), allocatable :: shortPair(:,:,:)
 
 end type tData
 
@@ -292,7 +282,7 @@ contains
         integer             :: index(size(body))
 
         ! If body(i) <= 0 or body(i) is unique, then index(i) = 0.
-        ! Otherwise, 1 <= index(i) <= number of distinc positive entries which are non-unique
+        ! Otherwise, 1 <= index(i) <= number of distinct positive entries which are non-unique
 
         integer :: i, j, n, ibody
         logical :: not_found
@@ -386,9 +376,9 @@ contains
       end do
     end if
 
-    if (me%respa) then
+    if (me%respa_active) then
       me%shortPair = me%pair
-      allocate( me%shortF(3,me%natoms) )
+      allocate( me%F_fast(3,me%natoms) )
       do i = 1, me%ntypes
         do j = 1, me%ntypes
           do layer = 1, me%nlayers
@@ -423,172 +413,6 @@ contains
       end subroutine update_rigid_bodies
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine perform_initialization
-
-!===================================================================================================
-
-  subroutine rigid_body_forces( me, Virial )
-    type(tData), intent(inout)         :: me
-    real(rb),    intent(out), optional :: Virial
-
-    real(rb) :: Wrb(me%nthreads)
-
-    !$omp parallel num_threads(me%nthreads)
-    block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
-      call compute_body_forces( thread, Wrb(thread) )
-    end block
-    !$omp end parallel
-    if (present(Virial)) Virial = -sum(Wrb)
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine compute_body_forces( thread, Wrb )
-        integer,  intent(in)  :: thread
-        real(rb), intent(out) :: Wrb
-        integer :: i
-        Wrb = zero
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate (b => me%body(i))
-            call b % force_torque_virial( me%F )
-            Wrb = Wrb + b%virial
-          end associate
-        end do
-      end subroutine compute_body_forces
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine rigid_body_forces
-
-!===================================================================================================
-
-  real(rb) function maximum_approach_sq( N, delta )
-    integer,  intent(in) :: N
-    real(rb), intent(in) :: delta(3,N)
-
-    integer  :: i
-    real(rb) :: maximum, next, deltaSq
-
-    maximum = sum(delta(:,1)**2)
-    next = maximum
-    do i = 2, N
-      deltaSq = sum(delta(:,i)**2)
-      if (deltaSq > maximum) then
-        next = maximum
-        maximum = deltaSq
-      end if
-    end do
-    maximum_approach_sq = maximum + 2*sqrt(maximum*next) + next
-
-  end function maximum_approach_sq
-
-!===================================================================================================
-
-  subroutine distribute_atoms( me, M, Rs )
-    type(tData), intent(inout) :: me
-    integer,     intent(in)    :: M
-    real(rb),    intent(in)    :: Rs(3,me%natoms)
-
-    integer :: MM, cells_per_thread, maxNatoms, threadNatoms(me%nthreads), next(me%natoms)
-    logical :: make_cells
-    integer, allocatable :: natoms(:)
-
-    MM = M*M
-    make_cells = M /= me%mcells
-    if (make_cells) then
-      me%mcells = M
-      me%ncells = M*MM
-      if (me%ncells > me%maxcells) then
-        deallocate( me%cell, me%cellAtom%first, me%cellAtom%last )
-        allocate( me%cell(me%ncells), me%cellAtom%first(me%ncells), me%cellAtom%last(me%ncells) )
-        call me % threadCell % allocate( 0, me%nthreads )
-        me%maxcells = me%ncells
-      end if
-      cells_per_thread = (me%ncells + me%nthreads - 1)/me%nthreads
-    end if
-
-    allocate( natoms(me%ncells) )
-
-    !$omp parallel num_threads(me%nthreads) reduction(max:maxNatoms)
-    call distribute( omp_get_thread_num() + 1, maxNatoms )
-    !$omp end parallel
-    me%maxatoms = maxNatoms
-    me%maxpairs = (maxNatoms*((2*nbcells + 1)*maxNatoms - 1))/2
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine distribute( thread, maxNatoms )
-        integer, intent(in)  :: thread
-        integer, intent(out) :: maxNatoms
-
-        integer :: i, j, k, icell, ix, iy, iz, first, last, atoms_per_thread
-        integer :: icoord(3)
-        integer, allocatable :: head(:)
-
-        if (make_cells) then
-          first = (thread - 1)*cells_per_thread + 1
-          last = min( thread*cells_per_thread, me%ncells )
-          do icell = first, last
-            k = icell - 1
-            iz = k/MM
-            j = k - iz*MM
-            iy = j/M
-            ix = j - iy*M
-            me%cell(icell)%neighbor = 1 + pbc(ix+nb(1,:)) + pbc(iy+nb(2,:))*M + pbc(iz+nb(3,:))*MM
-          end do
-          me%threadCell%first(thread) = first
-          me%threadCell%last(thread) = last
-        else
-          first = me%threadCell%first(thread)
-          last = me%threadCell%last(thread)
-        end if
-
-        atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
-        do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
-          icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
-          me%atomCell(i) = 1 + icoord(1) + M*icoord(2) + MM*icoord(3)
-        end do
-        !$omp barrier
-
-        allocate( head(first:last) )
-        head = 0
-        natoms(first:last) = 0
-        do i = 1, me%natoms
-          icell = me%atomCell(i)
-          if ((icell >= first).and.(icell <= last)) then
-            next(i) = head(icell)
-            head(icell) = i
-            natoms(icell) = natoms(icell) + 1
-          end if
-        end do
-        threadNatoms(thread) = sum(natoms(first:last))
-        !$omp barrier
-
-        maxNatoms = 0
-        k = sum(threadNatoms(1:thread-1))
-        do icell = first, last
-          me%cellAtom%first(icell) = k + 1
-          i = head(icell)
-          do while (i /= 0)
-            k = k + 1
-            me%cellAtom%item(k) = i
-            i = next(i)
-          end do
-          me%cellAtom%last(icell) = k
-          if (natoms(icell) > maxNatoms) maxNatoms = natoms(icell)
-        end do
-      end subroutine distribute
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      elemental integer function pbc( x )
-        integer, intent(in) :: x
-        if (x < 0) then
-          pbc = x + M
-        else if (x >= M) then
-          pbc = x - M
-        else
-          pbc = x
-        end if
-      end function pbc
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine distribute_atoms
 
 !===================================================================================================
 
@@ -751,121 +575,6 @@ contains
       end function cross
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_dihedrals
-
-!===================================================================================================
-
-  subroutine build_neighbor_lists( me, thread, Rs )
-    type(tData), intent(inout) :: me
-    integer,     intent(in)    :: thread
-    real(rb),    intent(in)    :: Rs(3,me%natoms)
-
-    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, ibody, ipairs, middle
-    integer  :: nlocal, ntotal, first, last
-    real(rb) :: xRc2, xInRc2, r2
-    logical  :: include(0:me%maxpairs)
-    integer  :: atom(me%maxpairs), index(me%natoms)
-    real(rb) :: Ri(3), Rij(3)
-
-    integer,  allocatable :: xlist(:)
-    real(rb), allocatable :: Ratom(:,:), Rvec(:,:)
-
-    xRc2 = me%xRcSq*me%invL2
-    xInRc2 = me%xRespaRcSq*me%invL2
-
-    include = .true.
-    index = 0
-    npairs = 0
-    associate ( neighbor => me%neighbor(thread) )
-      do icell = me%threadCell%first(thread), me%threadCell%last(thread)
-
-        if (neighbor%nitems < npairs + me%maxpairs) then
-          call neighbor % resize( npairs + me%maxpairs + extra )
-        end if
-
-        first = me%cellAtom%first(icell)
-        last = me%cellAtom%last(icell)
-        nlocal = last - first + 1
-        atom(1:nlocal) = me%cellAtom%item(first:last)
-
-        ntotal = nlocal
-        do m = 1, nbcells
-          jcell = me%cell(icell)%neighbor(m)
-          first = me%cellAtom%first(jcell)
-          last = me%cellAtom%last(jcell)
-          n = ntotal + 1
-          ntotal = n + last - first
-          atom(n:ntotal) = me%cellAtom%item(first:last)
-        end do
-
-        forall (m=1:ntotal) index(atom(m)) = m
-        Ratom = Rs(:,atom(1:ntotal))
-        do k = 1, nlocal
-          i = atom(k)
-          first = npairs + 1
-          ipairs = 0
-          middle = 0
-          itype = me%atomType(i)
-          ibody = me%atomBody(i)
-          Ri = Rs(:,i)
-          xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
-          include(xlist) = .false.
-          associate ( jlist => atom(k+1:ntotal),      &
-                      item => neighbor%item(first:),  &
-                      value => neighbor%value(first:) )
-            Rvec = Ratom(:,k+1:ntotal)
-            forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
-            do m = 1, size(jlist)
-              j = jlist(m)
-              jtype = me%atomType(j)
-              if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
-                Rij = Rvec(:,m)
-                r2 = sum(Rij*Rij)
-                if (r2 < xRc2) then
-                  call insert_neighbor( item, value, ipairs, j, r2 )
-                  if (r2 < xInRc2) middle = middle + 1
-                end if
-              end if
-            end do
-          end associate
-          include(xlist) = .true.
-
-          neighbor%first(i) = first
-          neighbor%middle(i) = npairs + middle
-          npairs = npairs + ipairs
-          neighbor%last(i)  = npairs
-
-        end do
-        index(atom(1:ntotal)) = 0
-      end do
-      neighbor%count = npairs
-    end associate
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      elemental function pbc( x )
-        real(rb), intent(in) :: x
-        real(rb)              :: pbc
-        pbc = x - anint(x)
-      end function pbc
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      pure subroutine insert_neighbor( item, value, npairs, j, r2 )
-        integer,     intent(inout) :: item(:)
-        real(rb),    intent(inout) :: value(:)
-        integer,     intent(inout) :: npairs
-        integer,     intent(in)    :: j
-        real(rb),    intent(in)    :: r2
-        integer :: k
-        do k = npairs, 1, -1
-          if (value(k) < r2) exit
-          value(k+1) = value(k)
-          item(k+1) = item(k)
-        end do
-        value(k+1) = r2
-        item(k+1) = j
-        npairs = npairs + 1
-      end subroutine insert_neighbor
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine build_neighbor_lists
 
 !===================================================================================================
 
@@ -1104,25 +813,33 @@ contains
     logical(lb), intent(in)    :: translate, rotate
     integer(ib), intent(in)    :: mode
 
-    integer :: i, j
+    integer :: i, j, b1, bN
 
-    do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-      associate(b => me%body(i))
-        if (translate) b%rcm = R_factor*b%rcm + P_factor*b%invMass*b%pcm
-        if (rotate) then
+    b1 = (thread - 1)*me%threadBodies + 1
+    bN = min(thread*me%threadBodies, me%nbodies)
+
+    if (translate) then
+      do i = b1, bN
+        associate ( b => me%body(i) )
+          b%rcm = R_factor*b%rcm + P_factor*b%invMass*b%pcm
+        end associate
+      end do
+      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+        j = me%free(i)
+        me%R(:,j) = R_factor*me%R(:,j) + P_factor*me%P(:,j)*me%invMass(j)
+      end do
+    end if
+
+    if (rotate) then
+      do i = b1, bN
+        associate(b => me%body(i))
           if (mode == 0) then
            call b % rotate_exact( dt )
           else
             call b % rotate_no_squish( dt, n = mode )
           end if
           forall (j=1:3) me%R(j,b%index) = b%rcm(j) + b%delta(j,:)
-        end if
-      end associate
-    end do
-    if (translate) then
-      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-        j = me%free(i)
-        me%R(:,j) = R_factor*me%R(:,j) + P_factor*me%P(:,j)*me%invMass(j)
+        end associate
       end do
     end if
 
@@ -1130,36 +847,89 @@ contains
 
 !===================================================================================================
 
-  subroutine boost( me, thread, P_factor, F_factor, translate, rotate )
+  subroutine boost( me, thread, P_factor, F_factor, F, translate, rotate )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
-    real(rb),    intent(in)    :: P_factor, F_factor
+    real(rb),    intent(in)    :: P_factor, F_factor, F(3,me%natoms)
     logical(lb), intent(in)    :: translate, rotate
 
-    integer  :: i, j
+    integer  :: i, j, b1, bN
     real(rb) :: Ctau
 
-    Ctau = two*F_factor
+    b1 = (thread - 1)*me%threadBodies + 1
+    bN = min(thread*me%threadBodies, me%nbodies)
+    do i = b1, bN
+      call me % body(i) % force_and_torque( F )
+    end do
+
     if (translate) then
-      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-        associate(b => me%body(i))
-          b%pcm = P_factor*b%pcm + F_factor*b%F
-        end associate
-      end do
+      forall (i=b1:bN) me%body(i)%pcm = P_factor*me%body(i)%pcm + F_factor*me%body(i)%F
       do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
         j = me%free(i)
-         me%P(:,j) = P_factor*me%P(:,j) + F_factor*me%F(:,j)
+        me%P(:,j) = P_factor*me%P(:,j) + F_factor*F(:,j)
       end do
     end if
+
     if (rotate) then
-      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+      Ctau = two*F_factor
+      do i = b1, bN
         associate(b => me%body(i))
-          call b%assign_momenta( P_factor*b%pi + matmul( matrix_C(b%q), Ctau*b%tau ) )
+          call b % assign_momenta( P_factor*b%pi + matmul( matrix_C(b%q), Ctau*b%tau ) )
         end associate
       end do
     end if
 
   end subroutine boost
+
+!===================================================================================================
+
+  subroutine kinetic_energies( me, thread, translate, rotate, twoKEt, twoKEr )
+    type(tData), intent(in)  :: me
+    integer,     intent(in)  :: thread
+    logical(lb), intent(in)  :: translate, rotate
+    real(rb),    intent(out) :: twoKEt(3), twoKEr(3)
+    integer :: i, j
+    if (translate) then
+      twoKEt = zero
+      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+        twoKEt = twoKEt + me%body(i)%invMass*me%body(i)%pcm**2
+      end do
+      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+        j = me%free(i)
+        twoKEt = twoKEt + me%invMass(j)*me%P(:,j)**2
+      end do
+    end if
+    if (rotate) then
+      twoKEr = zero
+      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+        twoKEr = twoKEr + me%body(i)%MoI*me%body(i)%omega**2
+      end do
+    end if
+  end subroutine kinetic_energies
+
+!===================================================================================================
+
+  function rigid_body_virial( me ) result( Virial )
+    type(tData), intent(in) :: me
+    real(rb)                :: Virial
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:Virial)
+    Virial = partial_body_virial( omp_get_thread_num() + 1 )
+    !$omp end parallel
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      function partial_body_virial( thread ) result (Virial )
+        integer,  intent(in)  :: thread
+        real(rb)              :: Virial
+        integer :: i
+        Virial = zero
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+          Virial = Virial - sum(me%F(:,me%body(i)%index)*me%body(i)%delta)
+        end do
+      end function partial_body_virial
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end function rigid_body_virial
 
 !===================================================================================================
 

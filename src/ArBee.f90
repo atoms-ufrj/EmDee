@@ -39,7 +39,6 @@ type tBody
   real(rb) :: omega(3)  ! angular velocities
   real(rb) :: F(3)      ! Resultant force
   real(rb) :: tau(3)    ! Resultant torque
-  real(rb) :: virial    ! Contribution to internal virial
 
   integer,  allocatable :: index(:)
   real(rb), allocatable :: M(:)
@@ -67,7 +66,7 @@ type tBody
     procedure :: rotate_no_squish => tBody_rotate_no_squish
     procedure :: rotate_exact => tBody_rotate_exact
     procedure :: rotate_uniaxial => tBody_rotate_uniaxial
-    procedure :: force_torque_virial => tBody_force_torque_virial
+    procedure :: force_and_torque => tBody_force_and_torque
     procedure :: assign_momenta => tBody_assign_momenta
 
 end type tBody
@@ -338,21 +337,19 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  pure subroutine tBody_force_torque_virial( b, F )
+  pure subroutine tBody_force_and_torque( b, F )
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: F(:,:)
     integer :: j
     real(rb) :: Fj(3)
     b%F = zero
     b%tau = zero
-    b%virial = zero
     do j = 1, b%NP
       Fj = F(:,b%index(j))
       b%F = b%F + Fj
       b%tau = b%tau + cross_product( b%delta(:,j), Fj )
-      b%virial = b%virial + sum(b%delta(:,j)*Fj)
     end do
-  end subroutine tBody_force_torque_virial
+  end subroutine tBody_force_and_torque
 
 !---------------------------------------------------------------------------------------------------
 

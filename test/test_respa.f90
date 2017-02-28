@@ -44,7 +44,8 @@ do i = 1, ntypes
 end do
 call EmDee_set_coul_model( md, EmDee_coul_sf() )
 
-call EmDee_set_respa( md, Rc = 5.0_rb, Npair = 3, Nbond = 0 )
+dt = 5.0_rb*dt
+call EmDee_set_respa( md, Rc = 0.5_rb*Rc, Npair = 10, Nbond = 0 )
 
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )

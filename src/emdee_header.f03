@@ -29,6 +29,10 @@ type, bind(C) :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
   logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
+  real(rb)    :: Lambda_R             ! Momentum-multiplying constant in position equations
+  real(rb)    :: Alpha_R              ! Position-multiplying constant in position equations
+  real(rb)    :: Lambda_P             ! Force-multiplying constant in momentum equations
+  real(rb)    :: Alpha_P              ! Momentum-multiplying constant in momentum equations
 end type tOpts
 
 type, bind(C) :: tEnergy
@@ -179,36 +183,25 @@ interface
     integer(c_int),  value         :: seed
   end subroutine EmDee_random_momenta
 
-!  subroutine EmDee_save_state( md, rigid )
-!    import: tEmDee, c_int
-!    type(tEmDee),   intent(inout) :: md
-!    integer(c_int), intent(in)    :: rigid
-!  end subroutine EmDee_save_state
-
-!  subroutine EmDee_restore_state( md )
-!    import :: tEmDee
-!    type(tEmDee), intent(inout) :: md
-!  end subroutine EmDee_restore_state
-
-  subroutine EmDee_boost( md, lambda, alpha, dt ) &
+  subroutine EmDee_boost( md, dt ) &
     bind(C,name="EmDee_boost")
     import :: c_double, c_ptr, tEmDee
     type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: lambda, alpha, dt
+    real(c_double), value         :: dt
   end subroutine EmDee_boost
 
-  subroutine EmDee_displace( md, lambda, alpha, dt ) &
+  subroutine EmDee_displace( md, dt ) &
     bind(C,name="EmDee_displace")
     import :: c_double, c_ptr, tEmDee
     type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: lambda, alpha, dt
+    real(c_double), value         :: dt
   end subroutine EmDee_displace
 
-  subroutine EmDee_advance( md, lambda_R, alpha_R, lambda_P, alpha_P, dt ) &
+  subroutine EmDee_advance( md, dt ) &
     bind(C,name="EmDee_advance")
     import :: c_double, tEmDee
     type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: lambda_R, alpha_R, lambda_P, alpha_P, dt
+    real(c_double), value         :: dt
   end subroutine EmDee_advance
 
   ! MODELS:
@@ -242,6 +235,12 @@ interface
     bind(C,name="EmDee_dihedral_none")
     import :: c_ptr
   end function EmDee_dihedral_none
+
+!  function total_virial( md ) result( virial ) bind(C,name="total_virial")
+!    import :: c_double, tEmDee
+!    type(tEmDee), intent(in) :: md
+!    real(c_double)           :: virial
+!  end function total_virial
 
 end interface
 end module

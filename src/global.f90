@@ -122,4 +122,16 @@ contains
 
 !===================================================================================================
 
+  character(sl) function string( carray )
+    character(c_char), intent(in) :: carray(*)
+    integer :: i
+    string = ""
+    do i = 1, sl
+      if (carray(i) == c_null_char) return
+      string(i:i) = carray(i)
+    end do
+  end function string
+
+!===================================================================================================
+
 end module global
