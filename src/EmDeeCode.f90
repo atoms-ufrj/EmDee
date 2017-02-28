@@ -852,9 +852,9 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_boost( md, dt ) bind(C,name="EmDee_boost")
+  subroutine EmDee_boost( md, lambda, alpha, dt ) bind(C,name="EmDee_boost")
     type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: dt
+    real(rb),     value         :: lambda, alpha, dt
 
     real(rb) :: CP, CF
     real(rb), allocatable :: twoKEt(:,:), twoKEr(:,:)
@@ -862,9 +862,9 @@ contains
 
     call c_f_pointer( md%data, me )
 
-    CF = phi(md%Options%alpha_P*dt)*dt
-    CP = one - md%Options%alpha_P*CF
-    CF = md%Options%lambda_P*CF
+    CF = phi(alpha*dt)*dt
+    CP = one - alpha*CF
+    CF = lambda*CF
 
     if (md%Energy%compute) allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
     !$omp parallel num_threads(me%nthreads)
@@ -892,31 +892,31 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_displace( md, dt ) bind(C,name="EmDee_displace")
+  subroutine EmDee_displace( md, lambda, alpha, dt ) bind(C,name="EmDee_displace")
     type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: dt
+    real(rb),     value         :: lambda, alpha, dt
 
-    real(rb) :: cR, cP
+    real(rb) :: CR, CP
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
 
-    if (md%Options%alpha_R /= zero) then
-      cP = phi(md%Options%alpha_R*dt)*dt
-      cR = one - md%Options%alpha_R*cP
+    if (alpha /= zero) then
+      CP = phi(alpha*dt)*dt
+      CR = one - alpha*CP
       me%Lbox = cR*me%Lbox
       me%Lbox3 = me%Lbox
       me%InvL = one/me%Lbox
       me%invL2 = me%invL*me%invL
     else
-      cP = dt
-      cR = one
+      CP = dt
+      CR = one
     end if
-    cP = md%Options%lambda_R*cP
+    CP = lambda*CP
 
     associate ( Opt => md%Options )
       !$omp parallel num_threads(me%nthreads)
-      call move( me, omp_get_thread_num() + 1, cR, cP, dt, &
+      call move( me, omp_get_thread_num() + 1, CR, CP, dt, &
                                   Opt%translate, Opt%rotate, Opt%rotationMode )
       !$omp end parallel
     end associate
@@ -927,9 +927,9 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_advance( md, dt ) bind(C,name="EmDee_advance")
+  subroutine EmDee_advance( md, alpha_R, alpha_P, dt ) bind(C,name="EmDee_advance")
     type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: dt
+    real(rb),     value         :: alpha_R, alpha_P, dt
 
     integer(ib) :: mode, step
     logical(lb) :: trans, rot, changeBox
@@ -947,24 +947,21 @@ contains
     rot   = md%Options%rotate
     mode  = md%Options%rotationMode
 
-    CFex = phi(md%Options%alpha_P*dt_2)*dt_2
-    CPex = one - md%Options%alpha_P*CFex
-    CFex = md%Options%lambda_P*CFex
+    CFex = phi(alpha_P*dt_2)*dt_2
+    CPex = one - alpha_P*CFex
 
-    changeBox = md%Options%alpha_R /= zero
+    changeBox = alpha_R /= zero
 
     if (me%respa_active) then
 
       smalldt = dt/me%Npair
       smalldt_2 = half*smalldt
 
-      CFin = phi(md%Options%alpha_P*smalldt_2)*smalldt_2
-      CPin = one - md%Options%alpha_P*CFin
-      CFin = md%Options%lambda_P*CFin
+      CFin = phi(alpha_P*smalldt_2)*smalldt_2
+      CPin = one - alpha_P*CFin
 
-      CP = phi(md%Options%alpha_R*smalldt)*smalldt
-      CR = one - md%Options%alpha_R*CP
-      CP = md%Options%lambda_R*CP
+      CP = phi(alpha_R*smalldt)*smalldt
+      CR = one - alpha_R*CP
 
       allocate( F_slow(3,me%natoms) )
 
@@ -1026,9 +1023,8 @@ contains
 
     else
 
-      CP = phi(md%Options%alpha_R*dt)*dt
-      CR = one - md%Options%alpha_R*CP
-      CP = md%Options%lambda_R*CP
+      CP = phi(alpha_R*dt)*dt
+      CR = one - alpha_R*CP
 
       !$omp parallel num_threads(me%nthreads)
       block
@@ -1176,7 +1172,7 @@ contains
     type(tEmDee), intent(inout) :: md
     integer,      intent(in)    :: layer
 
-    real(rb) :: DE, DW, time
+    real(rb) :: DEpair, DEcoul, DWpair, DWcoul, time
     real(rb), allocatable :: Rs(:,:), DFs(:,:,:)
     type(tData),  pointer :: me
 
@@ -1186,17 +1182,17 @@ contains
     allocate( Rs(3,me%natoms), DFs(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
 
-    !$omp parallel num_threads(me%nthreads) reduction(+:DE,DW)
+    !$omp parallel num_threads(me%nthreads) reduction(+:DEpair,DEcoul,DWpair,DWcoul)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
-      call update_pairs( me, thread, Rs, DFs(:,:,thread), DE, DW, layer )
+      call update_pairs( me, thread, Rs, DFs(:,:,thread), DEpair, DEcoul, DWpair, DWcoul, layer )
     end block
     !$omp end parallel
 
     me%F = me%F + me%Lbox*sum(DFs,3)
-    md%Energy%Potential = md%Energy%Potential + DE
-    md%Virial = md%Virial + DW
+    md%Energy%Potential = md%Energy%Potential + DEpair
+    md%Virial = md%Virial + DWpair
 !    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     time = omp_get_wtime()

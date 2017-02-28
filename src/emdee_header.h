@@ -24,10 +24,6 @@ typedef struct {
     _Bool  Translate;       // Flag to activate/deactivate translations
     _Bool  Rotate;          // Flag to activate/deactivate rotations
     int    RotationMode;    // Algorithm used for free rotation of rigid bodies
-    double Lambda_R;        // Momentum-multiplying constant in position equations
-    double Alpha_R;         // Position-multiplying constant in position equations
-    double Lambda_P;        // Force-multiplying constant in momentum equations
-    double Alpha_P;         // Momentum-multiplying constant in momentum equations
   } Options;
 } tEmDee;
 
@@ -62,11 +58,11 @@ void EmDee_download( tEmDee md, char *option, double* address );
 
 void EmDee_random_momenta( tEmDee* md, double kT, _Bool adjust, int seed );
 
-void EmDee_boost( tEmDee* md, double dt );
+void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 
-void EmDee_displace( tEmDee* md, double dt );
+void EmDee_displace( tEmDee* md, double lambda, double alpha, double dt );
 
-void EmDee_advance( tEmDee* md, double dt );
+void EmDee_advance( tEmDee* md, double alpha_R, double alpha_P, double dt );
 
 void* EmDee_shifted_force( void* model );
 

@@ -62,7 +62,7 @@
             mvv2e*(md%Energy%Potential + md%Energy%Kinetic)
     do step = 1, Nsteps
       md%Energy%Compute = mod(step,Nprop) == 0
-      call EmDee_advance( md, dt )
+      call EmDee_advance( md, 0.0_rb, 0.0_rb, dt )
       if (mod(step,Nprop) == 0) then
         print*, step, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
                 mvv2e*(md%Energy%Potential + md%Energy%Kinetic)

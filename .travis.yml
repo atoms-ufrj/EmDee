@@ -23,15 +23,15 @@ matrix:
       addons: *gfortran5
       env: VERSION=5 DBG=1 COVERAGE=1
 
-    - os: linux
-      compiler: gcc-6
-      addons: &gfortran6
-        apt:
-          sources: ubuntu-toolchain-r-test
-          packages:
-          - gfortran-6
-          - gcc-6
-      env: VERSION=6 DBG=0 COVERAGE=0
+#    - os: linux
+#      compiler: gcc-6
+#      addons: &gfortran6
+#        apt:
+#          sources: ubuntu-toolchain-r-test
+#          packages:
+#          - gfortran-6
+#          - gcc-6
+#      env: VERSION=6 DBG=0 COVERAGE=0
 
 #    - os: linux
 #      compiler: gcc-6

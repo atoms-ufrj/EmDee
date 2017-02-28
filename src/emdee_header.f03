@@ -29,10 +29,6 @@ type, bind(C) :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
   logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
-  real(rb)    :: Lambda_R             ! Momentum-multiplying constant in position equations
-  real(rb)    :: Alpha_R              ! Position-multiplying constant in position equations
-  real(rb)    :: Lambda_P             ! Force-multiplying constant in momentum equations
-  real(rb)    :: Alpha_P              ! Momentum-multiplying constant in momentum equations
 end type tOpts
 
 type, bind(C) :: tEnergy
@@ -183,25 +179,25 @@ interface
     integer(c_int),  value         :: seed
   end subroutine EmDee_random_momenta
 
-  subroutine EmDee_boost( md, dt ) &
+  subroutine EmDee_boost( md, lambda, alpha, dt ) &
     bind(C,name="EmDee_boost")
     import :: c_double, c_ptr, tEmDee
     type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: dt
+    real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_boost
 
-  subroutine EmDee_displace( md, dt ) &
+  subroutine EmDee_displace( md, lambda, alpha, dt ) &
     bind(C,name="EmDee_displace")
     import :: c_double, c_ptr, tEmDee
     type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: dt
+    real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_displace
 
-  subroutine EmDee_advance( md, dt ) &
+  subroutine EmDee_advance( md, alpha_R, alpha_P, dt ) &
     bind(C,name="EmDee_advance")
     import :: c_double, tEmDee
     type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: dt
+    real(c_double), value         :: alpha_R, alpha_P, dt
   end subroutine EmDee_advance
 
   ! MODELS:

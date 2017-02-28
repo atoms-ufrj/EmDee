@@ -668,68 +668,182 @@ contains
 
 !===================================================================================================
 
-  subroutine update_pairs( me, thread, Rs, DF, DE, DW, new_layer )
+  subroutine update_pairs( me, thread, Rs, DF, DEpair, DEcoul, DWpair, DWcoul, new_layer )
     type(tData), intent(in)  :: me
     integer,     intent(in)  :: thread, new_layer
     real(rb),    intent(in)  :: Rs(3,me%natoms)
-    real(rb),    intent(out) :: DF(3,me%natoms), DE, DW
+    real(rb),    intent(out) :: DF(3,me%natoms), DEpair, DEcoul, DWpair, DWcoul
 
-    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, invR, new_Eij, new_Wij, Eij, Wij, Qi, Qj
+    integer  :: i, j, k, l, m, layer, itype, jtype, firstAtom, lastAtom
+    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc, Eij, ECij
     real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+    logical  :: icharged, ijcharged
     logical  :: participant(me%ntypes)
+    integer,  allocatable :: jlist(:)
+    real(rb), allocatable :: Rvec(:,:)
 
     participant = any(me%multilayer,dim=2)
     Rc2 = me%RcSq*me%invL2
 
     DF = zero
-    DE = zero
-    DW = zero
+    DEpair = zero
+    DEcoul = zero
+    DWpair = zero
+    DWcoul = zero
 
-    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
-    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate (neighbor => me%neighbor(thread), Q => me%charge)
-      do m = firstAtom, lastAtom
-        i = me%cellAtom%item(m)
+    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
+      firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+      lastAtom = me%cellAtom%last(me%threadCell%last(thread))
+      do k = firstAtom, lastAtom
+        i = me%cellAtom%item(k)
         itype = me%atomType(i)
         if (participant(itype)) then
-          Qi = Q(i)
-          Ri = Rs(:,i)
-          Fi = zero
-          associate (multilayer => me%multilayer(:,itype))
-            do k = neighbor%first(i), neighbor%last(i)
-              j = neighbor%item(k)
-              jtype = me%atomType(j)
-              if (multilayer(jtype)) then
-                Qj = Q(j)
-                Rij = Ri - Rs(:,j)
-                Rij = Rij - anint(Rij)
-                r2 = sum(Rij*Rij)
-                if (r2 < Rc2) then
-                  invR2 = me%invL2/r2
-                  select type ( model => me%pair(jtype,itype,new_layer)%model )
-                    include "compute_pair.f90"
-                  end select
-                  new_Eij = Eij
-                  new_Wij = Wij
-                  select type ( model => me%pair(jtype,itype,me%layer)%model )
-                    include "compute_pair.f90"
-                  end select
-                  DE = DE + new_Eij - Eij
-                  Wij = new_Wij - Wij
-                  DW = DW + Wij
-                  Fij = Wij*invR2*Rij
-                  Fi = Fi + Fij
-                  DF(:,j) = DF(:,j) - Fij
-                end if
+          associate ( partner => me%pair(:,itype,me%layer) )
+            Qi = me%charge(i)
+            icharged = me%charged(i)
+            Ri = Rs(:,i)
+            Fi = zero
+            jlist = neighbor%item(neighbor%first(i):neighbor%last(i))
+            jlist = pack(jlist,me%multilayer(me%atomType(jlist),itype))
+            Rvec = Rs(:,jlist)
+            forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
+            do m = 1, size(jlist)
+              j = jlist(m)
+              Rij = Rvec(:,m)
+              r2 = sum(Rij*Rij)
+              if (r2 < Rc2) then
+                invR2 = me%invL2/r2
+                invR = sqrt(invR2)
+                ijcharged = icharged.and.me%charged(j)
               end if
             end do
           end associate
-          DF(:,i) = DF(:,i) + Fi
         end if
       end do
     end associate
 
+!                associate( pair => partner(jtype) )
+!                  associate ( model => pair%model )
+!                    select type ( model )
+!                      include "compute_pair.f90"
+!                    end select
+!                    if (model%shifted_force) then
+!                    rFc = model%fshift/invR
+!                    Wij = Wij - rFc
+!                    Eij = Eij + model%eshift + rFc
+!                  end if
+!                end associate
+!                Epair = Epair + Eij
+!                Wpair = Wpair + Wij
+
+!                if (ijcharged.and.pair%coulomb) then
+!                  QiQj = pair%kCoul*Qi*me%charge(j)
+!                  select type ( model => me%coul(me%layer)%model )
+!                    include "compute_coul.f90"
+!                  end select
+!                  Ecoul = Ecoul + ECij
+!                  Eij = Eij + ECij
+!                  Wcoul = Wcoul + WCij
+!                  Wij = Wij + WCij
+!                end if
+!              end associate
+!              Fij = Wij*invR2*Rij
+!            Fi = Fi + Fij
+!            F(:,j) = F(:,j) - Fij
+!#if defined(compute)
+!            if (me%multilayer(jtype,itype)) then
+!              Elayer(me%layer) = Elayer(me%layer) + Eij
+!              do l = 1, me%nlayers-1
+!                layer = me%other_layer(l)
+!                associate( pair => me%pair(itype,jtype,layer) )
+!                  select type ( model => pair%model )
+!                    include "energy_compute_pair.f90"
+!                  end select
+!                  if (ijcharged.and.pair%coulomb) then
+!                    QiQj = pair%kCoul*Qi*me%charge(j)
+!                    select type ( model => me%coul(me%layer)%model )
+!                      include "energy_compute_coul.f90"
+!                    end select
+!                    Eij = Eij + ECij
+!                  end if
+!                  Elayer(layer) = Elayer(layer) + Eij
+!                end associate
+!              end do
+!            end if
+!#endif
+!          end if
+!        end do
+!      end associate
+!      F(:,i) = F(:,i) + Fi
+!    end do
+!  end associate
+!  F = me%Lbox*F
+
+
+!    integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
+!    real(rb) :: Rc2, r2, invR2, invR, new_Eij, new_Wij, Eij, Wij, Qi, Qj
+!    real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
+!    logical  :: participant(me%ntypes)
+
+!    participant = any(me%multilayer,dim=2)
+!    Rc2 = me%RcSq*me%invL2
+
+!    DF = zero
+!    DE = zero
+!    DW = zero
+
+!    firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+!    lastAtom = me%cellAtom%last(me%threadCell%last(thread))
+!    associate (neighbor => me%neighbor(thread), Q => me%charge)
+!      do m = firstAtom, lastAtom
+!        i = me%cellAtom%item(m)
+!        itype = me%atomType(i)
+!        if (participant(itype)) then
+!          Qi = Q(i)
+!          Ri = Rs(:,i)
+!          Fi = zero
+!          associate (multilayer => me%multilayer(:,itype))
+!            do k = neighbor%first(i), neighbor%last(i)
+!              j = neighbor%item(k)
+!              jtype = me%atomType(j)
+!              if (multilayer(jtype)) then
+!                Qj = Q(j)
+!                Rij = Ri - Rs(:,j)
+!                Rij = Rij - anint(Rij)
+!                r2 = sum(Rij*Rij)
+!                if (r2 < Rc2) then
+!                  invR2 = me%invL2/r2
+!                  select type ( model => me%pair(jtype,itype,new_layer)%model )
+!                    include "compute_pair.f90"
+!                  end select
+!                  new_Eij = Eij
+!                  new_Wij = Wij
+!                  select type ( model => me%pair(jtype,itype,me%layer)%model )
+!                    include "compute_pair.f90"
+!                  end select
+!                  DE = DE + new_Eij - Eij
+!                  Wij = new_Wij - Wij
+!                  DW = DW + Wij
+!                  Fij = Wij*invR2*Rij
+!                  Fi = Fi + Fij
+!                  DF(:,j) = DF(:,j) - Fij
+!                end if
+!              end if
+!            end do
+!          end associate
+!          DF(:,i) = DF(:,i) + Fi
+!        end if
+!      end do
+!    end associate
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      elemental function pbc( x )
+        real(rb), intent(in) :: x
+        real(rb)              :: pbc
+        pbc = x - anint(x)
+      end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine update_pairs
 
 !===================================================================================================

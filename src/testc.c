@@ -146,9 +146,9 @@ int main( int argc, char *argv[] )  {
   for (int step = 1; step <= par.Nsteps; step++) {
     if (step % par.Nprop == 0)
         printf("%d %lf %lf %lf\n", step, md.Energy.Potential, md.Virial, md.Energy.Potential + kinetic( &par ));
-    EmDee_boost( &md, par.Dt_2 );
-    EmDee_displace( &md, par.Dt );
-    EmDee_boost( &md, par.Dt_2 );
+    EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
+    EmDee_displace( &md, 1.0, 0.0, par.Dt );
+    EmDee_boost( &md, 1.0, 0.0, par.Dt_2 );
   }
   printf("neighbor list builds = %d\n", md.Builds);
   printf("pair time = %f s.\n", md.PairTime);
