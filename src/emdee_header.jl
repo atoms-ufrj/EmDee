@@ -26,10 +26,16 @@ immutable tEnergy
   UpToDate::Int32            # Flag to attest whether energies have been computed
 end
 
+immutable tTime
+  Pair::Float64              # Time taken in force calculations
+  FastPair::Float64
+  Neighbor::Float64
+  Total::Float64             # Total time since initialization
+end
+
 immutable tEmDee
   Builds::Int32              # Number of neighbor-list builds
-  PairTime::Float64          # Time taken in force calculations
-  TotalTime::Float64         # Total time since initialization
+  Time::tTime
   Energy::tEnergy            # All energy terms
   Virial::Float64            # Total internal virial of the system
   BodyVirial::Float64        # Rigid body contribution to the internal virial

@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "28 Feb 2017"
+character(11), parameter :: VERSION = "03 Mar 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -58,10 +58,16 @@ type, bind(C), public :: tEnergy
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
 
+type, bind(C), public :: tTime
+  real(rb) :: Pair
+  real(rb) :: FastPair
+  real(rb) :: Neighbor
+  real(rb) :: Total
+end type tTime
+
 type, bind(C), public :: tEmDee
   integer(ib)   :: Builds             ! Number of neighbor list builds
-  real(rb)      :: PairTime           ! Time taken in force calculations
-  real(rb)      :: TotalTime          ! Total time since initialization
+  type(tTime)   :: Time
   type(tEnergy) :: Energy             ! All energy terms
   real(rb)      :: Virial             ! Total internal virial of the system
   real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
@@ -139,7 +145,7 @@ contains
     allocate( me%P(3,N), me%F(3,N), me%R0(3,N), source = zero )
     allocate( me%charge(N), source = zero )
     allocate( me%charged(N), source = .false. )
-    allocate( me%cell(0) )
+    allocate( me%cell(0), me%atomsInCell(0) )
     allocate( me%atomCell(N) )
 
     ! Allocate variables related to rigid bodies:
@@ -176,8 +182,11 @@ contains
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
-    EmDee_system % pairTime = zero
-    EmDee_system % totalTime = zero
+
+    EmDee_system % Time % Pair = zero
+    EmDee_system % Time % FastPair = zero
+    EmDee_system % Time % Neighbor = zero
+    EmDee_system % Time % Total = zero
 
     EmDee_system % Energy % Potential = zero
     EmDee_system % Energy % Dispersion = zero
@@ -944,12 +953,11 @@ contains
 
     dt_2 = half*dt
     trans = md%Options%translate
-    rot   = md%Options%rotate
-    mode  = md%Options%rotationMode
+    rot = md%Options%rotate
+    mode = md%Options%rotationMode
 
     CFex = phi(alpha_P*dt_2)*dt_2
     CPex = one - alpha_P*CFex
-
     changeBox = alpha_R /= zero
 
     if (me%respa_active) then
@@ -971,13 +979,15 @@ contains
       block
         integer :: thread, i
         thread = omp_get_thread_num() + 1
-        forall (i = (thread-1)*me%threadAtoms+1 : min(thread*me%threadAtoms, me%natoms))
+        forall (i = (thread - 1)*me%threadAtoms + 1 : min(thread*me%threadAtoms, me%natoms))
           F_slow(:,i) = me%F(:,i) - me%F_fast(:,i)
         end forall
         !$omp barrier
         call boost( me, thread, CPex, CFex, F_slow, trans, rot )
       end block
       !$omp end parallel
+
+!print*, "slow = ", sum(abs(F_slow)), "fast = ", sum(abs(me%F_fast))
 
       do step = 1, me%Npair
         !$omp parallel num_threads(me%nthreads)
@@ -1010,7 +1020,7 @@ contains
       block
         integer :: thread, i
         thread = omp_get_thread_num() + 1
-        forall (i = (thread-1)*me%threadAtoms+1 : min(thread*me%threadAtoms, me%natoms))
+        forall (i = (thread - 1)*me%threadAtoms + 1 : min(thread*me%threadAtoms, me%natoms))
           F_slow(:,i) = me%F(:,i) - me%F_fast(:,i)
         end forall
         !$omp barrier
@@ -1082,13 +1092,13 @@ contains
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
-    md%pairTime = md%pairTime - omp_get_wtime()
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
 
-    call handle_neighbor_lists( me, md%builds, Rs )
+    call handle_neighbor_lists( me, md%builds, md%Time%Neighbor, Rs )
 
+    md%Time%Pair = md%Time%Pair - omp_get_wtime()
     compute = md%Energy%Compute
     !$omp parallel num_threads(me%nthreads) reduction(+:Epair,Ecoul,Elong,Wpair,Wcoul)
     block
@@ -1129,8 +1139,8 @@ contains
 
     md%Energy%UpToDate = compute
     time = omp_get_wtime()
-    md%pairTime = md%pairTime + time
-    md%totalTime = time - me%startTime
+    md%Time%Pair = md%Time%Pair + time
+    md%Time%Total = time - me%startTime
 
   end subroutine compute_all_forces
 
@@ -1144,12 +1154,13 @@ contains
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
-    md%pairTime = md%pairTime - omp_get_wtime()
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
 
-    call handle_neighbor_lists( me, md%builds, Rs )
+    call handle_neighbor_lists( me, md%builds, md%Time%Neighbor, Rs )
+
+    md%Time%FastPair = md%Time%FastPair - omp_get_wtime()
 
     !$omp parallel num_threads(me%nthreads)
     block
@@ -1160,9 +1171,11 @@ contains
     !$omp end parallel
     me%F_fast = sum(Fs,3)
 
+    me%fast_required = .false.
+
     time = omp_get_wtime()
-    md%pairTime = md%pairTime + time
-    md%totalTime = time - me%startTime
+    md%Time%FastPair = md%Time%FastPair + time
+    md%Time%Total = time - me%startTime
 
   end subroutine compute_fast_forces
 
@@ -1177,7 +1190,7 @@ contains
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
-    md%pairTime = md%pairTime - omp_get_wtime()
+    md%Time%Pair = md%Time%Pair - omp_get_wtime()
 
     allocate( Rs(3,me%natoms), DFs(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
@@ -1196,8 +1209,8 @@ contains
 !    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
 
     time = omp_get_wtime()
-    md%pairTime = md%pairTime + time
-    md%totalTime = time - me%startTime
+    md%Time%Pair = md%Time%Pair + time
+    md%Time%Total = time - me%startTime
 
   end subroutine update_forces
 

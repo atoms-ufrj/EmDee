@@ -65,9 +65,9 @@ contains
     integer,     intent(in)    :: M
     real(rb),    intent(in)    :: Rs(3,me%natoms)
 
-    integer :: MM, cells_per_thread, maxNatoms, threadNatoms(me%nthreads), next(me%natoms)
+    integer :: MM, cells_per_thread
+    integer :: maxNatoms(me%nthreads), threadNatoms(me%nthreads), next(me%natoms)
     logical :: make_cells
-    integer, allocatable :: natoms(:)
 
     MM = M*M
     make_cells = M /= me%mcells
@@ -75,21 +75,24 @@ contains
       me%mcells = M
       me%ncells = M*MM
       if (me%ncells > me%maxcells) then
-        deallocate( me%cell, me%cellAtom%first, me%cellAtom%last )
+        deallocate( me%cell, me%cellAtom%first, me%cellAtom%last, me%atomsInCell )
         allocate( me%cell(me%ncells), me%cellAtom%first(me%ncells), me%cellAtom%last(me%ncells) )
+        allocate( me%atomsInCell(me%ncells) )
         call me % threadCell % allocate( 0, me%nthreads )
         me%maxcells = me%ncells
       end if
       cells_per_thread = (me%ncells + me%nthreads - 1)/me%nthreads
     end if
 
-    allocate( natoms(me%ncells) )
-
-    !$omp parallel num_threads(me%nthreads) reduction(max:maxNatoms)
-    call distribute( omp_get_thread_num() + 1, maxNatoms )
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      call distribute( thread, maxNatoms(thread) )
+    end block
     !$omp end parallel
-    me%maxatoms = maxNatoms
-    me%maxpairs = (maxNatoms*((2*nbcells + 1)*maxNatoms - 1))/2
+    me%maxatoms = maxval(maxNatoms)
+    me%maxpairs = (me%maxatoms*((2*nbcells + 1)*me%maxatoms - 1))/2
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -97,7 +100,7 @@ contains
         integer, intent(in)  :: thread
         integer, intent(out) :: maxNatoms
 
-        integer :: i, j, k, icell, ix, iy, iz, first, last, atoms_per_thread
+        integer :: i, j, k, icell, ix, iy, iz, first, last
         integer :: icoord(3)
         integer, allocatable :: head(:)
 
@@ -119,8 +122,7 @@ contains
           last = me%threadCell%last(thread)
         end if
 
-        atoms_per_thread = (me%natoms + me%nthreads - 1)/me%nthreads
-        do i = (thread - 1)*atoms_per_thread + 1, min( thread*atoms_per_thread, me%natoms )
+        do i = (thread - 1)*me%threadAtoms + 1, min( thread*me%threadAtoms, me%natoms )
           icoord = int(M*(Rs(:,i) - floor(Rs(:,i))),ib)
           me%atomCell(i) = 1 + icoord(1) + M*icoord(2) + MM*icoord(3)
         end do
@@ -128,16 +130,16 @@ contains
 
         allocate( head(first:last) )
         head = 0
-        natoms(first:last) = 0
+        me%atomsInCell(first:last) = 0
         do i = 1, me%natoms
           icell = me%atomCell(i)
           if ((icell >= first).and.(icell <= last)) then
             next(i) = head(icell)
             head(icell) = i
-            natoms(icell) = natoms(icell) + 1
+            me%atomsInCell(icell) = me%atomsInCell(icell) + 1
           end if
         end do
-        threadNatoms(thread) = sum(natoms(first:last))
+        threadNatoms(thread) = sum(me%atomsInCell(first:last))
         !$omp barrier
 
         maxNatoms = 0
@@ -151,7 +153,7 @@ contains
             i = next(i)
           end do
           me%cellAtom%last(icell) = k
-          if (natoms(icell) > maxNatoms) maxNatoms = natoms(icell)
+          if (me%atomsInCell(icell) > maxNatoms) maxNatoms = me%atomsInCell(icell)
         end do
       end subroutine distribute
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -170,13 +172,15 @@ contains
 
 !===================================================================================================
 
-  subroutine handle_neighbor_lists( me, builds, Rs )
+  subroutine handle_neighbor_lists( me, builds, time, Rs )
     type(tData), intent(inout) :: me
     integer,     intent(inout) :: builds
+    real(rb),    intent(inout) :: time
     real(rb),    intent(in)    :: Rs(3,me%natoms)
 
     integer :: M
 
+    time = time - omp_get_wtime()
     if (maximum_approach_sq( me%natoms, me%R - me%R0 ) > me%skinSq) then
       M = floor(ndiv*me%Lbox/me%xRc)
       call distribute_atoms( me, max(M,2*ndiv+1), Rs )
@@ -186,6 +190,7 @@ contains
       call build_neighbor_lists( me, omp_get_thread_num() + 1, Rs )
       !$omp end parallel
     endif
+    time = time + omp_get_wtime()
 
   end subroutine handle_neighbor_lists
 
@@ -196,83 +201,72 @@ contains
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: Rs(3,me%natoms)
 
-    integer  :: i, j, k, m, n, icell, jcell, npairs, itype, jtype, ibody, ipairs, middle
-    integer  :: nlocal, ntotal, first, last
+    integer  :: i, j, k, m, icell, npairs, itype, ibody, ipairs, middle
+    integer  :: nlocal, ntotal, first
     real(rb) :: xRc2, xInRc2, r2
-    logical  :: include(0:me%maxpairs)
-    integer  :: atom(me%maxpairs), index(me%natoms)
-    real(rb) :: Ri(3), Rij(3)
+    logical  :: include(me%natoms)
+    integer  :: atom((nbcells+1)*me%maxatoms)
 
     integer,  allocatable :: xlist(:)
-    real(rb), allocatable :: Ratom(:,:), Rvec(:,:)
+    real(rb), allocatable :: Ratom(:,:), rsq(:)
 
     xRc2 = me%xRcSq*me%invL2
     xInRc2 = me%xRespaRcSq*me%invL2
 
     include = .true.
-    index = 0
     npairs = 0
-    associate ( neighbor => me%neighbor(thread) )
+    associate ( neighbor => me%neighbor(thread), c1 => me%cellAtom%first, cN => me%cellAtom%last )
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
-        if (neighbor%nitems < npairs + me%maxpairs) then
-          call neighbor % resize( npairs + me%maxpairs + extra )
+        associate ( neigh => me%cell(icell)%neighbor )
+          nlocal = me%atomsInCell(icell)
+          ntotal = nlocal + sum(me%atomsInCell(neigh))
+          atom(1:nlocal) = me%cellAtom%item(c1(icell):cN(icell))
+          atom(nlocal+1:ntotal) = [(me%cellAtom%item(c1(neigh(m)):cN(neigh(m))),m=1,nbcells)]
+        end associate
+
+        if (neighbor%nitems < npairs + nlocal*ntotal) then
+          call neighbor % resize( npairs + nlocal*ntotal + extra )
         end if
 
-        first = me%cellAtom%first(icell)
-        last = me%cellAtom%last(icell)
-        nlocal = last - first + 1
-        atom(1:nlocal) = me%cellAtom%item(first:last)
-
-        ntotal = nlocal
-        do m = 1, nbcells
-          jcell = me%cell(icell)%neighbor(m)
-          first = me%cellAtom%first(jcell)
-          last = me%cellAtom%last(jcell)
-          n = ntotal + 1
-          ntotal = n + last - first
-          atom(n:ntotal) = me%cellAtom%item(first:last)
-        end do
-
-        forall (m=1:ntotal) index(atom(m)) = m
         Ratom = Rs(:,atom(1:ntotal))
         do k = 1, nlocal
           i = atom(k)
           first = npairs + 1
-          ipairs = 0
-          middle = 0
-          itype = me%atomType(i)
-          ibody = me%atomBody(i)
-          Ri = Rs(:,i)
-          xlist = index(me%excluded%item(me%excluded%first(i):me%excluded%last(i)))
-          include(xlist) = .false.
+          neighbor%first(i) = first
           associate ( jlist => atom(k+1:ntotal),      &
                       item => neighbor%item(first:),  &
                       value => neighbor%value(first:) )
-            Rvec = Ratom(:,k+1:ntotal)
-            forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
+            ipairs = 0
+            middle = 0
+            itype = me%atomType(i)
+            ibody = me%atomBody(i)
+            xlist = me%excluded%item(me%excluded%first(i):me%excluded%last(i))
+            include(xlist) = .false.
+            rsq = [(sum(pbc(Ratom(:,k) - Ratom(:,m))**2),m=k+1,ntotal)]
             do m = 1, size(jlist)
-              j = jlist(m)
-              jtype = me%atomType(j)
-              if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
-                Rij = Rvec(:,m)
-                r2 = sum(Rij*Rij)
-                if (r2 < xRc2) then
-                  call insert_neighbor( item, value, ipairs, j, r2 )
-                  if (r2 < xInRc2) middle = middle + 1
+              r2 = rsq(m)
+              if (r2 < xRc2) then
+                j = jlist(m)
+                if (include(j)) then
+                  if (me%atomBody(j) /= ibody) then
+                    if (me%interact(me%atomType(j),itype)) then
+                      call insert_neighbor( item, value, ipairs, j, r2 )
+                      if (r2 < xInRc2) middle = middle + 1
+                    end if
+                  end if
                 end if
               end if
             end do
           end associate
           include(xlist) = .true.
 
-          neighbor%first(i) = first
           neighbor%middle(i) = npairs + middle
           npairs = npairs + ipairs
-          neighbor%last(i)  = npairs
+          neighbor%last(i) = npairs
 
         end do
-        index(atom(1:ntotal)) = 0
+
       end do
       neighbor%count = npairs
     end associate

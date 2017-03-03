@@ -45,10 +45,16 @@ type, bind(C) :: tEnergy
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
 
+type, bind(C), public :: tTime
+  real(rb) :: Pair                    ! Time taken in force calculations
+  real(rb) :: FastPair
+  real(rb) :: Neighbor
+  real(rb) :: Total                   ! Total time since initialization
+end type tTime
+
 type, bind(C) :: tEmDee
   integer(ib)   :: Builds             ! Number of neighbor list builds
-  real(rb)      :: PairTime           ! Time taken in force calculations
-  real(rb)      :: TotalTime          ! Total time since initialization
+  type(tTime)   :: Time
   type(tEnergy) :: Energy             ! All energy terms
   real(rb)      :: Virial             ! Total internal virial of the system
   real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial

@@ -25,8 +25,8 @@ function run(nthreads, file)
     EmDee.boost( md, 1.0, 0.0, Dt_2 )
     mod(step,50) == 0 && println(step, " ", md.Potential, " ", md.Virial)
   end
-  println("Pair time  = ",md.pairTime," s.")
-  println("Total time = ",md.totalTime," s.")
+  println("Pair time  = ",md.Time.Pair," s.")
+  println("Total time = ",md.Time.Total," s.")
 
 end
 

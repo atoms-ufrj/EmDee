@@ -86,6 +86,7 @@ type :: tData
   integer, allocatable :: atomCell(:)     ! Array containing the current cell of each atom
   integer, allocatable :: atomBody(:)     ! Array containing the rigid body containing each atom
   integer, allocatable :: free(:)         ! Pointer to the list of independent atoms
+  integer, allocatable :: atomsInCell(:)
 
   real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
   real(rb), allocatable :: P(:,:)         ! Momenta of all atoms

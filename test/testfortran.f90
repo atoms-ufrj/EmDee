@@ -108,8 +108,9 @@ do step = 1, Nsteps
                                     md%Energy%Potential + md%Energy%Kinetic
 end do
 print*, "neighbor list builds = ", md%builds
-print*, "pair time = ", md%pairTime, " s."
-print*, "execution time = ", md%totalTime, " s."
+print*, "pair time      = ", md%Time%Pair, " s."
+print*, "neighbor time  = ", md%Time%Neighbor, " s."
+print*, "execution time = ", md%Time%Total, " s."
 
 contains
 !---------------------------------------------------------------------------------------------------

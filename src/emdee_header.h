@@ -1,7 +1,11 @@
 typedef struct {
   int    Builds;            // Number of neighbor-list builds
-  double PairTime;          // Time taken in force calculations
-  double TotalTime;         // Total time since initialization
+  struct {
+    double Pair;            // Time taken in force calculations
+    double FastPair;
+    double Neighbor;
+    double Total;           // Total time since initialization
+  } Time;
   struct {
     double Potential;       // Total potential energy of the system
     double Dispersion;      // Dispersion (vdW) part of the potential energy
