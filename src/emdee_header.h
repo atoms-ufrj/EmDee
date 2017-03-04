@@ -1,33 +1,36 @@
 typedef struct {
-  int    Builds;            // Number of neighbor-list builds
+  int    Builds;             // Number of neighbor-list builds
   struct {
-    double Pair;            // Time taken in force calculations
+    double Pair;             // Time taken in force calculations
     double FastPair;
     double Neighbor;
-    double Total;           // Total time since initialization
+    double Total;            // Total time since initialization
   } Time;
   struct {
-    double Potential;       // Total potential energy of the system
-    double Dispersion;      // Dispersion (vdW) part of the potential energy
-    double Coulomb;         // Electrostatic part of the potential energy
-    double Fourier;         // Reciprocal part of the electrostatic potential
-    double Kinetic;         // Total kinetic energy of the system
-    double TransPart[3];    // Translational kinetic energy at each dimension
-    double Rotational;      // Rotational kinetic energy of the system
-    double RotPart[3];      // Rotational kinetic energy around each principal axis
-    double *Layer;          // Vector with multilayer energy components
-    _Bool  Compute;         // Flag to activate/deactivate energy computations
-    _Bool  UpToDate;        // Flag to attest whether energies have been computed
+    double Potential;        // Total potential energy of the system
+    double Dispersion;       // Dispersion (vdW) part of the potential energy
+    double Coulomb;          // Electrostatic part of the potential energy
+    double Fourier;          // Reciprocal part of the electrostatic potential
+    double Kinetic;          // Total kinetic energy of the system
+    double TransPart[3];     // Translational kinetic energy at each dimension
+    double Rotational;       // Rotational kinetic energy of the system
+    double RotPart[3];       // Rotational kinetic energy around each principal axis
+    double *LayerPotential;  // Vector with multilayer potential energy components
+    double *LayerDispersion; // Vector with multilayer dispersion energy components
+    double *LayerCoulomb;    // Vector with multilayer coulombic energy components
+    double *LayerFourier;    // Vector with multilayer reciprocal energy components
+    _Bool  Compute;          // Flag to activate/deactivate energy computations
+    _Bool  UpToDate;         // Flag to attest whether energies have been computed
   } Energy;
-  double Virial;            // Total internal virial of the system
-  double BodyVirial;        // Rigid body contribution to the internal virial
-  int    DoF;               // Total number of degrees of freedom
-  int    RotDoF;            // Number of rotational degrees of freedom
-  void*  Data;              // Pointer to system data
+  double Virial;             // Total internal virial of the system
+  double BodyVirial;         // Rigid body contribution to the internal virial
+  int    DoF;                // Total number of degrees of freedom
+  int    RotDoF;             // Number of rotational degrees of freedom
+  void*  Data;               // Pointer to system data
   struct {
-    _Bool  Translate;       // Flag to activate/deactivate translations
-    _Bool  Rotate;          // Flag to activate/deactivate rotations
-    int    RotationMode;    // Algorithm used for free rotation of rigid bodies
+    _Bool  Translate;        // Flag to activate/deactivate translations
+    _Bool  Rotate;           // Flag to activate/deactivate rotations
+    int    RotationMode;     // Algorithm used for free rotation of rigid bodies
   } Options;
 } tEmDee;
 

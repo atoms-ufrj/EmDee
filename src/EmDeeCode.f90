@@ -17,7 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: Include coul and kspace terms in subroutine update_forces.
+! TODO: Include kspace terms in subroutine update_forces.
 ! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
 ! TODO: Change name of exported Julia wrapper
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
@@ -53,7 +53,10 @@ type, bind(C), public :: tEnergy
   real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
   real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
   real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
-  type(c_ptr) :: Layer                ! Vector with multilayer energy components
+  type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
+  type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
+  type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
+  type(c_ptr) :: LayerFourier         ! Vector with multilayer reciprocal energy components
   logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
@@ -178,7 +181,13 @@ contains
     ! Allocate variables related to model layers:
     me%layer = 1
     me%other_layer = [(i,i=2,me%nlayers)]
-    allocate( me%threadEnergy(layers,threads), me%Energy(layers) )
+    allocate( me%threadEpair(layers,threads), source = zero )
+    allocate( me%threadEcoul(layers,threads), source = zero )
+    allocate( me%threadElong(layers,threads), source = zero )
+    allocate( me%Epair(layers), source = zero )
+    allocate( me%Ecoul(layers), source = zero )
+    allocate( me%Elong(layers), source = zero )
+    allocate( me%Energy(layers), source = zero )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -196,7 +205,10 @@ contains
     EmDee_system % Energy % TransPart = zero
     EmDee_system % Energy % Rotational = zero
     EmDee_system % Energy % RotPart = zero
-    EmDee_system % Energy % Layer = c_loc(me%Energy(1))
+    EmDee_system % Energy % LayerPotential = c_loc(me%Energy(1))
+    EmDee_system % Energy % LayerDispersion = c_loc(me%Epair(1))
+    EmDee_system % Energy % LayerCoulomb = c_loc(me%Ecoul(1))
+    EmDee_system % Energy % LayerFourier = c_loc(me%Elong(1))
     EmDee_system % Energy % Compute = .true.
     EmDee_system % Energy % UpToDate = .false.
 
@@ -755,7 +767,7 @@ contains
       case ("multienergy")
         if (.not.md%Energy%UpToDate) call error( "download", "layer energies are outdated" )
         call c_f_pointer( address, vector, [me%nlayers] )
-        vector = me%Energy
+        vector = me%Epair + me%Ecoul
 
       case default
         call error( "download", "invalid option" )
@@ -1107,6 +1119,7 @@ contains
       associate( F => Fs(:,:,thread) )
         call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
         Elong = zero
+        me%threadElong(:,thread) = zero
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Epair, Wpair )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, Epair, Wpair )
         if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Epair, Wpair )
@@ -1132,7 +1145,10 @@ contains
       md%Energy%Coulomb = Ecoul + Elong
       md%Energy%Fourier = Elong
       md%Energy%Potential = Epair + md%Energy%Coulomb
-      me%Energy = sum(me%threadEnergy,2)
+      me%Epair = sum(me%threadEpair,2)
+      me%Elong = sum(me%threadElong,2)
+      me%Ecoul = sum(me%threadEcoul,2) + me%Elong
+      me%Energy = me%Epair + me%Ecoul
     end if
 
     me%fast_required = me%respa_active
@@ -1186,27 +1202,27 @@ contains
     integer,      intent(in)    :: layer
 
     real(rb) :: DEpair, DEcoul, DWpair, DWcoul, time
-    real(rb), allocatable :: Rs(:,:), DFs(:,:,:)
+    real(rb), allocatable :: Rs(:,:), DF(:,:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
     md%Time%Pair = md%Time%Pair - omp_get_wtime()
 
-    allocate( Rs(3,me%natoms), DFs(3,me%natoms,me%nthreads) )
+    allocate( Rs(3,me%natoms), DF(3,me%natoms,me%nthreads) )
     Rs = me%invL*me%R
 
     !$omp parallel num_threads(me%nthreads) reduction(+:DEpair,DEcoul,DWpair,DWcoul)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
-      call update_pairs( me, thread, Rs, DFs(:,:,thread), DEpair, DEcoul, DWpair, DWcoul, layer )
+      call update_pairs( me, thread, Rs, DF(:,:,thread), DEpair, DEcoul, DWpair, DWcoul, layer )
     end block
     !$omp end parallel
 
-    me%F = me%F + me%Lbox*sum(DFs,3)
+    me%F = me%F + sum(DF,3)
     md%Energy%Potential = md%Energy%Potential + DEpair
-    md%Virial = md%Virial + DWpair
-!    if (me%nbodies /= 0) call rigid_body_forces( me, md%Virial )
+    md%Energy%Coulomb = md%Energy%Coulomb + DEcoul
+    md%Virial = md%Virial + DWpair + DWcoul
 
     time = omp_get_wtime()
     md%Time%Pair = md%Time%Pair + time

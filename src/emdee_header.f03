@@ -40,7 +40,10 @@ type, bind(C) :: tEnergy
   real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
   real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
   real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
-  type(c_ptr) :: Layer                ! Vector with multilayer energy components
+  type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
+  type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
+  type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
+  type(c_ptr) :: LayerFourier         ! Vector with multilayer reciprocal energy components
   logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
