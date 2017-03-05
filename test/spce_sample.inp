@@ -9,7 +9,7 @@ NIST_spce_sample.mol
 [Integration time step]
 1.0
 [Number of integration steps]
-1000
+100
 [Interval for property printing]
 20
 [Temperature]

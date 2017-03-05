@@ -121,16 +121,16 @@ type :: tData
   logical :: kspace_active
 
   logical     :: respa_active              ! Flag to determine if RESPA was activated
-  real(rb)    :: respaRc                   ! Internal cutoff distance for RESPA
-  real(rb)    :: respaRcSq                 ! Internal cutoff distance squared
-  real(rb)    :: xRespaRcSq                ! Extended internal cutoff distance squared
+  real(rb)    :: InRcSq                    ! Internal cutoff distance squared
+  real(rb)    :: ExRcSq                    ! External cutoff distance squared
+  real(rb)    :: xExRcSq                   ! Extended internal cutoff distance squared
+  real(rb)    :: invDeltaR                 ! Inverse of the switching region width
+  real(rb)    :: mInRcByDeltaR             ! Minus the internal cutoff divided by delta-R
   real(rb)    :: fshift                    ! Force-shifting constant for fast forces
   integer(ib) :: Npair                     ! Number of core-neighbor sweepings per MD step
   integer(ib) :: Nbond                     ! Number of bonded computations per core sweeping
-  logical     :: fast_required             ! Flag 
-
-  real(rb),            allocatable :: F_fast(:,:)
-  type(pairContainer), allocatable :: closePair(:,:,:)
+  logical     :: fast_required             ! True if fast force computations is required
+  real(rb), allocatable :: F_fast(:,:)     ! Fast forces
 
 end type tData
 
@@ -341,7 +341,7 @@ contains
 
     character(*), parameter :: task = "system initialization"
 
-    integer :: i, j, layer, bodyDoF
+    integer :: i, layer, bodyDoF
     logical :: kspace_required
 
     integer, allocatable :: bodyAtom(:)
@@ -383,21 +383,7 @@ contains
       end do
     end if
 
-    if (me%respa_active) then
-      me%closePair = me%pair
-      allocate( me%F_fast(3,me%natoms) )
-      do i = 1, me%ntypes
-        do j = 1, me%ntypes
-          do layer = 1, me%nlayers
-            associate ( pair => me%closePair(i,j,layer)%model )
-              pair%shifted_force = .true.
-              call pair % shifting_setup( me%respaRc )
-            end associate
-          end do
-        end do
-      end do
-
-    end if
+    if (me%respa_active) allocate( me%F_fast(3,me%natoms) )
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -622,9 +608,11 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms)
 
-    real(rb) :: Rc2
+    real(rb) :: Rc2, InRc2, u
 
-    Rc2 = me%respaRcSq*me%invL2
+    Rc2 = me%ExRcSq*me%invL2
+    InRc2 = me%InRcSq*me%invL2
+
 #   define fast
 #   include "compute.f90"
 #   undef fast

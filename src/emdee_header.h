@@ -57,7 +57,7 @@ void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );
 
 void EmDee_add_dihedral( tEmDee md, int i, int j, int k, int l, void* model );
 
-void EmDee_set_respa( tEmDee md, double Rc, int Npair, int Nbond );
+void EmDee_set_respa( tEmDee md, double InRc, double ExRc, int Npair, int Nbond );
 
 void EmDee_upload( tEmDee* md, char *option, double* address );
 

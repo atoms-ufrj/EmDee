@@ -155,11 +155,11 @@ interface
     type(c_ptr),    value :: model
   end subroutine EmDee_add_dihedral
 
-  subroutine EmDee_set_respa( md, Rc, Npair, Nbond ) &
+  subroutine EmDee_set_respa( md, InRc, ExRc, Npair, Nbond ) &
     bind(C,name="EmDee_set_respa")
     import :: c_double, c_int, tEmDee
     type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: Rc
+    real(c_double), value         :: InRc, ExRc
     integer(c_int), value         :: Npair, Nbond
   end subroutine EmDee_set_respa
 

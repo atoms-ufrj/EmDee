@@ -116,10 +116,10 @@ function add_dihedral( md::tEmDee, i::Integer, j::Integer, k::Integer, l::Intege
          md, i, j, k, l, model )
 end
 #---------------------------------------------------------------------------------------------------
-function set_respa( md::tEmDee, Rc::Real, Npair::Integer, Nbond::Integer )
+function set_respa( md::tEmDee, InRc::Real, ExRc::Real, Npair::Integer, Nbond::Integer )
   ccall( (:EmDee_set_respa,"libemdee"), Void,
-         (tEmDee, Float64, Int32, Int32),
-         md, Rc, Npair, Nbond )
+         (tEmDee, Float64, Float64, Int32, Int32),
+         md, InRc, ExRc, Npair, Nbond )
 end
 #---------------------------------------------------------------------------------------------------
 function ignore_pair( md::tEmDee, i::Integer, j::Integer )

@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "03 Mar 2017"
+character(11), parameter :: VERSION = "05 Mar 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -118,7 +118,7 @@ contains
     me%threadAtoms = (N + threads - 1)/threads
     me%kspace_active = .false.
     me%respa_active = .false.
-    me%xRespaRcSq = zero
+    me%xExRcSq = zero
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -596,9 +596,9 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_set_respa( md, Rc, Npair, Nbond ) bind(C,name="EmDee_set_respa")
+  subroutine EmDee_set_respa( md, InRc, ExRc, Npair, Nbond ) bind(C,name="EmDee_set_respa")
     type(tEmDee), intent(inout) :: md
-    real(rb),     value         :: Rc
+    real(rb),     value         :: InRc, ExRc
     integer(ib),  value         :: Npair, Nbond
 
     type(tData), pointer :: me
@@ -606,13 +606,15 @@ contains
     call c_f_pointer( md%data, me )
 
     if (me%initialized) call error( "set RESPA", "the system has already been initialized" )
-    if (Rc >= me%Rc) call error( "set RESPA", "provided internal cutoff is too large" )
+    if (ExRc >= me%Rc) call error( "set RESPA", "provided internal cutoff is too large" )
 
     me%respa_active = .true.
-    me%respaRc = Rc
-    me%respaRcSq = Rc**2
-    me%xRespaRcSq = (Rc + me%skin)**2
-    me%fshift = one/me%respaRcSq
+    me%InRcSq = InRc**2
+    me%ExRcSq = ExRc**2
+    me%xExRcSq = (ExRc + me%skin)**2
+    me%invDeltaR = one/(ExRc - InRc)
+    me%mInRcByDeltaR = -InRc/(ExRc - InRc)
+    me%fshift = one/me%ExRcSq
     me%Npair = Npair
     me%Nbond = Nbond
 
@@ -998,8 +1000,6 @@ contains
         call boost( me, thread, CPex, CFex, F_slow, trans, rot )
       end block
       !$omp end parallel
-
-!print*, "slow = ", sum(abs(F_slow)), "fast = ", sum(abs(me%F_fast))
 
       do step = 1, me%Npair
         !$omp parallel num_threads(me%nthreads)

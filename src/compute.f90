@@ -53,14 +53,10 @@ block
       icharged = me%charged(i)
       Ri = Rs(:,i)
       Fi = zero
-#if defined(compute)
       associate ( partner => me%pair(:,itype,me%layer), &
-                  jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
-#elif defined(fast)
-      associate ( partner => me%closePair(:,itype,me%layer), &
+#if defined(fast)
                   jlist => neighbor%item(neighbor%first(i):neighbor%middle(i)) )
 #else
-      associate ( partner => me%pair(:,itype,me%layer), &
                   jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
 #endif 
         Rvec = Rs(:,jlist)
@@ -99,9 +95,7 @@ block
 #endif
               if (ijcharged.and.pair%coulomb) then
                 QiQj = pair%kCoul*Qi*me%charge(j)
-#if defined(fast)
-                WCij = QiQj*(invR - me%fshift/invR)
-#elif defined(compute)
+#if defined(compute)
                 select type ( model => me%coul(me%layer)%model )
                   include "compute_coul.f90"
                 end select
@@ -117,6 +111,12 @@ block
                 Wij = Wij + WCij
               end if
             end associate
+#if defined(fast)
+            if (r2 > InRc2) then
+              u = me%invDeltaR/invR + me%mInRcByDeltaR
+              Wij = Wij*(one + u*u*(two*u - three))
+            end if
+#endif
             Fij = Wij*invR2*Rij
             Fi = Fi + Fij
             F(:,j) = F(:,j) - Fij

@@ -211,7 +211,7 @@ contains
     real(rb), allocatable :: Ratom(:,:), rsq(:)
 
     xRc2 = me%xRcSq*me%invL2
-    xInRc2 = me%xRespaRcSq*me%invL2
+    xInRc2 = me%xExRcSq*me%invL2
 
     include = .true.
     npairs = 0
