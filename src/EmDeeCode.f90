@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "05 Mar 2017"
+character(11), parameter :: VERSION = "30 Apr 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -784,7 +784,7 @@ contains
         !$omp end parallel
 
       case ("quaternions")
-        call c_f_pointer( address, matrix, [3,me%nbodies] )
+        call c_f_pointer( address, matrix, [4,me%nbodies] )
         !$omp parallel num_threads(me%nthreads)
         block
           integer :: thread, i
