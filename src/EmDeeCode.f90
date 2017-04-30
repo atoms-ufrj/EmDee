@@ -771,6 +771,30 @@ contains
         call c_f_pointer( address, vector, [me%nlayers] )
         vector = me%Epair + me%Ecoul
 
+      case ("centersOfMass")
+        call c_f_pointer( address, matrix, [3,me%nbodies] )
+        !$omp parallel num_threads(me%nthreads)
+        block
+          integer :: thread, i
+          thread = omp_get_thread_num() + 1
+          forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
+            matrix(:,i) = me%body(i)%rcm
+          end forall
+        end block
+        !$omp end parallel
+
+      case ("quaternions")
+        call c_f_pointer( address, matrix, [3,me%nbodies] )
+        !$omp parallel num_threads(me%nthreads)
+        block
+          integer :: thread, i
+          thread = omp_get_thread_num() + 1
+          forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
+            matrix(:,i) = me%body(i)%q
+          end forall
+        end block
+        !$omp end parallel
+
       case default
         call error( "download", "invalid option" )
 
