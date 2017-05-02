@@ -209,6 +209,15 @@ interface
     real(c_double), value         :: alpha_R, alpha_P, dt
   end subroutine EmDee_advance
 
+  subroutine EmDee_pair_count( md, bins, pairs, itype, jtype, count ) &
+    bind(C,name="EmDee_pair_count")
+    import :: tEmDee, c_int
+    type(tEmDee),    value       :: md
+    integer(c_int),  value       :: pairs, bins
+    integer(c_int),  intent(in)  :: itype(pairs), jtype(pairs)
+    integer(c_int),  intent(out) :: count(bins,pairs)
+  end subroutine EmDee_pair_count
+
   ! MODELS:
   type(c_ptr) function EmDee_shifted_force( model ) &
     bind(C,name="EmDee_shifted_force")

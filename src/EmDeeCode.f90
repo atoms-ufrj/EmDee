@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "30 Apr 2017"
+character(11), parameter :: VERSION = "02 May 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -1114,6 +1114,101 @@ contains
     end if
 
   end subroutine EmDee_advance
+
+!===================================================================================================
+
+  subroutine EmDee_pair_count( md, bins, pairs, itype, jtype, count ) &
+    bind(C,name="EmDee_pair_count")
+    type(tEmDee), value       :: md
+    integer(ib),  value       :: pairs, bins
+    integer(ib),  intent(in)  :: itype(pairs), jtype(pairs)
+    integer(ib),  intent(out) :: count(bins,pairs)
+
+    character(*), parameter :: task = "radial distribution calculation"
+
+    integer :: maxtype
+    logical,  allocatable :: hasPair(:), pairOn(:,:)
+    integer,  allocatable :: pairCount(:,:,:)
+    real(rb), allocatable :: Rs(:,:)
+    type(tData),  pointer :: me
+
+    call c_f_pointer( md%data, me )
+    if (.not.ranged( [itype,jtype], me%ntypes )) then
+      call error( task, "at least one provided type index is out of range" )
+    end if
+
+    allocate( hasPair(me%ntypes), source = .false. )
+    hasPair(itype) = .true.
+    hasPair(jtype) = .true.
+
+    allocate( pairOn(me%ntypes,me%ntypes), source = .false. )
+    pairOn(itype,jtype) = .true.
+    pairOn(jtype,itype) = .true.
+
+    maxtype = maxval([itype,jtype])
+    allocate( pairCount(bins,symm1D(maxtype,maxtype),me%nthreads), Rs(3,me%natoms) )
+
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread, a1, aN
+      thread = omp_get_thread_num() + 1
+      a1 = (thread - 1)*me%threadAtoms + 1
+      aN = min(thread*me%threadAtoms, me%natoms)
+      Rs(:,a1:aN) = me%invL*me%R(:,a1:aN)
+      !$omp barrier
+      call count_pairs( thread, Rs )
+    end block
+    !$omp end parallel
+
+    pairCount(:,:,1) = sum(pairCount,3)
+    count = pairCount(:,symm1D(itype,jtype),1)
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine count_pairs( thread, Rs )
+        integer,     intent(in) :: thread
+        real(rb),    intent(in) :: Rs(3,me%natoms)
+
+        integer  :: firstAtom, lastAtom, k, i, itype, m, j, jtype, pair, bin
+        real(rb) :: Rc2, binsByRc, Ri(3), Rij(3), r2
+
+        Rc2 = me%RcSq*me%invL2
+        binsByRc = bins/me%Rc
+        pairCount(:,:,thread) = 0
+        associate ( neighbor => me%neighbor(thread) )
+          firstAtom = me%cellAtom%first(me%threadCell%first(thread))
+          lastAtom = me%cellAtom%last(me%threadCell%last(thread))
+          do k = firstAtom, lastAtom
+            i = me%cellAtom%item(k)
+            if (hasPair(i)) then
+              Ri = Rs(:,i)
+              itype = me%atomType(i)
+              do m = neighbor%first(i), neighbor%last(i)
+                j = neighbor%item(m)
+                jtype = me%atomType(j)
+                if (pairOn(itype,jtype)) then
+                  Rij = pbc(Ri - Rs(:,j))
+                  r2 = sum(Rij*Rij)
+                  if (r2 < Rc2) then
+                    pair = symm1D(itype,jtype)
+                    bin = int(sqrt(r2)*binsByRc) + 1
+                    pairCount(bin,pair,thread) = pairCount(bin,pair,thread) + 1
+                  end if
+                end if
+              end do
+            end if
+          end do
+        end associate
+
+      end subroutine count_pairs
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      elemental function pbc( x )
+        real(rb), intent(in) :: x
+        real(rb)              :: pbc
+        pbc = x - anint(x)
+      end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  end subroutine EmDee_pair_count
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S

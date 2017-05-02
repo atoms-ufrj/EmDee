@@ -164,6 +164,13 @@ function advance( md::tEmDee, alpha_R::Real, alpha_P::Real, dt::Real )
          Ref(md), alpha_R, alpha_P, dt )
 end
 #---------------------------------------------------------------------------------------------------
+function pair_count( md::tEmDee, bins::Int, pairs::Int, itype::IntegerArray, jtype::IntegerArray, 
+                     count::IntegerArray )
+  ccall( (:EmDee_pair_count,"libemdee"), Void,
+         (tEmDee, Int32, Int32, Vector{Int32}, Vector{Int32}, Matrix{Int32}),
+          md, bins, pairs, itype, jtype, count )
+end
+#---------------------------------------------------------------------------------------------------
 #                                            M O D E L S
 #---------------------------------------------------------------------------------------------------
 function shifted_force( model::tModel )
