@@ -71,7 +71,7 @@ void EmDee_displace( tEmDee* md, double lambda, double alpha, double dt );
 
 void EmDee_advance( tEmDee* md, double alpha_R, double alpha_P, double dt );
 
-void EmDee_pair_count( tEmDee md, int bins, int pairs, int itype[], int jtype[], int count[] );
+void EmDee_rdf( tEmDee md, int bins, int pairs, int itype[], int jtype[], double count[] );
 
 void* EmDee_shifted_force( void* model );
 

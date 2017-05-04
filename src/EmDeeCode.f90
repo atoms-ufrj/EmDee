@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "02 May 2017"
+character(11), parameter :: VERSION = "04 May 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -1117,19 +1117,20 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_pair_count( md, bins, pairs, itype, jtype, count ) &
-    bind(C,name="EmDee_pair_count")
+  subroutine EmDee_rdf( md, bins, pairs, itype, jtype, g ) bind(C,name="EmDee_rdf")
     type(tEmDee), value       :: md
     integer(ib),  value       :: pairs, bins
     integer(ib),  intent(in)  :: itype(pairs), jtype(pairs)
-    integer(ib),  intent(out) :: count(bins,pairs)
+    real(rb),     intent(out) :: g(bins,pairs)
 
     character(*), parameter :: task = "radial distribution calculation"
+    real(rb),     parameter :: Pi4_3 = 4.188790204786391_rb
 
-    integer :: maxtype
+    integer :: maxtype, i, j, bin, pair
+
     logical,  allocatable :: hasPair(:), pairOn(:,:)
-    integer,  allocatable :: pairCount(:,:,:)
-    real(rb), allocatable :: Rs(:,:)
+    integer,  allocatable :: pairCount(:,:,:), N(:)
+    real(rb), allocatable :: Rs(:,:), rdf(:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -1160,8 +1161,19 @@ contains
     end block
     !$omp end parallel
 
-    pairCount(:,:,1) = sum(pairCount,3)
-    count = pairCount(:,symm1D(itype,jtype),1)
+    rdf = sum(pairCount,3)/(Pi4_3*(me%Rc*me%invL/bins)**3)
+    forall (bin=1:bins) rdf(bin,:) = rdf(bin,:)/(3*bin*(bin - 1) + 1)
+    allocate( N(maxtype) )
+    forall(i=1:maxtype, hasPair(i)) N(i) = count(me%atomType == i)
+    do pair = 1, pairs
+      i = itype(pair)
+      j = jtype(pair)
+      if (i == j) then
+        g(:,pair) = two*rdf(:,symm1D(i,j))/(N(i)*N(j))
+      else
+        g(:,pair) = rdf(:,symm1D(i,j))/(N(i)*N(j))
+      end if
+    end do
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1173,16 +1185,16 @@ contains
         real(rb) :: Rc2, binsByRc, Ri(3), Rij(3), r2
 
         Rc2 = me%RcSq*me%invL2
-        binsByRc = bins/me%Rc
+        binsByRc = bins/(me%Rc*me%invL)
         pairCount(:,:,thread) = 0
         associate ( neighbor => me%neighbor(thread) )
           firstAtom = me%cellAtom%first(me%threadCell%first(thread))
           lastAtom = me%cellAtom%last(me%threadCell%last(thread))
           do k = firstAtom, lastAtom
             i = me%cellAtom%item(k)
-            if (hasPair(i)) then
+            itype = me%atomType(i)
+            if (hasPair(itype)) then
               Ri = Rs(:,i)
-              itype = me%atomType(i)
               do m = neighbor%first(i), neighbor%last(i)
                 j = neighbor%item(m)
                 jtype = me%atomType(j)
@@ -1208,7 +1220,7 @@ contains
         pbc = x - anint(x)
       end function pbc
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine EmDee_pair_count
+  end subroutine EmDee_rdf
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
