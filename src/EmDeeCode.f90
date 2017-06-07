@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "05 Jun 2017"
+character(11), parameter :: VERSION = "07 Jun 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -643,6 +643,7 @@ contains
         me%Lbox = scalar
         me%Lbox3 = scalar
         me%invL = one/scalar
+        me%L2 = me%Lbox**2
         me%invL2 = me%invL**2
         if (.not.me%initialized) then
           me%initialized = allocated( me%R )
@@ -954,6 +955,7 @@ contains
       me%Lbox = cR*me%Lbox
       me%Lbox3 = me%Lbox
       me%InvL = one/me%Lbox
+      me%L2 = me%Lbox*me%Lbox
       me%invL2 = me%invL*me%invL
     else
       CP = dt

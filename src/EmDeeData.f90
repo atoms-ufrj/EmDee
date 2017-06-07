@@ -59,6 +59,7 @@ type :: tData
   real(rb) :: Lbox = zero                 ! Length of the simulation box
   real(rb) :: Lbox3(3) = zero
   real(rb) :: invL = huge(one)            ! Inverse length of the simulation box
+  real(rb) :: L2 = zero                   ! Squared length of the simulation box
   real(rb) :: invL2 = huge(one)           ! Squared inverse length of the simulation box
 
   real(rb) :: Rc                          ! Cut-off distance
@@ -220,11 +221,11 @@ contains
             pair(itype,itype) = container
             pair(itype,itype)%coulomb = kCoul /= zero
             if (pair(itype,itype)%coulomb) pair(itype,itype)%kCoul = kCoul
-            call pair(itype,itype) % model % shifting_setup( me%Rc )
+            call pair(itype,itype) % model % modifier_setup( me%Rc )
             do ktype = 1, me%ntypes
               if ((ktype /= itype).and.me%overridable(itype,ktype)) then
                 pair(itype,ktype) = pair(ktype,ktype) % mix( pair(itype,itype) )
-                call pair(itype,ktype) % model % shifting_setup( me%Rc )
+                call pair(itype,ktype) % model % modifier_setup( me%Rc )
                 pair(ktype,itype) = pair(itype,ktype)
               end if
             end do
@@ -232,7 +233,7 @@ contains
             pair(itype,jtype) = container
             pair(itype,jtype)%coulomb = kCoul /= zero
             if (pair(itype,jtype)%coulomb) pair(itype,jtype)%kCoul = kCoul
-            call pair(itype,jtype) % model % shifting_setup( me%Rc )
+            call pair(itype,jtype) % model % modifier_setup( me%Rc )
             pair(jtype,itype) = pair(itype,jtype)
           end if
         end associate
@@ -609,7 +610,7 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms)
 
-    real(rb) :: Rc2, InRc2, u
+    real(rb) :: Rc2, InRc2
 
     Rc2 = me%ExRcSq*me%invL2
     InRc2 = me%InRcSq*me%invL2
@@ -715,10 +716,11 @@ contains
                   select type ( model )
                     include "virial_compute_pair.f90"
                   end select
-                  if (model%shifted_force) then
-                    rFc = model%fshift/invR
-                    Wij = Wij - rFc
-                  end if
+                  select case (model%modifier)
+                    case (2) ! SHIFTED_FORCE
+                      rFc = model%fshift/invR
+                      Wij = Wij - rFc
+                  end select
                 end associate
                 DWij = Wij
                 if (ijcharged.and.pair%coulomb) then
@@ -737,10 +739,11 @@ contains
                   select type ( model )
                     include "virial_compute_pair.f90"
                   end select
-                  if (model%shifted_force) then
-                    rFc = model%fshift/invR
-                    Wij = Wij - rFc
-                  end if
+                  select case (model%modifier)
+                    case (2) ! SHIFTED_FORCE
+                      rFc = model%fshift/invR
+                      Wij = Wij - rFc
+                  end select
                 end associate
                 DWij = DWij - Wij
                 if (ijcharged.and.pair%coulomb) then

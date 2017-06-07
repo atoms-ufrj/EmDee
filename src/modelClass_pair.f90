@@ -24,19 +24,26 @@ use modelClass
 
 implicit none
 
+integer, parameter :: NONE = 0,          &
+                      SHIFTED = 1,       &
+                      SHIFTED_FORCE = 2, &
+                      SMOOTHED = 3
+
 !> Abstract class for pair interaction models
 type, abstract, extends(cModel) :: cPairModel
+  integer  :: modifier = NONE
   real(rb) :: eshift = zero
   real(rb) :: fshift = zero
-  logical  :: shifted = .false.
-  logical  :: shifted_force = .false.
+  real(rb) :: RmSq = zero
+  real(rb) :: factor = zero
+  real(rb) :: Rm2fac = zero
   contains
     procedure(cPairModel_compute), deferred :: compute
     procedure(cPairModel_energy),  deferred :: energy
     procedure(cPairModel_virial),  deferred :: virial
     procedure(cPairModel_mix),     deferred :: mix
 
-    procedure :: shifting_setup => cPairModel_shifting_setup
+    procedure :: modifier_setup => cPairModel_modifier_setup
     procedure :: kspace_setup => cPairModel_kspace_setup
 end type cPairModel
 
@@ -112,7 +119,7 @@ contains
     select type ( pair => container%model )
       class is (cPairModel)
         allocate( new, source = pair )
-        new%shifted_force = .true.
+        new%modifier = SHIFTED_FORCE
         EmDee_shifted_force = new % deliver()
       class default
         call error( "shifted-force assignment", "a valid pair model must be provided" )
@@ -122,7 +129,33 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine cPairModel_shifting_setup( model, cutoff )
+  type(c_ptr) function EmDee_smoothed( model, Rm ) bind(C,name="EmDee_smoothed")
+    type(c_ptr), value :: model
+    real(rb),    value :: Rm
+
+    type(modelContainer),  pointer :: container
+    class(cPairModel), allocatable :: new
+
+    if (.not.c_associated(model)) then
+      call error( "smoothed pair assignment", "a valid pair model must be provided" )
+    end if
+    call c_f_pointer( model, container )
+
+    select type ( pair => container%model )
+      class is (cPairModel)
+        allocate( new, source = pair )
+        new%modifier = SMOOTHED
+        new%RmSq = Rm**2
+        EmDee_smoothed = new % deliver()
+      class default
+        call error( "smoothed pair assignment", "a valid pair model must be provided" )
+    end select
+
+  end function EmDee_smoothed
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cPairModel_modifier_setup( model, cutoff )
     class(cPairModel), intent(inout) :: model
     real(rb),          intent(in)    :: cutoff
 
@@ -132,25 +165,31 @@ contains
     model%fshift = zero
     model%eshift = zero
 
-    if (model%shifted .or. model%shifted_force) then
+    select case (model%modifier)
+      case (SHIFTED, SHIFTED_FORCE)
 
-      ! Compute energies and virials at cutoff:
-      invR = one/cutoff
-      invR2 = invR*invR
-      call model%compute( E, W, invR, invR2 )
+        ! Compute energies and virials at cutoff:
+        invR = one/cutoff
+        invR2 = invR*invR
+        call model%compute( E, W, invR, invR2 )
 
-      ! Update energy and force shifts:
-      if (model%shifted_force) then
-        model%eshift = -(E + W)
-        model%fshift = W/cutoff
-      else
-        model%fshift = zero
-        model%eshift = -E
-      end if
+        ! Update energy and force shifts:
+        if (model%modifier == SHIFTED_FORCE) then
+          model%eshift = -(E + W)
+          model%fshift = W/cutoff
+        else
+          model%fshift = zero
+          model%eshift = -E
+        end if
 
-    end if
+      case (SMOOTHED)
 
-  end subroutine cPairModel_shifting_setup
+        model%factor = one/(cutoff**2 - model%RmSq)
+        model%Rm2fac = model%factor*model%RmSq
+
+    end select
+
+  end subroutine cPairModel_modifier_setup
 
 !---------------------------------------------------------------------------------------------------
 

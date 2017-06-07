@@ -75,6 +75,8 @@ void EmDee_rdf( tEmDee md, int bins, int pairs, int itype[], int jtype[], double
 
 void* EmDee_shifted_force( void* model );
 
+void* EmDee_smoothed( void* model, double Rm );
+
 void* EmDee_pair_none();
 
 void* EmDee_coul_none();

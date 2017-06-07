@@ -174,7 +174,11 @@ end
 #                                            M O D E L S
 #---------------------------------------------------------------------------------------------------
 function shifted_force( model::tModel )
-  return ccall( (:EmDee_pair_none,"libemdee"), tModel, (tModel), model )
+  return ccall( (:EmDee_shifted_force,"libemdee"), tModel, (tModel), model )
+end
+#---------------------------------------------------------------------------------------------------
+function smoothed( model::tModel, Rm::Real )
+  return ccall( (:EmDee_smoothed,"libemdee"), tModel, (tModel, Float64), model, Rm )
 end
 #---------------------------------------------------------------------------------------------------
 function pair_none()

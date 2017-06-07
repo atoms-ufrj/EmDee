@@ -225,6 +225,13 @@ interface
     type(c_ptr), value :: model
   end function EmDee_shifted_force
 
+  type(c_ptr) function EmDee_smoothed( model, Rm ) &
+    bind(C,name="EmDee_smoothed")
+    import :: c_ptr, c_double
+    type(c_ptr),    value :: model
+    real(c_double), value :: Rm
+  end function EmDee_smoothed
+
   type(c_ptr) function EmDee_pair_none( ) &
     bind(C,name="EmDee_pair_none")
     import :: c_ptr
