@@ -40,6 +40,8 @@ type tBody
   real(rb) :: F(3)      ! Resultant force
   real(rb) :: tau(3)    ! Resultant torque
 
+  logical  :: notRod = .true.
+
   integer,  allocatable :: index(:)
   real(rb), allocatable :: M(:)
   real(rb), allocatable :: d(:,:)
@@ -98,6 +100,8 @@ contains
     class(tBody), intent(inout) :: b
     real(rb),     intent(in)    :: coords(3,b%NP)
 
+    real(rb), parameter :: EPS = 1.0e-8_rb
+
     integer  :: x
     real(rb) :: inertia(3,3), A(3,3)
 
@@ -117,6 +121,15 @@ contains
     call diagonalization( inertia, A, b%MoI )
     A = transpose(A)
     b%invMoI = one/b%MoI
+
+    ! Check if molecule is a rod (colinear atoms):
+    if (b%MoI(3) < EPS*b%MoI(1)) then
+      b%MoI(3) = zero
+      b%invMoI(3) = zero
+      b%notRod = .false.
+      b%dof = 5
+    end if
+
     associate(I1 => b%MoI(1), I2 => b%MoI(2), I3 => b%MoI(3))
       b%I113 = one/(I1*(I1 - I3))
       b%I313 = one/(I3*(I1 - I3))
@@ -186,11 +199,11 @@ contains
     dt = delta_t/n
     half_dt = half*dt
     do i = 1, n
-      call b % rotate_uniaxial( 3, half_dt )
+      if (b%notRod) call b % rotate_uniaxial( 3, half_dt )
       call b % rotate_uniaxial( 2, half_dt )
       call b % rotate_uniaxial( 1, dt )
       call b % rotate_uniaxial( 2, half_dt )
-      call b % rotate_uniaxial( 3, half_dt )
+      if (b%notRod) call b % rotate_uniaxial( 3, half_dt )
     end do
     b%delta = matmul( matrix_Ct(b%q), matmul( matrix_B(b%q), b%d ) )
   end subroutine tBody_rotate_no_squish
