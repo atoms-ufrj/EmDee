@@ -85,12 +85,14 @@ type :: tData
 
   integer, allocatable :: atomType(:)     ! Type indexes of all atoms
   integer, allocatable :: atomCell(:)     ! Array containing the current cell of each atom
-  integer, allocatable :: atomBody(:)     ! Array containing the rigid body containing each atom
+  integer, allocatable :: atomBody(:)     ! Array containing the rigid body that contains each atom
   integer, allocatable :: free(:)         ! Pointer to the list of independent atoms
   integer, allocatable :: atomsInCell(:)  ! Number of atoms in each cell
 
-  real(rb), allocatable :: R(:,:)         ! Coordinates of all atoms
-  real(rb), allocatable :: P(:,:)         ! Momenta of all atoms
+  real(rb),    pointer :: R(:,:) => null()   ! Coordinates of all atoms
+  real(rb),    pointer :: P(:,:) => null()   ! Momenta of all atoms
+  type(tBody), pointer :: body(:) => null()  ! Pointer to the rigid bodies present in the system
+
   real(rb), allocatable :: F(:,:)         ! Resultant forces on all atoms
   real(rb), allocatable :: charge(:)      ! Electric charges of all atoms
   real(rb), allocatable :: mass(:)        ! Masses of all atoms
@@ -99,7 +101,6 @@ type :: tData
   logical,  allocatable :: charged(:)     ! Flag to determine if a particle is charged
 
   type(tCell), allocatable :: cell(:)      ! Array containing all neighbor cells of each cell
-  type(tBody), allocatable :: body(:)      ! Pointer to the rigid bodies present in the system
   type(tList), allocatable :: neighbor(:)  ! Pointer to neighbor lists
 
   type(pairContainer), allocatable :: pair(:,:,:)

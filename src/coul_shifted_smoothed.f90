@@ -17,14 +17,13 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-module coul_smooth_module
+module coul_shifted_smoothed_module
 
 use coulModelClass
-use math, only : uerfc
 
 implicit none
 
-!> Abstract class for model coul_smooth
+!> Abstract class for model coul_shifted_smoothed
 !!
 !! NOTES: 1) model parameters must be declared individually and tagged with a comment mark "!<>"
 !!        2) recognizable parameter types are real(rb) and integer(ib)
@@ -32,76 +31,68 @@ implicit none
 !!        4) an integer(ib) scalar parameter - a size - must necessarily succeed every allocatable
 !!           parameter or series of equally-sized allocatable parameters.
 
-type, extends(cCoulModel) :: coul_smooth
-  real(rb) :: Damp    !<> Damping parameter (unit = 1/Distance)
-  real(rb) :: Rm      !<> Distance at which smoothing starts
-  real(rb) :: Rc      !<> Cut-off distance
+type, extends(cCoulModel) :: coul_shifted_smoothed
+  real(rb) :: skin    !<> Smoothing skin width (unit = distance)
 
-  real(rb) :: beta, Rm2, invRm, factor
+  real(rb) :: Rm2 = zero
+  real(rb) :: invRm = zero
+  real(rb) :: factor = zero
 
   contains
-    procedure :: setup => coul_smooth_setup
-    procedure :: kspace_setup => coul_smooth_kspace_setup
-    procedure :: compute => coul_smooth_compute
-    procedure :: energy  => coul_smooth_energy
-    procedure :: virial  => coul_smooth_virial
-end type coul_smooth
+    procedure :: setup => coul_shifted_smoothed_setup
+    procedure :: apply_cutoff => coul_shifted_smoothed_apply_cutoff
+    procedure :: compute => coul_shifted_smoothed_compute
+    procedure :: energy  => coul_shifted_smoothed_energy
+    procedure :: virial  => coul_shifted_smoothed_virial
+end type coul_shifted_smoothed
 
 contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_smooth_setup( model, params, iparams )
-    class(coul_smooth), intent(inout) :: model
-    real(rb), optional, intent(in)    :: params(:)
-    integer,  optional, intent(in)    :: iparams(:)
+  subroutine coul_shifted_smoothed_setup( model, params, iparams )
+    class(coul_shifted_smoothed), intent(inout) :: model
+    real(rb), optional,          intent(in)    :: params(:)
+    integer,  optional,          intent(in)    :: iparams(:)
 
     ! Model name:
-    model%name = "smooth"
+    model%name = "shifted_smoothed"
 
     ! Model parameters:
-    model%Damp = params(1)
-    model%Rm = params(2)
-    model%Rc = params(3)
+    model%skin = params(1)
 
-    ! Pre-computed quantities:
-    model%Rm2 = model%Rm**2
-    model%invRm = one/model%Rm
-    model%factor = one/(model%Rc**2 - model%Rm2)
-    model%alpha = model%Damp
-    model%beta = two*model%alpha/sqrt(Pi)
+    ! Activate shifting status:
+    model%shifted = .true.
 
-  end subroutine coul_smooth_setup
+  end subroutine coul_shifted_smoothed_setup
 
 !---------------------------------------------------------------------------------------------------
-! For a Coulomb model that requires a kspace solver, this subroutine must be used to store the
-! values of parameters that depend on the Ewald splitting constant 'alpha'.
+! This subroutine must define pre-computed quantities that depend on the cutoff distance.
 
-  subroutine coul_smooth_kspace_setup( model, alpha )
-    class(coul_smooth), intent(inout) :: model
-    real(rb),           intent(in)    :: alpha
+  subroutine coul_shifted_smoothed_apply_cutoff( model, Rc )
+    class(coul_shifted_smoothed), intent(inout) :: model
+    real(rb),                     intent(in)    :: Rc
 
-    model%alpha = model%Damp
-    model%beta = two*alpha/sqrt(Pi)
+    model%Rm2 = (Rc - model%skin)**2
+    model%invRm = one/(Rc - model%skin)
+    model%factor = one/(Rc**2 - model%Rm2)
 
-  end subroutine coul_smooth_kspace_setup
+  end subroutine coul_shifted_smoothed_apply_cutoff
 
 !---------------------------------------------------------------------------------------------------
 ! This subroutine must return the Coulombic energy E(r) and virial W(r) = -r*dE/dr of a pair ij
 ! whose distance is equal to 1/invR. If the Coulomb model requires a kspace solver, then only the
 ! real-space, short-range contribution must be computed here.
 
-  subroutine coul_smooth_compute( model, ECij, WCij, invR, invR2, QiQj )
-    class(coul_smooth), intent(in)  :: model
-    real(rb),           intent(out) :: ECij, WCij
-    real(rb),           intent(in)  :: invR, invR2, QiQj
+  subroutine coul_shifted_smoothed_compute( model, ECij, WCij, invR, invR2, QiQj )
+    class(coul_shifted_smoothed), intent(in)  :: model
+    real(rb),                     intent(out) :: ECij, WCij
+    real(rb),                     intent(in)  :: invR, invR2, QiQj
 
-    real(rb) :: x, expmx2, r2, u, u2, u3, G, WG
+    real(rb) :: r2, u, u2, u3, G, WG
 
-    x = model%alpha/invR
-    expmx2 = exp(-x*x)
-    ECij = QiQj*uerfc(x,expmx2)*invR
-    WCij = ECij + QiQj*model%beta*expmx2
+    WCij = QiQj*invR
+    ECij = WCij + QiQj*model%eshift
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -114,20 +105,19 @@ contains
       ECij = ECij*G
     end if
 
-  end subroutine coul_smooth_compute
+  end subroutine coul_shifted_smoothed_compute
 
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
-  subroutine coul_smooth_energy( model, ECij, invR, invR2, QiQj )
-    class(coul_smooth), intent(in)  :: model
-    real(rb),           intent(out) :: ECij
-    real(rb),           intent(in)  :: invR, invR2, QiQj
+  subroutine coul_shifted_smoothed_energy( model, ECij, invR, invR2, QiQj )
+    class(coul_shifted_smoothed), intent(in)  :: model
+    real(rb),                     intent(out) :: ECij
+    real(rb),                     intent(in)  :: invR, invR2, QiQj
 
-    real(rb) :: x, r2, u, u2, u3, G
+    real(rb) :: r2, u, u2, u3, G
 
-    x = model%alpha/invR
-    ECij = QiQj*uerfc(x,exp(-x*x))*invR
+    ECij = QiQj*(invR + model%eshift)
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -138,22 +128,19 @@ contains
       ECij = ECij*G
     end if
 
-  end subroutine coul_smooth_energy
+  end subroutine coul_shifted_smoothed_energy
 
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
-  subroutine coul_smooth_virial( model, WCij, invR, invR2, QiQj )
-    class(coul_smooth), intent(in)  :: model
-    real(rb),           intent(out) :: WCij
-    real(rb),           intent(in)  :: invR, invR2, QiQj
+  subroutine coul_shifted_smoothed_virial( model, WCij, invR, invR2, QiQj )
+    class(coul_shifted_smoothed), intent(in)  :: model
+    real(rb),                     intent(out) :: WCij
+    real(rb),                     intent(in)  :: invR, invR2, QiQj
 
-    real(rb) :: x, ECij, expmx2, r2, u, u2, u3, G, WG
+    real(rb) :: r2, u, u2, u3, G, WG
 
-    x = model%alpha/invR
-    expmx2 = exp(-x*x)
-    ECij = QiQj*uerfc(x,expmx2)*invR
-    WCij = ECij + QiQj*model%beta*expmx2
+    WCij = QiQj*invR
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -162,11 +149,11 @@ contains
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
       WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r2
-      WCij = WCij*G + ECij*WG
+      WCij = WCij*G + (WCij + QiQj*model%eshift)*WG
     end if
 
-  end subroutine coul_smooth_virial
+  end subroutine coul_shifted_smoothed_virial
 
 !---------------------------------------------------------------------------------------------------
 
-end module coul_smooth_module
+end module coul_shifted_smoothed_module

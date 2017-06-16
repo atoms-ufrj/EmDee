@@ -31,13 +31,17 @@ typedef struct {
     _Bool  Translate;        // Flag to activate/deactivate translations
     _Bool  Rotate;           // Flag to activate/deactivate rotations
     int    RotationMode;     // Algorithm used for free rotation of rigid bodies
+    _Bool  AutoForceCompute; // Flag to activate/deactivate automatic force computations
+    _Bool  AutoBodyUpdate;   // Flag to activate/deactivate automatic rigid body update
   } Options;
 } tEmDee;
 
 tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, 
                      double* masses, int* bodies );
 
-void EmDee_switch_model_layer( tEmDee* md, int layer );
+void EmDee_share_phase_space( tEmDee mdkeep, tEmDee* mdlose );
+
+void EmDee_switch_model_layer( tEmDee md, int layer );
 
 void EmDee_set_pair_model( tEmDee md, int itype, int jtype, void* model, double kCoul );
 
@@ -68,6 +72,8 @@ void EmDee_random_momenta( tEmDee* md, double kT, _Bool adjust, int seed );
 void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 
 void EmDee_displace( tEmDee* md, double lambda, double alpha, double dt );
+
+void EmDee_compute_forces( tEmDee* md );
 
 void EmDee_advance( tEmDee* md, double alpha_R, double alpha_P, double dt );
 

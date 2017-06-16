@@ -4,6 +4,8 @@ immutable tOptions
   Translate::Int32           # Flag to activate/deactivate translations
   Rotate::Int32              # Flag to activate/deactivate rotations
   RotationMode::Int32        # Algorithm used for free rotation of rigid bodies
+  AutoForceCompute::Int32    # Flag to activate/deactivate automatic force computations
+  AutoBodyUpdate::Int32      # Flag to activate/deactivate automatic rigid body update
 end
 
 immutable tVec3D
@@ -61,6 +63,18 @@ function system( threads::Integer, layers::Integer, rc::Real, skin::Real, N::Int
                 Vector{Int32}(bodies) )
 end
 #---------------------------------------------------------------------------------------------------
+function EmDee_share_phase_space( mdkeep::tEmDee, mdlose::tEmDee )
+  ccall( (:EmDee_share_phase_space,"libemdee"), Void,
+         (tEmDee, Ptr{tEmDee}),
+         mdkeep, Ref(mdlose) )
+end
+#---------------------------------------------------------------------------------------------------
+function switch_model_layer( md::tEmDee, layer::Int )
+  ccall( (:EmDee_switch_model_layer,"libemdee"), Void,
+         (tEmDee, Int32),
+         md, layer )
+end
+#---------------------------------------------------------------------------------------------------
 function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel, kCoul::Real )
   ccall( (:EmDee_set_pair_model,"libemdee"), Void,
          (tEmDee, Int32, Int32, tModel, Float64),
@@ -90,12 +104,6 @@ function set_pair_multimodel( md::tEmDee, model::Array{tModel} )
   ccall( (:EmDee_set_coul_multimodel,"libemdee"), Void,
          (tEmDee, Ptr{tModel}),
          md, model )
-end
-#---------------------------------------------------------------------------------------------------
-function switch_model_layer( md::tEmDee, layer::Int )
-  ccall( (:EmDee_switch_model_layer,"libemdee"), Void,
-         (tEmDee, Int32),
-         md, layer )
 end
 #---------------------------------------------------------------------------------------------------
 function add_bond( md::tEmDee, i::Integer, j::Integer, model::tModel )
@@ -156,6 +164,12 @@ function displace( md::tEmDee, lambda::Real, alpha::Real, dt::Real )
   ccall( (:EmDee_displace,"libemdee"), Void,
          (Ptr{tEmDee}, Float64, Float64, Float64),
          Ref(md), lambda, alpha, dt )
+end
+#---------------------------------------------------------------------------------------------------
+function compute_forces( md::tEmDee )
+  ccall( (:EmDee_compute_forces,"libemdee"), Void,
+         (Ptr{tEmDee}),
+         Ref(md) )
 end
 #---------------------------------------------------------------------------------------------------
 function advance( md::tEmDee, alpha_R::Real, alpha_P::Real, dt::Real )

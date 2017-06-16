@@ -17,6 +17,7 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Include Lbox and related variables in phase space sharing
 ! TODO: Include kspace terms in subroutine update_forces.
 ! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
 ! TODO: Change name of exported Julia wrapper
@@ -32,16 +33,14 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "07 Jun 2017"
+character(11), parameter :: VERSION = "16 Jun 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
   logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
-  real(rb)    :: Lambda_R             ! Momentum-multiplying constant in position equations
-  real(rb)    :: Alpha_R              ! Position-multiplying constant in position equations
-  real(rb)    :: Lambda_P             ! Force-multiplying constant in momentum equations
-  real(rb)    :: Alpha_P              ! Momentum-multiplying constant in momentum equations
+  logical(lb) :: AutoForceCompute     ! Flag to activate/deactivate automatic force computations
+  logical(lb) :: AutoBodyUpdate       ! Flag to activate/deactivate automatic rigid body update
 end type tOpts
 
 type, bind(C), public :: tEnergy
@@ -221,12 +220,43 @@ contains
 
     EmDee_system % Options % Rotate = .true.
     EmDee_system % Options % RotationMode = 0
-    EmDee_system % Options % Lambda_R = one
-    EmDee_system % Options % Alpha_R  = zero
-    EmDee_system % Options % Lambda_P = one
-    EmDee_system % Options % Alpha_P  = zero
+    EmDee_system % Options % AutoForceCompute = .true.
+    EmDee_system % Options % AutoBodyUpdate = .true.
 
   end function EmDee_system
+
+!===================================================================================================
+
+  subroutine EmDee_share_phase_space( mdkeep, mdlose ) bind(C,name="EmDee_share_phase_space")
+    type(tEmDee), value         :: mdkeep
+    type(tEmDee), intent(inout) :: mdlose
+
+    character(*), parameter :: task = "phase space sharing"
+
+    type(tData), pointer :: keep, lose
+
+    call c_f_pointer( mdkeep%data, keep )
+    call c_f_pointer( mdlose%data, lose )
+
+    if (.not.(keep%initialized.and.lose%initialized)) &
+      call error( task, "EmDee system 1 has not been initialized" )
+
+    if (keep%natoms /= lose%natoms) call error( task, "different numbers of atoms" )
+    if (any(keep%atomType /= lose%atomType)) call error( task, "atom types do not match" )
+    if (any(keep%mass /= lose%mass)) call error( task, "atom masses do not match" )
+    if (any(keep%atomBody /= lose%atomBody)) call error( task, "rigid bodies do not match" )
+
+    if (lose%initialized) deallocate( lose%R, lose%P, lose%body )
+    lose%R => keep%R
+    lose%P => keep%P
+    lose%body => keep%body
+
+    mdlose%Energy%Kinetic = mdkeep%Energy%Kinetic
+    mdlose%Energy%TransPart = mdkeep%Energy%TransPart
+    mdlose%Energy%Rotational = mdkeep%Energy%Rotational
+    mdlose%Energy%RotPart = mdkeep%Energy%RotPart
+
+  end subroutine EmDee_share_phase_space
 
 !===================================================================================================
 
@@ -415,7 +445,7 @@ contains
       class is (cCoulModel)
         do layer = 1, me%nlayers
           me%coul(layer) = container
-          call me % coul(layer) % model % shifting_setup( me%Rc )
+          call me % coul(layer) % model % cutoff_setup( me%Rc )
         end do
       class default
         call error( task, "a valid coulomb model must be provided" )
@@ -450,7 +480,7 @@ contains
       select type ( coul => container%model )
         class is (cCoulModel)
           me%coul(layer) = container
-          call me % coul(layer) % model % shifting_setup( me%Rc )
+          call me % coul(layer) % model % cutoff_setup( me%Rc )
         class default
           call error( task, "a valid coulomb model must be provided" )
       end select
@@ -628,8 +658,8 @@ contains
     type(c_ptr),       value         :: address
 
     real(rb), allocatable :: twoKEt(:,:), twoKEr(:,:)
-    real(rb), pointer :: scalar, Vector(:), Matrix(:,:)
-    type(tData), pointer :: me
+    real(rb),     pointer :: scalar, Vector(:), Matrix(:,:)
+    type(tData),  pointer :: me
     character(sl) :: item
 
     call c_f_pointer( md%data, me )
@@ -646,13 +676,13 @@ contains
         me%L2 = me%Lbox**2
         me%invL2 = me%invL**2
         if (.not.me%initialized) then
-          me%initialized = allocated( me%R )
+          me%initialized = associated( me%R )
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         end if
-        if (me%initialized) call compute_all_forces( md )
+        if (me%initialized.and.md%Options%AutoForceCompute) call EmDee_compute_forces( md )
 
       case ("coordinates")
-        if (.not.allocated( me%R )) allocate( me%R(3,me%natoms) )
+        if (.not.associated( me%R )) allocate( me%R(3,me%natoms) )
         call c_f_pointer( address, Matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
         call upload( omp_get_thread_num() + 1, Matrix, me%R )
@@ -661,7 +691,7 @@ contains
           me%initialized = me%Lbox > zero
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         end if
-        if (me%initialized) call compute_all_forces( md )
+        if (me%initialized.and.md%Options%AutoForceCompute) call EmDee_compute_forces( md )
 
       case ("momenta")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -693,7 +723,7 @@ contains
         !$omp parallel num_threads(me%nthreads)
         call assign_charges( omp_get_thread_num() + 1, Vector )
         !$omp end parallel
-        if (me%initialized) call compute_all_forces( md )
+        if (me%initialized.and.md%Options%AutoForceCompute) call EmDee_compute_forces( md )
 
       case default
         call error( "upload", "invalid option" )
@@ -746,7 +776,7 @@ contains
         scalar = me%Lbox
 
       case ("coordinates")
-        if (.not.allocated( me%R )) call error( "download", "coordinates have not been allocated" )
+        if (.not.associated( me%R )) call error( "download", "coordinates have not been allocated" )
         call c_f_pointer( address, matrix, [3,me%natoms] )
         !$omp parallel num_threads(me%nthreads)
         call download( omp_get_thread_num() + 1, me%R, matrix )
@@ -773,15 +803,9 @@ contains
         vector = me%Epair + me%Ecoul
 
       case ("centersOfMass")
-        call c_f_pointer( address, matrix, [3,me%nbodies] )
+        call c_f_pointer( address, matrix, [3,me%nbodies+me%nfree] )
         !$omp parallel num_threads(me%nthreads)
-        block
-          integer :: thread, i
-          thread = omp_get_thread_num() + 1
-          forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
-            matrix(:,i) = me%body(i)%rcm
-          end forall
-        end block
+        call get_centers_of_mass( omp_get_thread_num() + 1 )
         !$omp end parallel
 
       case ("quaternions")
@@ -790,7 +814,7 @@ contains
         block
           integer :: thread, i
           thread = omp_get_thread_num() + 1
-          forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
+          forall (i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
             matrix(:,i) = me%body(i)%q
           end forall
         end block
@@ -824,6 +848,17 @@ contains
         last = min(thread*me%threadAtoms, me%natoms)
         destination(:,first:last) = origin(:,first:last)
       end subroutine download
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine get_centers_of_mass( thread )
+        integer,  intent(in) :: thread
+        integer :: i
+        forall (i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies) )
+          matrix(:,i) = me%body(i)%rcm
+        end forall
+        forall(i = (thread - 1)*me%threadFreeAtoms + 1 : min(thread*me%threadFreeAtoms,me%nfree) )
+          matrix(:,i+me%nbodies) = me%R(:,me%free(i))
+        end forall
+      end subroutine get_centers_of_mass
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_download
 
@@ -970,9 +1005,76 @@ contains
       !$omp end parallel
     end associate
 
-    call compute_all_forces( md )
+    if (md%Options%AutoForceCompute) call EmDee_compute_forces( md )
 
   end subroutine EmDee_displace
+
+!===================================================================================================
+
+  subroutine EmDee_compute_forces( md ) bind(C,name="EmDee_compute_forces")
+    type(tEmDee), intent(inout) :: md
+
+    real(rb) :: time, Epair, Ecoul, Elong, Wpair, Wcoul
+    logical(lb) :: compute
+    real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
+    type(tData),  pointer :: me
+
+    call c_f_pointer( md%data, me )
+
+    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
+    Rs = me%invL*me%R
+
+    call handle_neighbor_lists( me, md%builds, md%Time%Neighbor, Rs )
+
+    md%Time%Pair = md%Time%Pair - omp_get_wtime()
+    compute = md%Energy%Compute
+    !$omp parallel num_threads(me%nthreads) reduction(+:Epair,Ecoul,Elong,Wpair,Wcoul)
+    block
+      integer :: thread
+      thread = omp_get_thread_num() + 1
+      associate( F => Fs(:,:,thread) )
+        call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
+        Elong = zero
+        me%threadElong(:,thread) = zero
+        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Epair, Wpair )
+        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Epair, Wpair )
+        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Epair, Wpair )
+      end associate
+    end block
+    !$omp end parallel
+    me%F = sum(Fs,3)
+
+    if (me%kspace_active) then
+      call compute_kspace( me, compute, Rs, Elong, me%F )
+      md%Virial = Wpair - 3.0_rb*(Ecoul + Elong)
+    else
+      md%Virial = Wpair + Wcoul
+    end if
+
+    if (me%nbodies /= 0) then
+      md%BodyVirial = rigid_body_virial( me )
+      md%Virial = md%Virial + md%BodyVirial
+    end if
+
+    if (compute) then
+      md%Energy%Dispersion = Epair
+      md%Energy%Coulomb = Ecoul + Elong
+      md%Energy%Fourier = Elong
+      md%Energy%Potential = Epair + md%Energy%Coulomb
+      me%Epair = sum(me%threadEpair,2)
+      me%Elong = sum(me%threadElong,2)
+      me%Ecoul = sum(me%threadEcoul,2) + me%Elong
+      me%Energy = me%Epair + me%Ecoul
+    end if
+
+    me%fast_required = me%respa_active
+
+    md%Energy%UpToDate = compute
+    time = omp_get_wtime()
+    md%Time%Pair = md%Time%Pair + time
+    md%Time%Total = time - me%startTime
+
+  end subroutine EmDee_compute_forces
 
 !===================================================================================================
 
@@ -1052,7 +1154,7 @@ contains
         !$omp end parallel
       end do
 
-      call compute_all_forces( md )
+      call EmDee_compute_forces( md )
 
       !$omp parallel num_threads(me%nthreads)
       block
@@ -1091,7 +1193,7 @@ contains
         me%Lbox3 = me%Lbox
       end if
 
-      call compute_all_forces( md )
+      call EmDee_compute_forces( md )
 
       !$omp parallel num_threads(me%nthreads)
       block
@@ -1226,73 +1328,6 @@ contains
 
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
-!===================================================================================================
-
-  subroutine compute_all_forces( md )
-    type(tEmDee), intent(inout) :: md
-
-    real(rb) :: time, Epair, Ecoul, Elong, Wpair, Wcoul
-    logical(lb) :: compute
-    real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
-    type(tData),  pointer :: me
-
-    call c_f_pointer( md%data, me )
-
-    allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
-    Rs = me%invL*me%R
-
-    call handle_neighbor_lists( me, md%builds, md%Time%Neighbor, Rs )
-
-    md%Time%Pair = md%Time%Pair - omp_get_wtime()
-    compute = md%Energy%Compute
-    !$omp parallel num_threads(me%nthreads) reduction(+:Epair,Ecoul,Elong,Wpair,Wcoul)
-    block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
-      associate( F => Fs(:,:,thread) )
-        call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
-        Elong = zero
-        me%threadElong(:,thread) = zero
-        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Epair, Wpair )
-        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Epair, Wpair )
-        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Epair, Wpair )
-      end associate
-    end block
-    !$omp end parallel
-    me%F = sum(Fs,3)
-
-    if (me%kspace_active) then
-      call compute_kspace( me, compute, Rs, Elong, me%F )
-      md%Virial = Wpair - 3.0_rb*(Ecoul + Elong)
-    else
-      md%Virial = Wpair + Wcoul
-    end if
-
-    if (me%nbodies /= 0) then
-      md%BodyVirial = rigid_body_virial( me )
-      md%Virial = md%Virial + md%BodyVirial
-    end if
-
-    if (compute) then
-      md%Energy%Dispersion = Epair
-      md%Energy%Coulomb = Ecoul + Elong
-      md%Energy%Fourier = Elong
-      md%Energy%Potential = Epair + md%Energy%Coulomb
-      me%Epair = sum(me%threadEpair,2)
-      me%Elong = sum(me%threadElong,2)
-      me%Ecoul = sum(me%threadEcoul,2) + me%Elong
-      me%Energy = me%Epair + me%Ecoul
-    end if
-
-    me%fast_required = me%respa_active
-
-    md%Energy%UpToDate = compute
-    time = omp_get_wtime()
-    md%Time%Pair = md%Time%Pair + time
-    md%Time%Total = time - me%startTime
-
-  end subroutine compute_all_forces
-
 !===================================================================================================
 
   subroutine compute_fast_forces( md )
