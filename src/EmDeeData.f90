@@ -56,11 +56,7 @@ type :: tData
   integer :: nlayers = 1                  ! Number of pair interaction model layers
   integer :: layer = 1                    ! Current layer of pair interaction models
 
-  real(rb) :: Lbox = zero                 ! Length of the simulation box
-  real(rb) :: Lbox3(3) = zero
-  real(rb) :: invL = huge(one)            ! Inverse length of the simulation box
-  real(rb) :: L2 = zero                   ! Squared length of the simulation box
-  real(rb) :: invL2 = huge(one)           ! Squared inverse length of the simulation box
+  real(rb), pointer :: Lbox
 
   real(rb) :: Rc                          ! Cut-off distance
   real(rb) :: skin                        ! Neighbor list skin width
@@ -345,6 +341,7 @@ contains
 
     integer :: i, layer, bodyDoF
     logical :: kspace_required
+    real(rb) :: L(3)
 
     integer, allocatable :: bodyAtom(:)
 
@@ -378,7 +375,8 @@ contains
 
     if (me%kspace_active) then
       bodyAtom = [(me%body(i)%index,i=1,me%nbodies)]
-      call me % kspace % initialize( me%nthreads, me%Rc, me%Lbox3, me%atomType, me%charge, &
+      L = me%Lbox
+      call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charge, &
                                      me%R, me%body%NP, bodyAtom, me%pair%kCoul )
       do layer = 1, me%nlayers
         call me % coul(layer) % model % kspace_setup( me%kspace%alpha )
@@ -387,27 +385,30 @@ contains
 
     if (me%respa_active) allocate( me%F_fast(3,me%natoms) )
 
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine update_rigid_bodies( me, thread )
-        type(tData),  intent(inout) :: me
-        integer,      intent(in)    :: thread
-
-        integer :: i, j
-        real(rb), allocatable :: R(:,:)
-
-        do j = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
-          associate(b => me%body(j))
-            R = me%R(:,b%index)
-            forall (i = 2:b%NP) R(:,i) = R(:,i) - me%Lbox*anint(me%invL*(R(:,i) - R(:,1)))
-            call b % update( R )
-            me%R(:,b%index) = R
-          end associate
-        end do
-
-      end subroutine update_rigid_bodies
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine perform_initialization
+
+!===================================================================================================
+
+  subroutine update_rigid_bodies( me, thread )
+    type(tData),  intent(inout) :: me
+    integer,      intent(in)    :: thread
+
+    integer :: i, j
+    real(rb) :: L, invL
+    real(rb), allocatable :: R(:,:)
+
+    L = me%Lbox
+    invL = one/L
+    do j = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
+      associate(b => me%body(j))
+        R = me%R(:,b%index)
+        forall (i = 2:b%NP) R(:,i) = R(:,i) - L*anint(invL*(R(:,i) - R(:,1)))
+        call b % update( R )
+        me%R(:,b%index) = R
+      end associate
+    end do
+
+  end subroutine update_rigid_bodies
 
 !===================================================================================================
 
@@ -418,15 +419,16 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: m, nbonds
-    real(rb) :: invR2, E, W
+    real(rb) :: invL2, invR2, E, W
     real(rb) :: Rij(3), Fij(3)
 
     nbonds = (me%bonds%number + me%nthreads - 1)/me%nthreads
+    invL2 = one/me%Lbox**2
     do m = (threadId - 1)*nbonds + 1, min( me%bonds%number, threadId*nbonds )
       associate(bond => me%bonds%item(m))
         Rij = R(:,bond%i) - R(:,bond%j)
         Rij = Rij - anint(Rij)
-        invR2 = me%invL2/sum(Rij*Rij)
+        invR2 = invL2/sum(Rij*Rij)
         select type (model => bond%model)
           include "compute_bond.f90"
         end select
@@ -493,12 +495,13 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: m, ndihedrals, i, j
-    real(rb) :: Rc2, Ed, Fd, r2, invR2, invR, Eij, Wij, Qi, Qj
+    real(rb) :: Rc2, Ed, Fd, r2, invL2, invR2, invR, Eij, Wij, Qi, Qj
     real(rb) :: Rj(3), Rk(3), Fi(3), Fk(3), Fl(3), Fij(3)
     real(rb) :: normRkj, normX, a, b, phi, factor14
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
 
-    Rc2 = me%RcSq*me%invL2
+    invL2 = one/me%Lbox**2
+    Rc2 = me%RcSq*invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*ndihedrals + 1, min( me%dihedrals%number, threadId*ndihedrals )
       associate (dihedral => me%dihedrals%item(m))
@@ -543,7 +546,7 @@ contains
           rij = rij + rlk - rkj
           r2 = sum(rij*rij)
           if (r2 < me%RcSq) then
-            invR2 = me%invL2/r2
+            invR2 = invL2/r2
             invR = sqrt(invR2)
             Qi = me%charge(i)
             Qj = me%charge(j)
@@ -581,9 +584,11 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
-    real(rb) :: Rc2
+    real(rb) :: Rc2, L2, invL2
 
-    Rc2 = me%RcSq*me%invL2
+    L2 = me%Lbox**2
+    invL2 = one/L2
+    Rc2 = me%RcSq*invL2
     if (compute) then
 #     define compute
 #     include "compute.f90"
@@ -611,10 +616,12 @@ contains
     real(rb),    intent(in)    :: Rs(3,me%natoms)
     real(rb),    intent(out)   :: F(3,me%natoms)
 
-    real(rb) :: Rc2, InRc2
+    real(rb) :: L2, invL2, Rc2, InRc2
 
-    Rc2 = me%ExRcSq*me%invL2
-    InRc2 = me%InRcSq*me%invL2
+    L2 = me%Lbox**2
+    invL2 = one/L2
+    Rc2 = me%ExRcSq*invL2
+    InRc2 = me%InRcSq*invL2
 
 #   define fast
 #   include "compute.f90"
@@ -646,7 +653,7 @@ contains
 
     if (kspace_required) then
       call me % kspace % compute( me%layer, Elong, F )
-      call me % kspace % discount_rigid_pairs( me%layer, me%Lbox3, me%R, Elong )
+      call me % kspace % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Elong )
     end if
 
     if (compute) then
@@ -656,7 +663,7 @@ contains
           layer = me%other_layer(i)
           if (me%coul(layer)%model%requires_kspace) then
             call me % kspace % compute( layer, E(layer) )
-            call me % kspace % discount_rigid_pairs( layer, me%Lbox3, me%R, E(layer) )
+            call me % kspace % discount_rigid_pairs( layer, me%Lbox*[1,1,1], me%R, E(layer) )
           end if
         end do
       end associate
@@ -673,7 +680,7 @@ contains
     real(rb),    intent(out) :: DF(3,me%natoms), DEpair, DEcoul, DWpair, DWcoul
 
     integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-    real(rb) :: Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc, DWij, DWCij
+    real(rb) :: invL2, Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc, DWij, DWCij
     real(rb) :: Rij(3), Ri(3), DFi(3), DFij(3)
     logical  :: icharged, ijcharged
     logical  :: participant(me%ntypes)
@@ -681,7 +688,8 @@ contains
     real(rb), allocatable :: Rvec(:,:)
 
     participant = any(me%multilayer,dim=2)
-    Rc2 = me%RcSq*me%invL2
+    invL2 = one/me%Lbox**2
+    Rc2 = me%RcSq*invL2
 
     DF = zero
     DWpair = zero
@@ -707,7 +715,7 @@ contains
             Rij = Rvec(:,m)
             r2 = sum(Rij*Rij)
             if (r2 < Rc2) then
-              invR2 = me%invL2/r2
+              invR2 = invL2/r2
               invR = sqrt(invR2)
               jtype = me%atomType(j)
               ijcharged = icharged.and.me%charged(j)

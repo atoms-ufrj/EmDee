@@ -66,7 +66,7 @@ block
           Rij = Rvec(:,m)
           r2 = sum(Rij*Rij)
           if (r2 < Rc2) then
-            invR2 = me%invL2/r2
+            invR2 = invL2/r2
             invR = sqrt(invR2)
             jtype = me%atomType(j)
             ijcharged = icharged.and.me%charged(j)
@@ -91,7 +91,7 @@ block
                     Eij = Eij + model%eshift + rFc
 #endif
                   case (3,4)
-                    r2fac = r2*me%L2*model%factor
+                    r2fac = r2*L2*model%factor
                     if (r2fac > model%Rm2fac) then
 #ifndef compute
                       select type ( model )

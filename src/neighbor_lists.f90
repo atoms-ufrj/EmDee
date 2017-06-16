@@ -203,15 +203,16 @@ contains
 
     integer  :: i, j, k, m, icell, npairs, itype, ibody, ipairs, middle
     integer  :: nlocal, ntotal, first
-    real(rb) :: xRc2, xInRc2, r2
+    real(rb) :: invL2, xRc2, xInRc2, r2
     logical  :: include(me%natoms)
     integer  :: atom((nbcells+1)*me%maxatoms)
 
     integer,  allocatable :: xlist(:)
     real(rb), allocatable :: Ratom(:,:), rsq(:)
 
-    xRc2 = me%xRcSq*me%invL2
-    xInRc2 = me%xExRcSq*me%invL2
+    invL2 = one/me%Lbox**2
+    xRc2 = me%xRcSq*invL2
+    xInRc2 = me%xExRcSq*invL2
 
     include = .true.
     npairs = 0

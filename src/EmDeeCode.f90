@@ -119,6 +119,9 @@ contains
     me%respa_active = .false.
     me%xExRcSq = zero
 
+    ! Allocate and initialize box side lengths:
+    allocate( me%Lbox, source = zero )
+
     ! Set up atom types:
     if (c_associated(types)) then
       call c_f_pointer( types, ptype, [N] )
@@ -246,10 +249,11 @@ contains
     if (any(keep%mass /= lose%mass)) call error( task, "atom masses do not match" )
     if (any(keep%atomBody /= lose%atomBody)) call error( task, "rigid bodies do not match" )
 
-    if (lose%initialized) deallocate( lose%R, lose%P, lose%body )
+    if (lose%initialized) deallocate( lose%R, lose%P, lose%body, lose%Lbox )
     lose%R => keep%R
     lose%P => keep%P
     lose%body => keep%body
+    lose%Lbox => keep%Lbox
 
     mdlose%Energy%Kinetic = mdkeep%Energy%Kinetic
     mdlose%Energy%TransPart = mdkeep%Energy%TransPart
@@ -671,10 +675,6 @@ contains
       case ("box")
         call c_f_pointer( address, scalar )
         me%Lbox = scalar
-        me%Lbox3 = scalar
-        me%invL = one/scalar
-        me%L2 = me%Lbox**2
-        me%invL2 = me%invL**2
         if (.not.me%initialized) then
           me%initialized = associated( me%R )
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
@@ -690,6 +690,10 @@ contains
         if (.not.me%initialized) then
           me%initialized = me%Lbox > zero
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
+        else if (md%Options%AutoBodyUpdate) then
+          !$omp parallel num_threads(me%nthreads)
+          call update_rigid_bodies( me, omp_get_thread_num() + 1 )
+          !$omp end parallel
         end if
         if (me%initialized.and.md%Options%AutoForceCompute) call EmDee_compute_forces( md )
 
@@ -791,7 +795,7 @@ contains
       case ("forces")
         call c_f_pointer( address, matrix, [3,me%natoms] )
         if (me%kspace_active) then
-          call me % kspace % discount_rigid_pairs( me%layer, me%Lbox3, me%R, Forces = me%F )
+          call me % kspace % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Forces = me%F )
         end if
         !$omp parallel num_threads(me%nthreads)
         call download( omp_get_thread_num() + 1, me%F, matrix )
@@ -988,10 +992,6 @@ contains
       CP = phi(alpha*dt)*dt
       CR = one - alpha*CP
       me%Lbox = cR*me%Lbox
-      me%Lbox3 = me%Lbox
-      me%InvL = one/me%Lbox
-      me%L2 = me%Lbox*me%Lbox
-      me%invL2 = me%invL*me%invL
     else
       CP = dt
       CR = one
@@ -1022,7 +1022,7 @@ contains
     call c_f_pointer( md%data, me )
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
-    Rs = me%invL*me%R
+    Rs = me%R/me%Lbox
 
     call handle_neighbor_lists( me, md%builds, md%Time%Neighbor, Rs )
 
@@ -1140,12 +1140,7 @@ contains
         end block
         !$omp end parallel
 
-        if (changeBox) then
-          me%Lbox = CR*me%Lbox
-          me%InvL = one/me%Lbox
-          me%invL2 = me%invL*me%invL
-          me%Lbox3 = me%Lbox
-        end if
+        if (changeBox) me%Lbox = CR*me%Lbox
 
         call compute_fast_forces( md )
 
@@ -1186,12 +1181,7 @@ contains
       end block
       !$omp end parallel
 
-      if (changeBox) then
-        me%Lbox = CR*me%Lbox
-        me%InvL = one/me%Lbox
-        me%invL2 = me%invL*me%invL
-        me%Lbox3 = me%Lbox
-      end if
+      if (changeBox) me%Lbox = CR*me%Lbox
 
       call EmDee_compute_forces( md )
 
@@ -1231,6 +1221,7 @@ contains
     real(rb),     parameter :: Pi4_3 = 4.188790204786391_rb
 
     integer :: maxtype, i, j, bin, pair
+    real(rb) :: invL, invL2
 
     logical,  allocatable :: hasPair(:), pairOn(:,:)
     integer,  allocatable :: pairCount(:,:,:), N(:)
@@ -1253,19 +1244,22 @@ contains
     maxtype = maxval([itype,jtype])
     allocate( pairCount(bins,symm1D(maxtype,maxtype),me%nthreads), Rs(3,me%natoms) )
 
+    invL = one/me%Lbox
+    invL2 = invL*invL
+
     !$omp parallel num_threads(me%nthreads)
     block
       integer :: thread, a1, aN
       thread = omp_get_thread_num() + 1
       a1 = (thread - 1)*me%threadAtoms + 1
       aN = min(thread*me%threadAtoms, me%natoms)
-      Rs(:,a1:aN) = me%invL*me%R(:,a1:aN)
+      Rs(:,a1:aN) = invL*me%R(:,a1:aN)
       !$omp barrier
       call count_pairs( thread, Rs )
     end block
     !$omp end parallel
 
-    rdf = sum(pairCount,3)/(Pi4_3*(me%Rc*me%invL/bins)**3)
+    rdf = sum(pairCount,3)/(Pi4_3*(me%Rc*invL/bins)**3)
     forall (bin=1:bins) rdf(bin,:) = rdf(bin,:)/(3*bin*(bin - 1) + 1)
     allocate( N(maxtype) )
     forall(i=1:maxtype, hasPair(i)) N(i) = count(me%atomType == i)
@@ -1288,8 +1282,8 @@ contains
         integer  :: firstAtom, lastAtom, k, i, itype, m, j, jtype, pair, bin
         real(rb) :: Rc2, binsByRc, Ri(3), Rij(3), r2
 
-        Rc2 = me%RcSq*me%invL2
-        binsByRc = bins/(me%Rc*me%invL)
+        Rc2 = me%RcSq*invL2
+        binsByRc = bins/(me%Rc*invL)
         pairCount(:,:,thread) = 0
         associate ( neighbor => me%neighbor(thread) )
           firstAtom = me%cellAtom%first(me%threadCell%first(thread))
@@ -1340,7 +1334,7 @@ contains
     call c_f_pointer( md%data, me )
 
     allocate( Rs(3,me%natoms), Fs(3,me%natoms,me%nthreads) )
-    Rs = me%invL*me%R
+    Rs = (one/me%Lbox)*me%R
 
     call handle_neighbor_lists( me, md%builds, md%Time%Neighbor, Rs )
 
@@ -1377,7 +1371,7 @@ contains
     md%Time%Pair = md%Time%Pair - omp_get_wtime()
 
     allocate( Rs(3,me%natoms), DF(3,me%natoms,me%nthreads) )
-    Rs = me%invL*me%R
+    Rs = (one/me%Lbox)*me%R
 
     !$omp parallel num_threads(me%nthreads) reduction(+:DEpair,DEcoul,DWpair,DWcoul)
     block
