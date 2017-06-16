@@ -36,7 +36,8 @@ type, abstract, extends(cModel) :: cCoulModel
     procedure(cCoulModel_compute), deferred :: compute
     procedure(cCoulModel_energy),  deferred :: energy
     procedure(cCoulModel_virial),  deferred :: virial
-    procedure :: shifting_setup => cCoulModel_shifting_setup
+    procedure :: cutoff_setup => cCoulModel_cutoff_setup
+    procedure :: apply_cutoff => cCoulModel_apply_cutoff
     procedure :: kspace_setup => cCoulModel_kspace_setup
 end type cCoulModel
 
@@ -88,7 +89,7 @@ contains
 !                             C O U L     M O D E L    C L A S S
 !===================================================================================================
 
-  subroutine cCoulModel_shifting_setup( model, cutoff )
+  subroutine cCoulModel_cutoff_setup( model, cutoff )
     class(cCoulModel), intent(inout) :: model
     real(rb),          intent(in)    :: cutoff
 
@@ -116,7 +117,18 @@ contains
 
     end if
 
-  end subroutine cCoulModel_shifting_setup
+    ! Setup cut-off dependent parameters:
+    call model % apply_cutoff( cutoff )
+
+  end subroutine cCoulModel_cutoff_setup
+
+!---------------------------------------------------------------------------------------------------
+
+  subroutine cCoulModel_apply_cutoff( model, Rc )
+    class(cCoulModel), intent(inout) :: model
+    real(rb),          intent(in)    :: Rc
+
+  end subroutine cCoulModel_apply_cutoff
 
 !---------------------------------------------------------------------------------------------------
 
