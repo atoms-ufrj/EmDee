@@ -19,12 +19,12 @@
 
 block
   integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-  real(rb) :: r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc
+  real(rb) :: r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc, Eij, r2fac, u, u2, u3, G, WG
   real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
   logical  :: icharged, ijcharged
 #if defined(compute)
   integer  :: l, layer
-  real(rb) :: Eij, ECij
+  real(rb) :: ECij
 #endif
   real(rb), allocatable :: Rvec(:,:)
 
@@ -66,7 +66,7 @@ block
           Rij = Rvec(:,m)
           r2 = sum(Rij*Rij)
           if (r2 < Rc2) then
-            invR2 = me%invL2/r2
+            invR2 = invL2/r2
             invR = sqrt(invR2)
             jtype = me%atomType(j)
             ijcharged = icharged.and.me%charged(j)
@@ -79,13 +79,35 @@ block
                   include "virial_compute_pair.f90"
 #endif
                 end select
-                if (model%shifted_force) then
-                  rFc = model%fshift/invR
-                  Wij = Wij - rFc
+                select case (model%modifier)
 #if defined(compute)
-                  Eij = Eij + model%eshift + rFc
+                  case (1)
+                    Eij = Eij + model%eshift
 #endif
-                end if
+                  case (2)
+                    rFc = model%fshift/invR
+                    Wij = Wij - rFc
+#if defined(compute)
+                    Eij = Eij + model%eshift + rFc
+#endif
+                  case (3,4)
+                    r2fac = r2*L2*model%factor
+                    if (r2fac > model%Rm2fac) then
+#ifndef compute
+                      select type ( model )
+                        include "energy_compute_pair.f90"
+                      end select
+#endif
+                      u = r2fac - model%Rm2fac
+                      u2 = u*u
+                      u3 = u*u2
+                      G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
+                      WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*r2fac
+                      Eij = Eij + model%eshift
+                      Wij = Wij*G + Eij*WG
+                      Eij = Eij*G
+                    end if
+                end select
               end associate
 #if defined(compute)
               Epair = Epair + Eij
@@ -130,6 +152,7 @@ block
                   select type ( model => pair%model )
                     include "energy_compute_pair.f90"
                   end select
+! MODEL MODIFICATION MUST COME HERE
                   if (ijcharged.and.pair%coulomb) then
                     QiQj = pair%kCoul*Qi*me%charge(j)
                     select type ( model => me%coul(me%layer)%model )

@@ -29,6 +29,8 @@ type, bind(C) :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
   logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
+  logical(lb) :: AutoForceCompute     ! Flag to activate/deactivate automatic force computations
+  logical(lb) :: AutoBodyUpdate       ! Flag to activate/deactivate automatic rigid body update
 end type tOpts
 
 type, bind(C) :: tEnergy
@@ -77,6 +79,13 @@ interface
     type(c_ptr),    value :: types, masses, bodies
     type(tEmDee)          :: EmDee_system
   end function EmDee_system
+
+  subroutine EmDee_share_phase_space( mdkeep, mdlose ) &
+    bind(C,name="EmDee_share_phase_space")
+    import :: tEmDee
+    type(tEmDee), value         :: mdkeep
+    type(tEmDee), intent(inout) :: mdlose
+  end subroutine EmDee_share_phase_space
 
   subroutine EmDee_switch_model_layer( md, layer ) &
     bind(C,name="EmDee_switch_model_layer")
@@ -209,13 +218,49 @@ interface
     real(c_double), value         :: alpha_R, alpha_P, dt
   end subroutine EmDee_advance
 
-  ! MODELS:
+  subroutine EmDee_compute_forces( md ) &
+    bind(C,name="EmDee_compute_forces")
+    import :: tEmDee
+    type(tEmDee), intent(inout) :: md
+  end subroutine EmDee_compute_forces
+
+  subroutine EmDee_rdf( md, bins, pairs, itype, jtype, g ) &
+    bind(C,name="EmDee_rdf")
+    import :: tEmDee, c_int, c_double
+    type(tEmDee),   value       :: md
+    integer(c_int), value       :: pairs, bins
+    integer(c_int), intent(in)  :: itype(pairs), jtype(pairs)
+    real(c_double), intent(out) :: g(bins,pairs)
+  end subroutine EmDee_rdf
+
+  ! MODEL MODIFIERS:
+  type(c_ptr) function EmDee_shifted( model ) &
+    bind(C,name="EmDee_shifted")
+    import :: c_ptr
+    type(c_ptr), value :: model
+  end function EmDee_shifted
+
   type(c_ptr) function EmDee_shifted_force( model ) &
     bind(C,name="EmDee_shifted_force")
     import :: c_ptr
     type(c_ptr), value :: model
   end function EmDee_shifted_force
 
+  type(c_ptr) function EmDee_smoothed( model, Rm ) &
+    bind(C,name="EmDee_smoothed")
+    import :: c_ptr, c_double
+    type(c_ptr),    value :: model
+    real(c_double), value :: Rm
+  end function EmDee_smoothed
+
+  type(c_ptr) function EmDee_shifted_smoothed( model, Rm ) &
+    bind(C,name="EmDee_shifted_smoothed")
+    import :: c_ptr, c_double
+    type(c_ptr),    value :: model
+    real(c_double), value :: Rm
+  end function EmDee_shifted_smoothed
+
+  ! MODELS:
   type(c_ptr) function EmDee_pair_none( ) &
     bind(C,name="EmDee_pair_none")
     import :: c_ptr
