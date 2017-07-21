@@ -56,7 +56,7 @@ type :: tData
   integer :: nlayers = 1                  ! Number of pair interaction model layers
   integer :: layer = 1                    ! Current layer of pair interaction models
 
-  real(rb), pointer :: Lbox
+  real(rb), pointer :: Lbox => null()
 
   real(rb) :: Rc                          ! Cut-off distance
   real(rb) :: skin                        ! Neighbor list skin width

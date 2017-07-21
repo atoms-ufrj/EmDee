@@ -17,7 +17,6 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
-! TODO: Include Lbox and related variables in phase space sharing
 ! TODO: Include kspace terms in subroutine update_forces.
 ! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
 ! TODO: Change name of exported Julia wrapper
@@ -33,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "16 Jun 2017"
+character(11), parameter :: VERSION = "21 Jul 2017"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -118,9 +117,6 @@ contains
     me%kspace_active = .false.
     me%respa_active = .false.
     me%xExRcSq = zero
-
-    ! Allocate and initialize box side lengths:
-    allocate( me%Lbox, source = zero )
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -674,6 +670,7 @@ contains
 
       case ("box")
         call c_f_pointer( address, scalar )
+        if (.not.associated(me%Lbox)) allocate( me%Lbox )
         me%Lbox = scalar
         if (.not.me%initialized) then
           me%initialized = associated( me%R )
@@ -688,7 +685,7 @@ contains
         call upload( omp_get_thread_num() + 1, Matrix, me%R )
         !$omp end parallel
         if (.not.me%initialized) then
-          me%initialized = me%Lbox > zero
+          me%initialized = associated(me%Lbox)
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         else if (md%Options%AutoBodyUpdate) then
           !$omp parallel num_threads(me%nthreads)
