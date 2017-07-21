@@ -70,7 +70,9 @@ associate( system => other )
         mvv2e*(system%Energy%Potential + system%Energy%Kinetic)
   do step = 1, 100
     system%Energy%Compute = mod(step,Nprop) == 0
-    call EmDee_advance( system, 0.0_rb, 0.0_rb, dt )
+    call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
+    call EmDee_displace( md, 1.0_rb, 0.0_rb, Dt )
+    call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
     if (mod(step,Nprop) == 0) then
       print*, step, mvv2e*system%Energy%Potential, mvv2e*system%Virial, &
               mvv2e*(system%Energy%Potential + system%Energy%Kinetic)

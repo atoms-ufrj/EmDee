@@ -212,7 +212,6 @@ contains
 
     invL2 = one/me%Lbox**2
     xRc2 = me%xRcSq*invL2
-    xInRc2 = me%xExRcSq*invL2
 
     include = .true.
     npairs = 0

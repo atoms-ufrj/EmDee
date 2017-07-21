@@ -118,18 +118,6 @@ type :: tData
   logical :: multilayer_coulomb
   logical :: kspace_active
 
-  logical     :: respa_active              ! Flag to determine if RESPA was activated
-  real(rb)    :: InRcSq                    ! Internal cutoff distance squared
-  real(rb)    :: ExRcSq                    ! External cutoff distance squared
-  real(rb)    :: xExRcSq                   ! Extended internal cutoff distance squared
-  real(rb)    :: invDeltaR                 ! Inverse of the switching region width
-  real(rb)    :: mInRcByDeltaR             ! Minus the internal cutoff divided by delta-R
-  real(rb)    :: fshift                    ! Force-shifting constant for fast forces
-  integer(ib) :: Npair                     ! Number of core-neighbor sweepings per MD step
-  integer(ib) :: Nbond                     ! Number of bonded computations per core sweeping
-  logical     :: fast_required             ! True if fast force computations is required
-  real(rb), allocatable :: F_fast(:,:)     ! Fast forces
-
 end type tData
 
 contains
@@ -383,8 +371,6 @@ contains
       end do
     end if
 
-    if (me%respa_active) allocate( me%F_fast(3,me%natoms) )
-
   end subroutine perform_initialization
 
 !===================================================================================================
@@ -606,36 +592,6 @@ contains
       end function pbc
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_pairs
-
-
-!===================================================================================================
-
-  subroutine compute_short_range_forces( me, thread, Rs, F )
-    type(tData), intent(inout) :: me
-    integer,     intent(in)    :: thread
-    real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms)
-
-    real(rb) :: L2, invL2, Rc2, InRc2
-
-    L2 = me%Lbox**2
-    invL2 = one/L2
-    Rc2 = me%ExRcSq*invL2
-    InRc2 = me%InRcSq*invL2
-
-#   define fast
-#   include "compute.f90"
-#   undef fast
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      elemental function pbc( x )
-        real(rb), intent(in) :: x
-        real(rb)              :: pbc
-        pbc = x - anint(x)
-      end function pbc
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine compute_short_range_forces
 
 !===================================================================================================
 

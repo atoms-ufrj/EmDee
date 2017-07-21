@@ -124,12 +124,6 @@ function add_dihedral( md::tEmDee, i::Integer, j::Integer, k::Integer, l::Intege
          md, i, j, k, l, model )
 end
 #---------------------------------------------------------------------------------------------------
-function set_respa( md::tEmDee, InRc::Real, ExRc::Real, Npair::Integer, Nbond::Integer )
-  ccall( (:EmDee_set_respa,"libemdee"), Void,
-         (tEmDee, Float64, Float64, Int32, Int32),
-         md, InRc, ExRc, Npair, Nbond )
-end
-#---------------------------------------------------------------------------------------------------
 function ignore_pair( md::tEmDee, i::Integer, j::Integer )
   ccall( (:EmDee_ignore_pair,"libemdee"), Void,
          (tEmDee, Int32, Int32),
@@ -170,12 +164,6 @@ function compute_forces( md::tEmDee )
   ccall( (:EmDee_compute_forces,"libemdee"), Void,
          (Ptr{tEmDee}),
          Ref(md) )
-end
-#---------------------------------------------------------------------------------------------------
-function advance( md::tEmDee, alpha_R::Real, alpha_P::Real, dt::Real )
-  ccall( (:EmDee_advance,"libemdee"), Void,
-         (Ptr{tEmDee}, Float64, Float64, Float64),
-         Ref(md), alpha_R, alpha_P, dt )
 end
 #---------------------------------------------------------------------------------------------------
 function rdf( md::tEmDee, bins::Int, pairs::Int, itype::IntegerArray, jtype::IntegerArray, 

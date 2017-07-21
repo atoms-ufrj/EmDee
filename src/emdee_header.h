@@ -61,8 +61,6 @@ void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );
 
 void EmDee_add_dihedral( tEmDee md, int i, int j, int k, int l, void* model );
 
-void EmDee_set_respa( tEmDee md, double InRc, double ExRc, int Npair, int Nbond );
-
 void EmDee_upload( tEmDee* md, char *option, double* address );
 
 void EmDee_download( tEmDee md, char *option, double* address );
@@ -74,8 +72,6 @@ void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 void EmDee_displace( tEmDee* md, double lambda, double alpha, double dt );
 
 void EmDee_compute_forces( tEmDee* md );
-
-void EmDee_advance( tEmDee* md, double alpha_R, double alpha_P, double dt );
 
 void EmDee_rdf( tEmDee md, int bins, int pairs, int itype[], int jtype[], double count[] );
 

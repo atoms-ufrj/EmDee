@@ -29,10 +29,8 @@ block
   real(rb), allocatable :: Rvec(:,:)
 
   F = zero
-#ifndef fast
   Wpair = zero
   Wcoul = zero
-#endif
 #if defined(compute)
   associate ( neighbor => me%neighbor(thread), &
               LayerEpair => me%threadEpair(:,thread), &
@@ -54,11 +52,7 @@ block
       Ri = Rs(:,i)
       Fi = zero
       associate ( partner => me%pair(:,itype,me%layer), &
-#if defined(fast)
-                  jlist => neighbor%item(neighbor%first(i):neighbor%middle(i)) )
-#else
                   jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
-#endif 
         Rvec = Rs(:,jlist)
         forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
         do m = 1, size(jlist)
@@ -112,9 +106,7 @@ block
 #if defined(compute)
               Epair = Epair + Eij
 #endif
-#ifndef fast
               Wpair = Wpair + Wij
-#endif
               if (ijcharged.and.pair%coulomb) then
                 QiQj = pair%kCoul*Qi*me%charge(j)
 #if defined(compute)
@@ -127,18 +119,10 @@ block
                   include "virial_compute_coul.f90"
                 end select
 #endif
-#ifndef fast
                 Wcoul = Wcoul + WCij
-#endif
                 Wij = Wij + WCij
               end if
             end associate
-#if defined(fast)
-            if (r2 > InRc2) then
-              u = me%invDeltaR/invR + me%mInRcByDeltaR
-              Wij = Wij*(one + u*u*(two*u - three))
-            end if
-#endif
             Fij = Wij*invR2*Rij
             Fi = Fi + Fij
             F(:,j) = F(:,j) - Fij

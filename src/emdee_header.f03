@@ -164,14 +164,6 @@ interface
     type(c_ptr),    value :: model
   end subroutine EmDee_add_dihedral
 
-  subroutine EmDee_set_respa( md, InRc, ExRc, Npair, Nbond ) &
-    bind(C,name="EmDee_set_respa")
-    import :: c_double, c_int, tEmDee
-    type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: InRc, ExRc
-    integer(c_int), value         :: Npair, Nbond
-  end subroutine EmDee_set_respa
-
   subroutine EmDee_upload( md, item, address ) &
     bind(C,name="EmDee_upload")
     import :: c_ptr, c_char, tEmDee
@@ -210,13 +202,6 @@ interface
     type(tEmDee),   intent(inout) :: md
     real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_displace
-
-  subroutine EmDee_advance( md, alpha_R, alpha_P, dt ) &
-    bind(C,name="EmDee_advance")
-    import :: c_double, tEmDee
-    type(tEmDee),   intent(inout) :: md
-    real(c_double), value         :: alpha_R, alpha_P, dt
-  end subroutine EmDee_advance
 
   subroutine EmDee_compute_forces( md ) &
     bind(C,name="EmDee_compute_forces")
