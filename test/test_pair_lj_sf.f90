@@ -41,8 +41,11 @@ end do
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
+call EmDee_random_momenta( md, kB*Temp, .true._1, seed )
 
-call run( 0, Nprop )
+expected = [-3898.7815412526024_rb, 86.533120925720581_rb, -2912.1605359154992_rb]
+
+call run( 100, Nprop )
 
 contains
   include "common/contained.f90"

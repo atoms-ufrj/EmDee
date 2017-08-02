@@ -41,6 +41,9 @@ end do
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
+call EmDee_random_momenta( md, kB*Temp, .true._1, seed )
+
+expected = [-4180.0071205201639_rb, -617.08138531797272_rb, -3192.7954182277017_rb]
 
 call run( 100, Nprop )
 

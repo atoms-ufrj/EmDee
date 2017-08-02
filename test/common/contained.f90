@@ -78,5 +78,13 @@
       print*, "execution time = ", md%Time%Total, " s."
     end if
 
+    obtained = mvv2e*[md%Energy%Potential, md%Virial, md%Energy%Potential + md%Energy%Kinetic]
+    if (any(abs(obtained - expected) > tol)) then
+      write(*,*)
+      write(*,'("Obtained = ")',advance="no"); write(*,*) obtained
+      write(*,'("Expected = ")',advance="no"); write(*,*) expected
+      call exit(1)
+    end if
+
   end subroutine run
 !---------------------------------------------------------------------------------------------------

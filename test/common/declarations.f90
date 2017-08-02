@@ -11,3 +11,6 @@ type(c_ptr) :: pair
 
 integer :: threads
 character(256) :: filename, configFile
+
+real(rb) :: obtained(3), expected(3)
+real(rb), parameter :: tol = 1.0e-8_rb
