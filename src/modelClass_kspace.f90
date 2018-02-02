@@ -305,7 +305,7 @@ contains
                   !$omp atomic update
                   Forces(m,pair%i) = Forces(m,pair%i) + Fij(m)
                   !$omp atomic update
-                  Forces(m,pair%j) = Forces(m,pair%i) - Fij(m)
+                  Forces(m,pair%j) = Forces(m,pair%j) - Fij(m)
                 end do
               end associate
             end do

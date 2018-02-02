@@ -20,9 +20,17 @@
 module math
 
 use global
+#if __GNUC__ > 4
 use, intrinsic :: ieee_arithmetic
+#define quiet_NaN ieee_value(one,ieee_quiet_NaN)
+#else
+use, intrinsic :: iso_c_binding
+#define quiet_NaN transfer(z'7FF0000000000001',1_c_double)
+#endif
 
 implicit none
+
+
 
 real(rb), parameter, private :: a1 =  0.254829592_rb, &
                                 a2 = -0.284496736_rb, &
@@ -440,7 +448,7 @@ contains
     real(rb) :: sin_umu, cos_umu, t, r, sn, cn, dn
 
     if (abs(m) > one) then
-      jac = ieee_value(one,ieee_quiet_NaN)
+      jac = quiet_NaN
     else if (abs(m) < two*epsilon(one)) then
       jac = [sin(u), cos(u), one]
     else if (abs(m - one) < two*epsilon(one)) then
@@ -455,7 +463,7 @@ contains
         nu(n+1) = sqrt(mu(n)*nu(n))
         n = n + 1
         if (n >= NN - 1) then
-          jac = ieee_value(one,ieee_quiet_NaN)
+          jac = quiet_NaN
           return
         end if
       end do
@@ -510,7 +518,7 @@ contains
     real(rb) :: xnroot, yn, yndev, ynroot, zn, zndev, znroot
 
     if ((min(x,y,z) < zero).or.(max(x,y,z) > uplim).or.(min(x+y,x+z,y+z) < lolim)) then
-      RF = ieee_value(one,ieee_quiet_NaN)
+      RF = quiet_NaN
     else
       xn = x
       yn = y
@@ -551,7 +559,7 @@ contains
     real(rb) :: lamda, mu, s, sn, xn, yn
 
     if ((x < zero).or.(y <= zero).or.(max(x,y) > uplim).or.(x + y < lolim)) then
-      RC = ieee_value(one,ieee_quiet_NaN)
+      RC = quiet_NaN
     else
       xn = x
       yn = y
@@ -587,7 +595,7 @@ contains
     real(rb) :: xnroot, yn, yndev, ynroot, zn, zndev, znroot
 
     if ((min(x,y,z) < zero).or.(max(x,y,z,p) > uplim).or.(min(x+y,x+z,y+z,p) < lolim)) then
-      RJ = ieee_value(one,ieee_quiet_NaN)
+      RJ = quiet_NaN
     else
       xn = x
       yn = y

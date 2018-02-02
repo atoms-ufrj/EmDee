@@ -31,6 +31,12 @@ function csv {
   echo "$*" | sed "s/,/, /g"
 }
 
+echo "#ifdef __cplusplus"
+echo "#include <stdbool.h>"
+echo "extern \"C\" {"
+echo "#endif"
+echo
+
 cat src/emdee_header.h
 
 for model in "$@"; do
@@ -82,3 +88,8 @@ for model in "$@"; do
   echo
 done
 
+
+echo
+echo "#ifdef __cplusplus"
+echo "}"
+echo "#endif"

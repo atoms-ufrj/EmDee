@@ -91,7 +91,10 @@ contains
       call move_alloc( new, ptr%item )
     end if
     ptr%number = ptr%number + 1
-    ptr%item(ptr%number) = tStruct( i, j, k, l )
+    ptr%item(ptr%number)%i = i
+    ptr%item(ptr%number)%j = j
+    ptr%item(ptr%number)%k = k
+    ptr%item(ptr%number)%l = l
     allocate( ptr%item(ptr%number)%model, source = model )
   end subroutine add_bonded_struc
 
