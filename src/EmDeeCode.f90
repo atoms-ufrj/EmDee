@@ -53,7 +53,7 @@ type, bind(C), public :: tEnergy
   real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
   real(rb)    :: ShadowPotential
   real(rb)    :: ShadowKinetic
-  real(rb)    :: ShadowRotation
+  real(rb)    :: ShadowRotational
   type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
   type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
   type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
@@ -206,7 +206,7 @@ contains
     EmDee_system % Energy % RotPart = zero
     EmDee_system % Energy % ShadowPotential = zero
     EmDee_system % Energy % ShadowKinetic = zero
-    EmDee_system % Energy % ShadowRotation = zero    
+    EmDee_system % Energy % ShadowRotational = zero    
     EmDee_system % Energy % LayerPotential = c_loc(me%Energy(1))
     EmDee_system % Energy % LayerDispersion = c_loc(me%Epair(1))
     EmDee_system % Energy % LayerCoulomb = c_loc(me%Ecoul(1))
@@ -687,6 +687,8 @@ contains
         md%Energy%TransPart = half*sum(twoKEt,2)
         md%Energy%Rotational = sum(md%Energy%RotPart)
         md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
+        md%Energy%ShadowKinetic = md%Energy%Kinetic
+        md%Energy%ShadowRotational = md%Energy%Rotational
 
       case ("forces")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -910,6 +912,8 @@ contains
     md%Energy%TransPart = half*twoKEt
     md%Energy%Rotational = sum(md%Energy%RotPart)
     md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
+    md%Energy%ShadowKinetic = md%Energy%Kinetic
+    md%Energy%ShadowRotational = md%Energy%Rotational
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1023,34 +1027,69 @@ contains
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: dt
 
-    real(rb) :: Us
+    real(rb) :: Us, Ks_t, Ks_r, twobydt
+    real(rb), allocatable :: r0(:,:), q0(:,:)
     type(tData),  pointer :: me
 
     call c_f_pointer( md%data, me )
+
+    twobydt = two/dt
+    allocate( r0(3,me%nbodies + me%nfree), q0(4,me%nbodies) )
+
+    !$omp parallel num_threads(me%nthreads)
+    block
+      integer :: thread, i, j
+      thread = omp_get_thread_num() + 1
+      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+        associate (b => me%body(i))
+          r0(:,i) = b%invMass*b%pcm + twobydt*b%rcm
+          q0(:,i) = half*matmul(matrix_B(b%q), b%omega) + twobydt*b%q
+        end associate
+      end do
+      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+        j = me%free(i)
+        r0(:,me%nbodies+i) = me%invMass(j)*me%P(:,j) + twobydt*me%R(:,j)
+      end do
+    end block
+    !$omp end parallel
 
     call EmDee_boost( md, one, zero, half*dt )
     call EmDee_displace( md, one, zero, dt )
     call EmDee_boost( md, one, zero, half*dt )
 
-    Us = 0.0_rb
-    !$omp parallel num_threads(me%nthreads) reduction(+:Us)
+    Us = zero
+    Ks_t = zero
+    Ks_r = zero
+
+    !$omp parallel num_threads(me%nthreads) reduction(+:Us,Ks_t,Ks_r)
     block
-      integer :: thread, i, j
-      real(rb) :: tau_b(3)
+      integer :: thread, i, j, k
+      real(rb) :: tau_b(3), rdot(3), qdot(4)
       thread = omp_get_thread_num() + 1
+
       do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
         associate( b => me%body(i) )
           tau_b = matmul(matmul(matrix_Bt(b%q), matrix_C(b%q)), b%tau)
+          rdot = two*b%invMass*b%pcm + twobydt*b%rcm - r0(:,i)
+          qdot = matmul(matrix_B(b%q), b%omega) + twobydt*b%q - q0(:,i)
+
           Us = Us + b%invMass*sum(b%F**2) + sum(b%invMoI*tau_b**2)
+          Ks_t = Ks_t + sum(rdot*b%pcm)
+          Ks_r = Ks_r + sum((qdot - sum(qdot*b%q)*b%q)*b%pi)
         end associate
       end do
       do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
         j = me%free(i)
+        k = me%nbodies + i
         Us = Us + me%invMass(j)*sum(me%F(:,j)**2)
+        rdot = two*me%invMass(j)*me%P(:,j) + twobydt*me%R(:,j) - r0(:,k)
+        Ks_t = Ks_t + sum(rdot*me%P(:,j))
       end do
     end block
     !$omp end parallel
-    md%Energy%ShadowPotential = md%Energy%Potential - (dt*dt/24.0)*Us
+    md%Energy%ShadowPotential = md%Energy%ShadowPotential - dt*dt*Us/24.0_rb
+    md%Energy%ShadowRotational = Ks_r/6.0_rb
+    md%Energy%ShadowKinetic = (Ks_t + Ks_r)/6.0_rb
 
   end subroutine EmDee_verlet_step
 
@@ -1106,6 +1145,7 @@ contains
       md%Energy%Coulomb = Ecoul + Elong
       md%Energy%Fourier = Elong
       md%Energy%Potential = Epair + md%Energy%Coulomb
+      md%Energy%ShadowPotential = md%Energy%Potential
       me%Epair = sum(me%threadEpair,2)
       me%Elong = sum(me%threadElong,2)
       me%Ecoul = sum(me%threadEcoul,2) + me%Elong

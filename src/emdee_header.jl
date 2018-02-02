@@ -25,7 +25,7 @@ immutable tEnergy
   RotPart::tVec3D               # Rotational kinetic energy around each principal axis
   ShadowPotential::Float64
   ShadowKinetic::Float64
-  ShadowRotation::Float64
+  ShadowRotational::Float64
   LayerPotential::Ref{Float64}  # Vector with multilayer potential energy components
   LayerDispersion::Ref{Float64} # Vector with multilayer dispersion energy components
   LayerCoulomb::Ref{Float64}    # Vector with multilayer coulombic energy components

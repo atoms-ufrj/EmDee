@@ -17,7 +17,7 @@ typedef struct {
     double RotPart[3];       // Rotational kinetic energy around each principal axis
     double ShadowPotential;
     double ShadowKinetic;
-    double ShadowRotation;
+    double ShadowRotational;
     double *LayerPotential;  // Vector with multilayer potential energy components
     double *LayerDispersion; // Vector with multilayer dispersion energy components
     double *LayerCoulomb;    // Vector with multilayer coulombic energy components
