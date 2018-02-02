@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "02 Aug 2017"
+character(11), parameter :: VERSION = "02 Feb 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -51,6 +51,9 @@ type, bind(C), public :: tEnergy
   real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
   real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
   real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
+  real(rb)    :: ShadowPotential
+  real(rb)    :: ShadowKinetic
+  real(rb)    :: ShadowRotation
   type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
   type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
   type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
@@ -61,7 +64,7 @@ end type tEnergy
 
 type, bind(C), public :: tTime
   real(rb) :: Pair
-  real(rb) :: FastPair
+  real(rb) :: Motion
   real(rb) :: Neighbor
   real(rb) :: Total
 end type tTime
@@ -189,7 +192,7 @@ contains
     EmDee_system % builds = 0
 
     EmDee_system % Time % Pair = zero
-    EmDee_system % Time % FastPair = zero
+    EmDee_system % Time % Motion = zero
     EmDee_system % Time % Neighbor = zero
     EmDee_system % Time % Total = zero
 
@@ -201,6 +204,9 @@ contains
     EmDee_system % Energy % TransPart = zero
     EmDee_system % Energy % Rotational = zero
     EmDee_system % Energy % RotPart = zero
+    EmDee_system % Energy % ShadowPotential = zero
+    EmDee_system % Energy % ShadowKinetic = zero
+    EmDee_system % Energy % ShadowRotation = zero    
     EmDee_system % Energy % LayerPotential = c_loc(me%Energy(1))
     EmDee_system % Energy % LayerDispersion = c_loc(me%Epair(1))
     EmDee_system % Energy % LayerCoulomb = c_loc(me%Ecoul(1))
@@ -781,15 +787,44 @@ contains
         call get_centers_of_mass( omp_get_thread_num() + 1 )
         !$omp end parallel
 
-      case ("quaternions")
+      case ("quaternions", "quatmom")
         call c_f_pointer( address, matrix, [4,me%nbodies] )
         !$omp parallel num_threads(me%nthreads)
         block
           integer :: thread, i
           thread = omp_get_thread_num() + 1
-          forall (i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
-            matrix(:,i) = me%body(i)%q
-          end forall
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+            if (item == "quaternions") then
+              matrix(:,i) = me%body(i)%q
+            else
+              matrix(:,i) = me%body(i)%pi
+            end if
+          end do
+        end block
+        !$omp end parallel
+
+      case ("angmom", "bodycoord", "bodymom", "bodyforces", "torques", "inertia")
+        call c_f_pointer( address, matrix, [3,me%nbodies] )
+        !$omp parallel num_threads(me%nthreads)
+        block
+          integer :: thread, i
+          thread = omp_get_thread_num() + 1
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+            select case (item)
+              case ("angmom")
+                matrix(:,i) = me%body(i)%omega
+              case ("bodycoord")
+                matrix(:,i) = me%body(i)%Rcm
+              case ("bodymom")
+                matrix(:,i) = me%body(i)%Pcm
+              case ("bodyforces")
+                matrix(:,i) = me%body(i)%F
+              case ("torques")
+                matrix(:,i) = me%body(i)%tau
+              case ("inertia")
+                matrix(:,i) = me%body(i)%MoI
+              end select
+          end do
         end block
         !$omp end parallel
 
@@ -957,6 +992,8 @@ contains
 
     call c_f_pointer( md%data, me )
 
+    md%Time%Motion = md%Time%Motion - omp_get_wtime()
+
     if (alpha /= zero) then
       CP = phi(alpha*dt)*dt
       CR = one - alpha*CP
@@ -974,9 +1011,48 @@ contains
       !$omp end parallel
     end associate
 
+    md%Time%Motion = md%Time%Motion + omp_get_wtime()
+
     if (md%Options%AutoForceCompute) call EmDee_compute_forces( md )
 
   end subroutine EmDee_displace
+
+!===================================================================================================
+
+  subroutine EmDee_verlet_step( md, dt ) bind(C,name="EmDee_verlet_step")
+    type(tEmDee), intent(inout) :: md
+    real(rb),     value         :: dt
+
+    real(rb) :: Us
+    type(tData),  pointer :: me
+
+    call c_f_pointer( md%data, me )
+
+    call EmDee_boost( md, one, zero, half*dt )
+    call EmDee_displace( md, one, zero, dt )
+    call EmDee_boost( md, one, zero, half*dt )
+
+    Us = 0.0_rb
+    !$omp parallel num_threads(me%nthreads) reduction(+:Us)
+    block
+      integer :: thread, i, j
+      real(rb) :: tau_b(3)
+      thread = omp_get_thread_num() + 1
+      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+        associate( b => me%body(i) )
+          tau_b = matmul(matmul(matrix_Bt(b%q), matrix_C(b%q)), b%tau)
+          Us = Us + b%invMass*sum(b%F**2) + sum(b%invMoI*tau_b**2)
+        end associate
+      end do
+      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+        j = me%free(i)
+        Us = Us + me%invMass(j)*sum(me%F(:,j)**2)
+      end do
+    end block
+    !$omp end parallel
+    md%Energy%ShadowPotential = md%Energy%Potential - (dt*dt/24.0)*Us
+
+  end subroutine EmDee_verlet_step
 
 !===================================================================================================
 

@@ -80,7 +80,7 @@ associate( system => other )
   end do
   print*, "neighbor list builds = ", system%builds
   print*, "pair time      = ", system%Time%Pair, " s."
-  if (system%Time%FastPair /= 0.0_rb) print*, "fast pair time = ", system%Time%FastPair, " s."
+  print*, "motion time    = ", system%Time%Motion, " s."
   print*, "neighbor time  = ", system%Time%Neighbor, " s."
   print*, "execution time = ", system%Time%Total, " s."
 end associate

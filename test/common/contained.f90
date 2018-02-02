@@ -73,7 +73,7 @@
     if (Nsteps > 0) then
       print*, "neighbor list builds = ", md%builds
       print*, "pair time      = ", md%Time%Pair, " s."
-      if (md%Time%FastPair /= 0.0_rb) print*, "fast pair time = ", md%Time%FastPair, " s."
+      print*, "motion time    = ", md%Time%Motion, " s."
       print*, "neighbor time  = ", md%Time%Neighbor, " s."
       print*, "execution time = ", md%Time%Total, " s."
     end if

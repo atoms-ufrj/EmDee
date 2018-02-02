@@ -2,7 +2,7 @@ typedef struct {
   int    Builds;             // Number of neighbor-list builds
   struct {
     double Pair;             // Time taken in force calculations
-    double FastPair;
+    double Motion;
     double Neighbor;
     double Total;            // Total time since initialization
   } Time;
@@ -15,6 +15,9 @@ typedef struct {
     double TransPart[3];     // Translational kinetic energy at each dimension
     double Rotational;       // Rotational kinetic energy of the system
     double RotPart[3];       // Rotational kinetic energy around each principal axis
+    double ShadowPotential;
+    double ShadowKinetic;
+    double ShadowRotation;
     double *LayerPotential;  // Vector with multilayer potential energy components
     double *LayerDispersion; // Vector with multilayer dispersion energy components
     double *LayerCoulomb;    // Vector with multilayer coulombic energy components
@@ -70,6 +73,8 @@ void EmDee_random_momenta( tEmDee* md, double kT, _Bool adjust, int seed );
 void EmDee_boost( tEmDee* md, double lambda, double alpha, double dt );
 
 void EmDee_displace( tEmDee* md, double lambda, double alpha, double dt );
+
+void EmDee_verlet_step( tEmDee* md, double dt );
 
 void EmDee_compute_forces( tEmDee* md );
 

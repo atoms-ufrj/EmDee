@@ -42,6 +42,9 @@ type, bind(C) :: tEnergy
   real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
   real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
   real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
+  real(rb)    :: ShadowPotential
+  real(rb)    :: ShadowKinetic
+  real(rb)    :: ShadowRotation
   type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
   type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
   type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
@@ -52,7 +55,7 @@ end type tEnergy
 
 type, bind(C), public :: tTime
   real(rb) :: Pair                    ! Time taken in force calculations
-  real(rb) :: FastPair
+  real(rb) :: Motion
   real(rb) :: Neighbor
   real(rb) :: Total                   ! Total time since initialization
 end type tTime
@@ -202,6 +205,13 @@ interface
     type(tEmDee),   intent(inout) :: md
     real(c_double), value         :: lambda, alpha, dt
   end subroutine EmDee_displace
+
+  subroutine EmDee_verlet_step( md, dt ) &
+    bind(C,name="EmDee_verlet_step")
+    import :: tEmDee, rb
+    type(tEmDee), intent(inout) :: md
+    real(rb),     value         :: dt
+  end subroutine EmDee_verlet_step
 
   subroutine EmDee_compute_forces( md ) &
     bind(C,name="EmDee_compute_forces")

@@ -23,6 +23,9 @@ immutable tEnergy
   TransPart::tVec3D             # Translational kinetic energy at each dimension
   Rotational::Float64           # Rotational kinetic energy of the system
   RotPart::tVec3D               # Rotational kinetic energy around each principal axis
+  ShadowPotential::Float64
+  ShadowKinetic::Float64
+  ShadowRotation::Float64
   LayerPotential::Ref{Float64}  # Vector with multilayer potential energy components
   LayerDispersion::Ref{Float64} # Vector with multilayer dispersion energy components
   LayerCoulomb::Ref{Float64}    # Vector with multilayer coulombic energy components
@@ -33,7 +36,7 @@ end
 
 immutable tTime
   Pair::Float64              # Time taken in force calculations
-  FastPair::Float64
+  Motion::Float64
   Neighbor::Float64
   Total::Float64             # Total time since initialization
 end
@@ -164,6 +167,12 @@ function compute_forces( md::tEmDee )
   ccall( (:EmDee_compute_forces,"libemdee"), Void,
          (Ptr{tEmDee}),
          Ref(md) )
+end
+#---------------------------------------------------------------------------------------------------
+function verlet_step( md::tEmDee, dt::Real )
+  ccall( (:EmDee_verlet_step,"libemdee"), Void,
+         (Ptr{tEmDee}, Float64),
+         Ref(md), dt )
 end
 #---------------------------------------------------------------------------------------------------
 function rdf( md::tEmDee, bins::Int, pairs::Int, itype::IntegerArray, jtype::IntegerArray, 
