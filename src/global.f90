@@ -41,6 +41,9 @@ real(rb), parameter :: zero   = 0.0_rb,                 &
                        piBy2  = 0.5_rb*pi,              &
                        invSqrt3 = one/sqrt(3.0_rb)
 
+logical(lb), parameter :: TRUE = .true._lb, &
+                          FALSE = .false._lb
+
 contains
 
 !===================================================================================================

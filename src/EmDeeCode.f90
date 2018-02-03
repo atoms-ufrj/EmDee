@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "02 Feb 2018"
+character(11), parameter :: VERSION = "03 Feb 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -1027,70 +1027,96 @@ contains
     type(tEmDee), intent(inout) :: md
     real(rb),     value         :: dt
 
-    real(rb) :: Us, Ks_t, Ks_r, twobydt
-    real(rb), allocatable :: r0(:,:), q0(:,:)
+    real(rb) :: Us, Ks_t, Ks_r, dt_2
+    real(rb), allocatable :: twoKEt(:,:), twoKEr(:,:)
+    real(rb), allocatable :: r0(:,:), q0(:,:), s0(:,:)
     type(tData),  pointer :: me
 
+    dt_2 = half*dt
     call c_f_pointer( md%data, me )
 
-    twobydt = two/dt
-    allocate( r0(3,me%nbodies + me%nfree), q0(4,me%nbodies) )
+    if (md%Energy%compute) then
+      Us = zero
+      Ks_t = zero
+      Ks_r = zero
+      allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads), &
+                r0(3,me%nbodies), q0(4,me%nbodies), s0(3,me%nfree) )
+    end if
 
     !$omp parallel num_threads(me%nthreads)
     block
       integer :: thread, i, j
       thread = omp_get_thread_num() + 1
-      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-        associate (b => me%body(i))
-          r0(:,i) = b%invMass*b%pcm + twobydt*b%rcm
-          q0(:,i) = half*matmul(matrix_B(b%q), b%omega) + twobydt*b%q
-        end associate
-      end do
-      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-        j = me%free(i)
-        r0(:,me%nbodies+i) = me%invMass(j)*me%P(:,j) + twobydt*me%R(:,j)
-      end do
+      if (md%Energy%Compute) then
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+          associate (b => me%body(i))
+            r0(:,i) = 2.5_rb*b%rcm + dt_2*b%invMass*(b%pcm - dt_2*b%F)
+            q0(:,i) = half*virtual_rotation( b, -dt ) - three*b%q
+          end associate
+        end do
+        do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+          j = me%free(i)
+          s0(:,i) = 2.5_rb*me%R(:,j) + dt_2*me%invMass(j)*(me%P(:,j) - dt_2*me%F(:,j))
+        end do
+      end if
+      call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
+      call move( me, thread, one, dt, dt, TRUE, TRUE, md%Options%rotationMode )
     end block
     !$omp end parallel
 
-    call EmDee_boost( md, one, zero, half*dt )
-    call EmDee_displace( md, one, zero, dt )
-    call EmDee_boost( md, one, zero, half*dt )
-
-    Us = zero
-    Ks_t = zero
-    Ks_r = zero
+    call EmDee_compute_forces( md )
 
     !$omp parallel num_threads(me%nthreads) reduction(+:Us,Ks_t,Ks_r)
     block
-      integer :: thread, i, j, k
+      integer :: thread, i, j
       real(rb) :: tau_b(3), rdot(3), qdot(4)
       thread = omp_get_thread_num() + 1
-
-      do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-        associate( b => me%body(i) )
-          tau_b = matmul(matmul(matrix_Bt(b%q), matrix_C(b%q)), b%tau)
-          rdot = two*b%invMass*b%pcm + twobydt*b%rcm - r0(:,i)
-          qdot = matmul(matrix_B(b%q), b%omega) + twobydt*b%q - q0(:,i)
-
-          Us = Us + b%invMass*sum(b%F**2) + sum(b%invMoI*tau_b**2)
-          Ks_t = Ks_t + sum(rdot*b%pcm)
-          Ks_r = Ks_r + sum((qdot - sum(qdot*b%q)*b%q)*b%pi)
-        end associate
-      end do
-      do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-        j = me%free(i)
-        k = me%nbodies + i
-        Us = Us + me%invMass(j)*sum(me%F(:,j)**2)
-        rdot = two*me%invMass(j)*me%P(:,j) + twobydt*me%R(:,j) - r0(:,k)
-        Ks_t = Ks_t + sum(rdot*me%P(:,j))
-      end do
+      call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
+      if (md%Energy%compute) then
+        call kinetic_energies( me, thread, TRUE, TRUE, twoKEt(:,thread), twoKEr(:,thread) )
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+          associate (b => me%body(i))
+            rdot =  2.5_rb*b%rcm + dt*b%invMass*(b%pcm + dt_2*b%F) - r0(:,i)
+            Ks_t = Ks_t + sum(rdot*b%pcm)
+            qdot = q0(:,i) + 1.5_rb*b%q + virtual_rotation(b, dt)
+            Ks_r = Ks_r + sum((qdot - sum(qdot*b%q)*b%q)*b%pi)
+            tau_b = matmul(matmul(matrix_Bt(b%q), matrix_C(b%q)), b%tau)
+            Us = Us + b%invMass*sum(b%F**2) + sum(b%invMoI*tau_b**2)
+          end associate
+        end do
+        do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+          j = me%free(i)
+          rdot =  2.5_rb*me%R(:,j) + dt*me%invMass(j)*(me%P(:,j) + dt_2*me%F(:,j)) - s0(:,i)
+          Ks_t = Ks_t + sum(rdot*me%P(:,j))
+          Us = Us + me%invMass(j)*sum(me%F(:,j)**2)
+        end do
+      end if
     end block
     !$omp end parallel
-    md%Energy%ShadowPotential = md%Energy%ShadowPotential - dt*dt*Us/24.0_rb
-    md%Energy%ShadowRotational = Ks_r/6.0_rb
-    md%Energy%ShadowKinetic = (Ks_t + Ks_r)/6.0_rb
 
+    if (md%Energy%Compute) then
+      md%Energy%ShadowPotential = md%Energy%ShadowPotential - dt*dt*Us/24.0_rb
+      md%Energy%ShadowRotational = Ks_r/(6.0_rb*dt)
+      md%Energy%ShadowKinetic = (Ks_t + Ks_r)/(6.0_rb*dt)
+    end if
+
+    contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      function virtual_rotation( b, dt ) result ( q )
+        type(tBody), intent(in)  :: b
+        real(rb),    intent(in)  :: dt
+        real(rb)                 :: q(4)
+        type(tBody) :: c
+        c = b
+        call c % assign_momenta( c%pi + matmul(matrix_C(c%q), dt*c%tau) )
+        if (md%Options%RotationMode /= 0) then
+          call c % rotate_no_squish( dt, md%Options%RotationMode )
+        else
+          call c % rotate_exact( dt )
+        end if
+        q = c%q
+      end function virtual_rotation
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_verlet_step
 
 !===================================================================================================
