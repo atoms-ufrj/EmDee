@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "03 Feb 2018"
+character(11), parameter :: VERSION = "05 Feb 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -1095,6 +1095,10 @@ contains
     !$omp end parallel
 
     if (md%Energy%Compute) then
+      md%Energy%TransPart = half*sum(twoKEt,2)
+      md%Energy%RotPart = half*sum(twoKEr,2)
+      md%Energy%Rotational = sum(md%Energy%RotPart)
+      md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
       md%Energy%ShadowPotential = md%Energy%ShadowPotential - dt*dt*Us/24.0_rb
       md%Energy%ShadowRotational = Ks_r/(6.0_rb*dt)
       md%Energy%ShadowKinetic = (Ks_t + Ks_r)/(6.0_rb*dt)
