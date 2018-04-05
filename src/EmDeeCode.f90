@@ -792,42 +792,13 @@ contains
       case ("quaternions", "quatmom")
         call c_f_pointer( address, matrix, [4,me%nbodies] )
         !$omp parallel num_threads(me%nthreads)
-        block
-          integer :: thread, i
-          thread = omp_get_thread_num() + 1
-          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-            if (item == "quaternions") then
-              matrix(:,i) = me%body(i)%q
-            else
-              matrix(:,i) = me%body(i)%pi
-            end if
-          end do
-        end block
+        call get_quaternions( omp_get_thread_num() + 1, item, matrix )
         !$omp end parallel
 
       case ("angmom", "bodycoord", "bodymom", "bodyforces", "torques", "inertia")
         call c_f_pointer( address, matrix, [3,me%nbodies] )
         !$omp parallel num_threads(me%nthreads)
-        block
-          integer :: thread, i
-          thread = omp_get_thread_num() + 1
-          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-            select case (item)
-              case ("angmom")
-                matrix(:,i) = me%body(i)%omega
-              case ("bodycoord")
-                matrix(:,i) = me%body(i)%Rcm
-              case ("bodymom")
-                matrix(:,i) = me%body(i)%Pcm
-              case ("bodyforces")
-                matrix(:,i) = me%body(i)%F
-              case ("torques")
-                matrix(:,i) = me%body(i)%tau
-              case ("inertia")
-                matrix(:,i) = me%body(i)%MoI
-              end select
-          end do
-        end block
+        call get_body_properties( omp_get_thread_num() + 1, item, matrix )
         !$omp end parallel
 
       case default
@@ -869,6 +840,45 @@ contains
           matrix(:,i+me%nbodies) = me%R(:,me%free(i))
         end forall
       end subroutine get_centers_of_mass
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine get_quaternions( thread, item, matrix )
+        integer,       intent(in)  :: thread
+        character(sl), intent(in)  :: item
+        real(rb),      intent(out) :: matrix(:,:)
+
+        integer :: i
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+          if (item == "quaternions") then
+            matrix(:,i) = me%body(i)%q
+          else
+            matrix(:,i) = me%body(i)%pi
+          end if
+        end do
+      end subroutine get_quaternions
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine get_body_properties( thread, item, matrix )
+        integer,       intent(in)  :: thread
+        character(sl), intent(in)  :: item
+        real(rb),      intent(out) :: matrix(:,:)
+
+        integer :: i
+        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+          select case (item)
+            case ("angmom")
+              matrix(:,i) = me%body(i)%omega
+            case ("bodycoord")
+              matrix(:,i) = me%body(i)%Rcm
+            case ("bodymom")
+              matrix(:,i) = me%body(i)%Pcm
+            case ("bodyforces")
+              matrix(:,i) = me%body(i)%F
+            case ("torques")
+              matrix(:,i) = me%body(i)%tau
+            case ("inertia")
+              matrix(:,i) = me%body(i)%MoI
+            end select
+        end do
+      end subroutine get_body_properties
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_download
 
@@ -1044,54 +1054,13 @@ contains
     end if
 
     !$omp parallel num_threads(me%nthreads)
-    block
-      integer :: thread, i, j
-      thread = omp_get_thread_num() + 1
-      if (md%Energy%Compute) then
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-          associate (b => me%body(i))
-            r0(:,i) = 2.5_rb*b%rcm + dt_2*b%invMass*(b%pcm - dt_2*b%F)
-            q0(:,i) = half*virtual_rotation( b, -dt ) - three*b%q
-          end associate
-        end do
-        do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-          j = me%free(i)
-          s0(:,i) = 2.5_rb*me%R(:,j) + dt_2*me%invMass(j)*(me%P(:,j) - dt_2*me%F(:,j))
-        end do
-      end if
-      call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
-      call move( me, thread, one, dt, dt, TRUE, TRUE, md%Options%rotationMode )
-    end block
+    call pre_force(omp_get_thread_num() + 1)
     !$omp end parallel
 
     call EmDee_compute_forces( md )
 
     !$omp parallel num_threads(me%nthreads) reduction(+:Us,Ks_t,Ks_r)
-    block
-      integer :: thread, i, j
-      real(rb) :: tau_b(3), rdot(3), qdot(4)
-      thread = omp_get_thread_num() + 1
-      call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
-      if (md%Energy%compute) then
-        call kinetic_energies( me, thread, TRUE, TRUE, twoKEt(:,thread), twoKEr(:,thread) )
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-          associate (b => me%body(i))
-            rdot =  2.5_rb*b%rcm + dt*b%invMass*(b%pcm + dt_2*b%F) - r0(:,i)
-            Ks_t = Ks_t + sum(rdot*b%pcm)
-            qdot = q0(:,i) + 1.5_rb*b%q + virtual_rotation(b, dt)
-            Ks_r = Ks_r + sum((qdot - sum(qdot*b%q)*b%q)*b%pi)
-            tau_b = matmul(matmul(matrix_Bt(b%q), matrix_C(b%q)), b%tau)
-            Us = Us + b%invMass*sum(b%F**2) + sum(b%invMoI*tau_b**2)
-          end associate
-        end do
-        do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
-          j = me%free(i)
-          rdot =  2.5_rb*me%R(:,j) + dt*me%invMass(j)*(me%P(:,j) + dt_2*me%F(:,j)) - s0(:,i)
-          Ks_t = Ks_t + sum(rdot*me%P(:,j))
-          Us = Us + me%invMass(j)*sum(me%F(:,j)**2)
-        end do
-      end if
-    end block
+    call post_force(omp_get_thread_num() + 1)
     !$omp end parallel
 
     if (md%Energy%Compute) then
@@ -1120,6 +1089,51 @@ contains
         end if
         q = c%q
       end function virtual_rotation
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine pre_force( thread )
+        integer, intent(in) :: thread
+        integer :: i, j
+        if (md%Energy%Compute) then
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+            associate (b => me%body(i))
+              r0(:,i) = 2.5_rb*b%rcm + dt_2*b%invMass*(b%pcm - dt_2*b%F)
+              q0(:,i) = half*virtual_rotation( b, -dt ) - three*b%q
+            end associate
+          end do
+          do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+            j = me%free(i)
+            s0(:,i) = 2.5_rb*me%R(:,j) + dt_2*me%invMass(j)*(me%P(:,j) - dt_2*me%F(:,j))
+          end do
+        end if
+        call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
+        call move( me, thread, one, dt, dt, TRUE, TRUE, md%Options%rotationMode )
+      end subroutine pre_force
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine post_force( thread )
+        integer, intent(in) :: thread
+        integer :: i, j
+        real(rb) :: tau_b(3), rdot(3), qdot(4)
+        call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
+        if (md%Energy%compute) then
+          call kinetic_energies( me, thread, TRUE, TRUE, twoKEt(:,thread), twoKEr(:,thread) )
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+            associate (b => me%body(i))
+              rdot =  2.5_rb*b%rcm + dt*b%invMass*(b%pcm + dt_2*b%F) - r0(:,i)
+              Ks_t = Ks_t + sum(rdot*b%pcm)
+              qdot = q0(:,i) + 1.5_rb*b%q + virtual_rotation(b, dt)
+              Ks_r = Ks_r + sum((qdot - sum(qdot*b%q)*b%q)*b%pi)
+              tau_b = matmul(matmul(matrix_Bt(b%q), matrix_C(b%q)), b%tau)
+              Us = Us + b%invMass*sum(b%F**2) + sum(b%invMoI*tau_b**2)
+            end associate
+          end do
+          do i = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
+            j = me%free(i)
+            rdot =  2.5_rb*me%R(:,j) + dt*me%invMass(j)*(me%P(:,j) + dt_2*me%F(:,j)) - s0(:,i)
+            Ks_t = Ks_t + sum(rdot*me%P(:,j))
+            Us = Us + me%invMass(j)*sum(me%F(:,j)**2)
+          end do
+        end if
+      end subroutine post_force
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_verlet_step
 
