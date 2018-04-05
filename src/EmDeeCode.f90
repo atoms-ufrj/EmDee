@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "05 Feb 2018"
+character(11), parameter :: VERSION = "04 Apr 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -1060,7 +1060,7 @@ contains
     call EmDee_compute_forces( md )
 
     !$omp parallel num_threads(me%nthreads) reduction(+:Us,Ks_t,Ks_r)
-    call post_force(omp_get_thread_num() + 1)
+    call post_force(omp_get_thread_num() + 1, Us, Ks_t, Ks_r)
     !$omp end parallel
 
     if (md%Energy%Compute) then
@@ -1109,8 +1109,9 @@ contains
         call move( me, thread, one, dt, dt, TRUE, TRUE, md%Options%rotationMode )
       end subroutine pre_force
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine post_force( thread )
-        integer, intent(in) :: thread
+      subroutine post_force( thread, Us, Ks_t, Ks_r )
+        integer,  intent(in)    :: thread
+        real(rb), intent(inout) :: Us, Ks_t, Ks_r
         integer :: i, j
         real(rb) :: tau_b(3), rdot(3), qdot(4)
         call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
