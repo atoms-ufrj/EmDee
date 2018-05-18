@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "04 Apr 2018"
+character(11), parameter :: VERSION = "18 May 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -789,7 +789,7 @@ contains
         call get_centers_of_mass( omp_get_thread_num() + 1 )
         !$omp end parallel
 
-      case ("quaternions", "quatmom")
+      case ("quaternions", "quatmom", "quattau")
         call c_f_pointer( address, matrix, [4,me%nbodies] )
         !$omp parallel num_threads(me%nthreads)
         call get_quaternions( omp_get_thread_num() + 1, item, matrix )
@@ -848,11 +848,14 @@ contains
 
         integer :: i
         do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-          if (item == "quaternions") then
-            matrix(:,i) = me%body(i)%q
-          else
-            matrix(:,i) = me%body(i)%pi
-          end if
+          select case (item)
+            case ("quaternions")
+              matrix(:,i) = me%body(i)%q
+            case ("quatmom")
+              matrix(:,i) = me%body(i)%pi
+            case ("quattau")
+              matrix(:,i) = matmul(matrix_C(me%body(i)%q), two*me%body(i)%tau)
+          end select
         end do
       end subroutine get_quaternions
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
