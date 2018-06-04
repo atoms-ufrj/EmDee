@@ -255,6 +255,13 @@ interface
     real(c_double), value :: Rm
   end function EmDee_shifted_smoothed
 
+  type(c_ptr) function EmDee_openmm_smoothed( model, Rm ) &
+    bind(C,name="EmDee_openmm_smoothed")
+    import :: c_ptr, c_double
+    type(c_ptr),    value :: model
+    real(c_double), value :: Rm
+  end function EmDee_openmm_smoothed
+
   ! MODELS:
   type(c_ptr) function EmDee_pair_none( ) &
     bind(C,name="EmDee_pair_none")

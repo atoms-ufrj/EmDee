@@ -24,17 +24,19 @@ use modelClass
 
 implicit none
 
-integer, parameter :: NONE = 0,            &
-                      SHIFTED = 1,         &
-                      SHIFTED_FORCE = 2,   &
-                      SMOOTHED = 3,        &
-                      SHIFTED_SMOOTHED = 4
+integer, parameter :: NONE = 0,             &
+                      SHIFTED = 1,          &
+                      SHIFTED_FORCE = 2,    &
+                      SMOOTHED = 3,         &
+                      SHIFTED_SMOOTHED = 4, &
+                      OPENMM_SMOOTHED = 5
 
 !> Abstract class for pair interaction models
 type, abstract, extends(cModel) :: cPairModel
   integer  :: modifier = NONE
   real(rb) :: eshift = zero
   real(rb) :: fshift = zero
+  real(rb) :: Rm = zero
   real(rb) :: RmSq = zero
   real(rb) :: factor = zero
   real(rb) :: Rm2fac = zero
@@ -206,6 +208,33 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
+  type(c_ptr) function EmDee_openmm_smoothed( model, Rm ) bind(C,name="EmDee_openmm_smoothed")
+    type(c_ptr), value :: model
+    real(rb),    value :: Rm
+
+    type(modelContainer),  pointer :: container
+    class(cPairModel), allocatable :: new
+
+    if (.not.c_associated(model)) then
+      call error( "openmm-smoothed potential assignment", "a valid pair model must be provided" )
+    end if
+    call c_f_pointer( model, container )
+
+    select type ( pair => container%model )
+      class is (cPairModel)
+        allocate( new, source = pair )
+        new%modifier = OPENMM_SMOOTHED
+        new%Rm = Rm
+        new%RmSq = Rm*Rm
+        EmDee_openmm_smoothed = new % deliver()
+      class default
+        call error( "openmm-smoothed potential assignment", "a valid pair model must be provided" )
+    end select
+
+  end function EmDee_openmm_smoothed
+
+!---------------------------------------------------------------------------------------------------
+
   subroutine cPairModel_modifier_setup( model, cutoff )
     class(cPairModel), intent(inout) :: model
     real(rb),          intent(in)    :: cutoff
@@ -241,6 +270,11 @@ contains
 
         model%factor = one/(cutoff**2 - model%RmSq)
         model%Rm2fac = model%factor*model%RmSq
+
+      case (OPENMM_SMOOTHED)
+
+        model%factor = one/(cutoff - model%Rm)
+        model%Rm2fac = model%factor*model%Rm
 
     end select
 

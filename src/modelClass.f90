@@ -23,7 +23,7 @@ use global
 use, intrinsic :: iso_c_binding
 
 type, abstract :: cModel
-  character(20) :: name
+  character(22) :: name
   contains
     procedure :: deliver => cModel_deliver
     procedure(cModel_setup), deferred :: setup

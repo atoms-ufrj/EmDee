@@ -84,6 +84,10 @@ void* EmDee_shifted_force( void* model );
 
 void* EmDee_smoothed( void* model, double Rm );
 
+void* EmDee_shifted_smoothed( void* model, double Rm );
+
+void* EmDee_openmm_smoothed( void* model, double Rm );
+
 void* EmDee_pair_none();
 
 void* EmDee_coul_none();
