@@ -8,9 +8,10 @@ typedef struct {
     double Coulomb;      // Electrostatic part of the potential energy
     double Fourier;      // Reciprocal part of the electrostatic potential
     double Kinetic;      // Total kinetic energy of the system
-    double KinPart[3];   // Kinetic energy at each dimension
+    double TransPart[3]; // Translational kinetic energy at each dimension
     double Rotational;   // Rotational kinetic energy of the system
     double RotPart[3];   // Rotational kinetic energy around each principal axis
+    double *Layer;       // Vector with multilayer energy components
     _Bool  Compute;      // Flag to activate/deactivate energy computations
     _Bool  UpToDate;     // Flag to attest whether energies have been computed
   } Energy;

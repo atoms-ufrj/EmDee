@@ -46,7 +46,7 @@ call EmDee_set_coul_model( md, EmDee_coul_sf() )
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
-call EmDee_random_momenta( md, kB*Temp, 1, seed )
+call EmDee_random_momenta( md, kB*Temp, .true._lb, seed )
 
 call run( Nsteps, Nprop )
 

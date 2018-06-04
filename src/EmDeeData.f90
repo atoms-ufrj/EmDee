@@ -33,14 +33,15 @@ integer, parameter :: extra = 2000
 integer, parameter :: ndiv = 2
 integer, parameter :: nbcells = 62
 integer, parameter :: nb(3,nbcells) = reshape( [ &
-   1, 0, 0,    2, 0, 0,   -2, 1, 0,   -1, 1, 0,    0, 1, 0,    1, 1, 0,    2, 1, 0,   -2, 2, 0,  &
-  -1, 2, 0,    0, 2, 0,    1, 2, 0,    2, 2, 0,   -2,-2, 1,   -1,-2, 1,    0,-2, 1,    1,-2, 1,  &
-   2,-2, 1,   -2,-1, 1,   -1,-1, 1,    0,-1, 1,    1,-1, 1,    2,-1, 1,   -2, 0, 1,   -1, 0, 1,  &
-   0, 0, 1,    1, 0, 1,    2, 0, 1,   -2, 1, 1,   -1, 1, 1,    0, 1, 1,    1, 1, 1,    2, 1, 1,  &
-  -2, 2, 1,   -1, 2, 1,    0, 2, 1,    1, 2, 1,    2, 2, 1,   -2,-2, 2,   -1,-2, 2,    0,-2, 2,  &
-   1,-2, 2,    2,-2, 2,   -2,-1, 2,   -1,-1, 2,    0,-1, 2,    1,-1, 2,    2,-1, 2,   -2, 0, 2,  &
-  -1, 0, 2,    0, 0, 2,    1, 0, 2,    2, 0, 2,   -2, 1, 2,   -1, 1, 2,    0, 1, 2,    1, 1, 2,  &
-   2, 1, 2,   -2, 2, 2,   -1, 2, 2,    0, 2, 2,    1, 2, 2,    2, 2, 2 ], shape(nb) )
+ 0,  0,  1,    0,  1,  0,    1,  0,  0,   -1,  0,  1,   -1,  1,  0,    0, -1,  1,    0,  1,  1, &
+ 1,  0,  1,    1,  1,  0,   -1, -1,  1,   -1,  1,  1,    1, -1,  1,    1,  1,  1,    0,  0,  2, &
+ 0,  2,  0,    2,  0,  0,   -2,  0,  1,   -2,  1,  0,   -1,  0,  2,   -1,  2,  0,    0, -2,  1, &
+ 0, -1,  2,    0,  1,  2,    0,  2,  1,    1,  0,  2,    1,  2,  0,    2,  0,  1,    2,  1,  0, &
+-2, -1,  1,   -2,  1,  1,   -1, -2,  1,   -1, -1,  2,   -1,  1,  2,   -1,  2,  1,    1, -2,  1, &
+ 1, -1,  2,    1,  1,  2,    1,  2,  1,    2, -1,  1,    2,  1,  1,   -2,  0,  2,   -2,  2,  0, &
+ 0, -2,  2,    0,  2,  2,    2,  0,  2,    2,  2,  0,   -2, -2,  1,   -2, -1,  2,   -2,  1,  2, &
+-2,  2,  1,   -1, -2,  2,   -1,  2,  2,    1, -2,  2,    1,  2,  2,    2, -2,  1,    2, -1,  2, &
+ 2,  1,  2,    2,  2,  1,   -2, -2,  2,   -2,  2,  2,    2, -2,  2,    2,  2,  2], shape(nb) )
 
 type, private :: tCell
   integer :: neighbor(nbcells)
@@ -66,6 +67,7 @@ type :: tData
   integer :: layer = 1                    ! Current layer of pair interaction models
 
   real(rb) :: Lbox = zero                 ! Length of the simulation box
+  real(rb) :: Lbox3(3) = zero
   real(rb) :: invL = huge(one)            ! Inverse length of the simulation box
   real(rb) :: invL2 = huge(one)           ! Squared inverse length of the simulation box
 
@@ -114,14 +116,12 @@ type :: tData
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
-
-  logical :: kspace_active
-  logical :: multilayer_coulomb
-
   integer,  allocatable :: other_layer(:)
-  real(rb), allocatable :: kCoul(:,:,:)
+  real(rb), allocatable :: threadEnergy(:,:)
+  real(rb), pointer     :: Energy(:)
 
-  real(rb), allocatable :: Energy(:,:)
+  logical :: multilayer_coulomb
+  logical :: kspace_active
 
 end type tData
 
@@ -133,7 +133,7 @@ contains
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     real(rb),    intent(in)    :: P(3,me%natoms)
-    real(rb),    intent(out)   :: twoKEt, twoKEr
+    real(rb),    intent(out)   :: twoKEt(3), twoKEr(3)
 
     integer :: i, j
     real(rb) :: L(3), Pj(3)
@@ -143,7 +143,7 @@ contains
     do j = (thread - 1)*me%threadFreeAtoms + 1, min(thread*me%threadFreeAtoms, me%nfree)
       i = me%free(j)
       me%P(:,i) = P(:,i)
-      twoKEt = twoKEt + me%invMass(i)*sum(P(:,i)**2)
+      twoKEt = twoKEt + me%invMass(i)*P(:,i)**2
     end do
     do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies, me%nbodies)
       associate(b => me%body(i))
@@ -154,10 +154,10 @@ contains
           b%pcm = b%pcm + Pj
           L = L + cross_product( b%delta(:,j), Pj )
         end do
-        twoKEt = twoKEt + b%invMass*sum(b%pcm**2)
+        twoKEt = twoKEt + b%invMass*b%pcm**2
         b%pi = matmul( matrix_C(b%q), two*L )
         b%omega= half*b%invMoI*matmul( matrix_Bt(b%q), b%pi )
-        twoKEr = twoKEr + sum(b%MoI*b%omega**2)
+        twoKEr = twoKEr + b%MoI*b%omega**2
       end associate
     end do
 
@@ -280,7 +280,7 @@ contains
         integer             :: index(size(body))
 
         ! If body(i) <= 0 or body(i) is unique, then index(i) = 0.
-        ! Otherwise, 1 <= index(i) <= number of distinct non-unique, positive entries in body.
+        ! Otherwise, 1 <= index(i) <= number of distinc positive entries which are non-unique
 
         integer :: i, j, n, ibody
         logical :: not_found
@@ -332,7 +332,10 @@ contains
 
     character(*), parameter :: task = "system initialization"
 
-    integer  :: layer, bodyDoF
+    integer :: i, layer, bodyDoF
+    logical :: kspace_required
+
+    integer, allocatable :: bodyAtom(:)
 
     !$omp parallel num_threads(me%nthreads)
     call update_rigid_bodies( me, omp_get_thread_num() + 1 )
@@ -344,20 +347,32 @@ contains
 
     call check_actual_interactions( me )
 
-    me%kCoul = me%pair%kCoul
-    if (me%kspace_active) call initialize_kspace
-
-    do layer = 1, me%nlayers
-      associate( coul => me%coul(layer)%model )
-        if (coul%requires_kspace) then
-          if (me%kspace_active) then
-            call coul % kspace_setup( me%kspace%alpha )
-          else
-            call error( task, "model "//trim(coul%name)//" requires a kspace solver" )
-          end if
-        end if
-      end associate
+    ! Find out if any coulomb model requires a kspace solver:
+    layer = 0
+    kspace_required = .false.
+    do while (.not.kspace_required.and.(layer < me%nlayers))
+      layer = layer + 1
+      kspace_required = me%coul(layer)%model%requires_kspace
     end do
+
+    ! Now check if demand and supply are inconsistent:
+    if (kspace_required .neqv. me%kspace_active) then
+      if (kspace_required) then
+        call error( task, "a kspace solver is required, but has not been defined" )
+      else
+        ! Deactivate kspace solver once it is not required:
+        me%kspace_active = .false.
+      end if
+    end if
+
+    if (me%kspace_active) then
+      bodyAtom = [(me%body(i)%index,i=1,me%nbodies)]
+      call me % kspace % initialize( me%nthreads, me%Rc, me%Lbox3, me%atomType, me%charge, &
+                                     me%R, me%body%NP, bodyAtom, me%pair%kCoul )
+      do layer = 1, me%nlayers
+        call me % coul(layer) % model % kspace_setup( me%kspace%alpha )
+      end do
+    end if
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -379,25 +394,13 @@ contains
 
       end subroutine update_rigid_bodies
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine initialize_kspace
-        integer  :: i
-        real(rb) :: L(3)
-        integer, allocatable :: bodyAtom(:)
-
-        L = me%Lbox*[one,one,one]
-        bodyAtom = [(me%body(i)%index,i=1,me%nbodies)]
-        call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charge, &
-                                       me%R, me%body%NP, bodyAtom, me%kCoul )
-
-      end subroutine initialize_kspace
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine perform_initialization
 
 !===================================================================================================
 
   subroutine rigid_body_forces( me, Virial )
     type(tData), intent(inout) :: me
-    real(rb),    intent(inout) :: Virial
+    real(rb),    intent(out)   :: Virial
 
     real(rb) :: Wrb(me%nthreads)
 
@@ -408,7 +411,7 @@ contains
       call compute_body_forces( thread, Wrb(thread) )
     end block
     !$omp end parallel
-    Virial = Virial - sum(Wrb)
+    Virial = -sum(Wrb)
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -488,7 +491,7 @@ contains
         integer, intent(in)  :: thread
         integer, intent(out) :: maxNatoms
 
-        integer :: i, k, icell, ix, iy, iz, first, last, atoms_per_thread
+        integer :: i, j, k, icell, ix, iy, iz, first, last, atoms_per_thread
         integer :: icoord(3)
         integer, allocatable :: head(:)
 
@@ -498,8 +501,9 @@ contains
           do icell = first, last
             k = icell - 1
             iz = k/MM
-            iy = (k - iz*MM)/M
-            ix = k - (iy*M + iz*MM)
+            j = k - iz*MM
+            iy = j/M
+            ix = j - iy*M
             me%cell(icell)%neighbor = 1 + pbc(ix+nb(1,:)) + pbc(iy+nb(2,:))*M + pbc(iz+nb(3,:))*MM
           end do
           me%threadCell%first(thread) = first
@@ -723,14 +727,14 @@ contains
 
 !===================================================================================================
 
-  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Epair, Ecoul, Virial )
+  subroutine find_pairs_and_compute( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Virial
+    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
-    integer  :: i, j, k, l, m, n, icell, jcell, npairs, itype, jtype, layer, ibody
+    integer  :: i, j, k, l, m, n, icell, jcell, npairs, itype, jtype, layer, ibody, ipairs
     integer  :: nlocal, ntotal, first, last
     real(rb) :: xRc2, Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
     logical  :: icharged, ijcharged, include(0:me%maxpairs), noInvR
@@ -746,12 +750,13 @@ contains
     F = zero
     Epair = zero
     Ecoul = zero
-    Virial = zero
+    Wpair = zero
+    Wcoul = zero
 
     include = .true.
     index = 0
     npairs = 0
-    associate ( neighbor => me%neighbor(thread), Elayer => me%Energy(:,thread) )
+    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
       Elayer = zero
       do icell = me%threadCell%first(thread), me%threadCell%last(thread)
 
@@ -778,7 +783,8 @@ contains
         Ratom = Rs(:,atom(1:ntotal))
         do k = 1, nlocal
           i = atom(k)
-          neighbor%first(i) = npairs + 1
+          first = npairs + 1
+          ipairs = 0
           itype = me%atomType(i)
           ibody = me%atomBody(i)
           Qi = me%charge(i)
@@ -789,7 +795,9 @@ contains
           include(xlist) = .false.
           associate ( partner => me%pair(:,itype,me%layer), &
                       multilayer => me%multilayer(:,itype), &
-                      jlist => atom(k+1:ntotal) )
+                      jlist => atom(k+1:ntotal),            &
+                      item => neighbor%item(first:),        &
+                      value => neighbor%value(first:)       )
             Rvec = Ratom(:,k+1:ntotal)
             forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
             if (compute) then
@@ -799,10 +807,7 @@ contains
                 if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
                   Rij = Rvec(:,m)
                   include "inner_loop.f90"
-                  if (r2 < xRc2) then
-                    npairs = npairs + 1
-                    neighbor%item(npairs) = j
-                  end if
+                  if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
                 end if
               end do
             else
@@ -811,40 +816,59 @@ contains
                 jtype = me%atomType(j)
                 if (include(k+m).and.(me%atomBody(j) /= ibody).and.me%interact(itype,jtype)) then
                   include "inner_loop_no_energy.f90"
-                  if (r2 < xRc2) then
-                    npairs = npairs + 1
-                    neighbor%item(npairs) = j
-                  end if
+                  if (r2 < xRc2) call insert_neighbor( item, value, ipairs, j, r2 )
                 end if
               end do
             end if
           end associate
           F(:,i) = F(:,i) + Fi
-          neighbor%last(i) = npairs
           include(xlist) = .true.
+
+          npairs = npairs + ipairs
+          neighbor%first(i) = first
+          neighbor%last(i)  = npairs
+
         end do
         index(atom(1:ntotal)) = 0
       end do
       neighbor%count = npairs
     end associate
     F = me%Lbox*F
-
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental function pbc( x )
         real(rb), intent(in) :: x
         real(rb)              :: pbc
         pbc = x - anint(x)
       end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      pure subroutine insert_neighbor( item, value, npairs, j, r2 )
+        integer,     intent(inout) :: item(:)
+        real(rb),    intent(inout) :: value(:)
+        integer,     intent(inout) :: npairs
+        integer,     intent(in)    :: j
+        real(rb),    intent(in)    :: r2
+        integer :: k
+        do k = npairs, 1, -1
+          if (value(k) < r2) exit
+          value(k+1) = value(k)
+          item(k+1) = item(k)
+        end do
+        value(k+1) = r2
+        item(k+1) = j
+        npairs = npairs + 1
+      end subroutine insert_neighbor
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine find_pairs_and_compute
 
 !===================================================================================================
 
-  subroutine compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Virial )
+  subroutine compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: thread
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Virial
+    real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
     integer  :: i, j, k, l, m, itype, jtype, firstAtom, lastAtom, layer
     real(rb) :: Rc2, r2, invR2, invR, Eij, Wij, Qi, QiQj, ECij, WCij
@@ -857,10 +881,11 @@ contains
     F = zero
     Epair = zero
     Ecoul = zero
-    Virial = zero
+    Wpair = zero
+    Wcoul = zero
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
-    associate ( neighbor => me%neighbor(thread), Elayer => me%Energy(:,thread) )
+    associate ( neighbor => me%neighbor(thread), Elayer => me%threadEnergy(:,thread) )
       Elayer = zero
       do k = firstAtom, lastAtom
         i = me%cellAtom%item(k)
@@ -892,29 +917,44 @@ contains
     F = me%Lbox*F
 
     contains
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       elemental function pbc( x )
         real(rb), intent(in) :: x
         real(rb)              :: pbc
         pbc = x - anint(x)
       end function pbc
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine compute_pairs
 
 !===================================================================================================
 
-  subroutine compute_kspace( me, compute, Rs, Elong, Virial, F )
+  subroutine compute_kspace( me, compute, Rs, Elong, F )
     type(tData), intent(inout) :: me
     logical(lb), intent(in)    :: compute
     real(rb),    intent(in)    :: Rs(3,me%natoms)
-    real(rb),    intent(out)   :: Elong
-    real(rb),    intent(inout) :: Virial, F(3,me%natoms)
+    real(rb),    intent(inout) :: Elong, F(3,me%natoms)
 
-    if (compute.or.me%coul(me%layer)%model%requires_kspace) then
-      associate ( ks => me%kspace )
-        call ks % prepare( Rs )
-        call ks % compute( me%layer, compute, Elong, Virial, F )
-        if (compute) then
-          call ks % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Elong, Virial )
-        end if
+    integer :: i, layer
+    logical :: kspace_required
+
+    kspace_required = me%coul(me%layer)%model%requires_kspace
+    if (compute.or.kspace_required) call me % kspace % prepare( Rs )
+
+    if (kspace_required) then
+      call me % kspace % compute( me%layer, Elong, F )
+      call me % kspace % discount_rigid_pairs( me%layer, me%Lbox3, me%R, Elong )
+    end if
+
+    if (compute) then
+      associate ( E => me%threadEnergy(:,1) )
+        if (kspace_required) E(me%layer) = E(me%layer) + Elong
+        do i = 1, me%nlayers-1
+          layer = me%other_layer(i)
+          if (me%coul(layer)%model%requires_kspace) then
+            call me % kspace % compute( layer, E(layer) )
+            call me % kspace % discount_rigid_pairs( layer, me%Lbox3, me%R, E(layer) )
+          end if
+        end do
       end associate
     end if
 

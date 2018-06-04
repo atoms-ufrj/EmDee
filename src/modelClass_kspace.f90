@@ -49,7 +49,6 @@ type, abstract, extends(cModel) :: cKspaceModel
 
   integer :: nTypePairs                           ! Number of types of atoms pairs
   real(rb), allocatable :: Erigid(:)              ! Unscaled energy of intrabody atom pair
-  real(rb), allocatable :: Wrigid(:)              ! Unscaled virial of intrabody atom pair
 
   integer :: nRigidPairs                          ! Number of intrabody pairs (fixed distance)
   type(tRigidPair), allocatable :: rigidPair(:)   ! List of intrabody atom pairs
@@ -95,13 +94,12 @@ abstract interface
     real(rb),            intent(in)    :: Rs(:,:)
   end subroutine cKspaceModel_prepare
 
-  subroutine cKspaceModel_compute( me, layer, compute, E, W, F )
+  subroutine cKspaceModel_compute( me, layer, E, F )
     import
     class(cKspaceModel), intent(inout) :: me
     integer(ib),         intent(in)    :: layer
-    logical(lb),         intent(in)    :: compute
-    real(rb),            intent(out)   :: E
-    real(rb),            intent(inout) :: W, F(:,:)
+    real(rb),            intent(inout) :: E
+    real(rb), optional,  intent(inout) :: F(:,:)
   end subroutine cKspaceModel_compute
 
 end interface
@@ -182,7 +180,7 @@ contains
       type(tRigidPair), allocatable :: pair(:)
 
       me%nTypePairs = me%ntypes*(me%ntypes - 1)/2 + me%ntypes
-      allocate( me%Erigid(me%nTypePairs), me%Wrigid(me%nTypePairs), source = zero )
+      allocate( me%Erigid(me%nTypePairs), source = zero )
 
       maxnpairs = sum(groupSize*(groupSize-1)/2)
       allocate( pair(maxnpairs) )
@@ -213,7 +211,6 @@ contains
 
                 k = symm1D( itype, jtype )
                 me%Erigid(k) = me%Erigid(k) + Eij
-                me%Wrigid(k) = me%Wrigid(k) + Wij
 
                 npairs = npairs + 1
                 pair(npairs) = tRigidPair( i, j, itype, jtype, Wij/rsq )
@@ -265,13 +262,13 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine cKspaceModel_discount_rigid_pairs( me, layer, L, R, Energy, Virial, Forces )
+  subroutine cKspaceModel_discount_rigid_pairs( me, layer, L, R, Energy, Forces )
     class(cKspaceModel), intent(inout) :: me
     integer,             intent(in)    :: layer
     real(rb),            intent(in)    :: L(3), R(:,:)
-    real(rb), optional,  intent(inout) :: Energy, Virial, Forces(:,:)
+    real(rb), optional,  intent(inout) :: Energy, Forces(:,:)
 
-    real(rb) :: E(me%nthreads), W(me%nthreads)
+    real(rb) :: E(me%nthreads)
 
     !$omp parallel num_threads(me%nthreads)
     block
@@ -282,10 +279,10 @@ contains
 
       first = (thread - 1)*me%threadTypePairs + 1
       last = min(thread*me%threadTypePairs,me%nTypePairs)
-      associate( lambda => me%lambda1D(first:last,layer) )
-        E(thread) = sum(lambda*me%Erigid(first:last))
-        W(thread) = sum(lambda*me%Wrigid(first:last))
-      end associate
+
+      if (present(Energy)) then
+        E(thread) = sum(me%lambda1D(first:last,layer)*me%Erigid(first:last))
+      end if
 
       if (present(Forces)) then
         invL = one/L
@@ -312,7 +309,6 @@ contains
     !$omp end parallel
 
     if (present(Energy)) Energy = Energy + sum(E)
-    if (present(Virial)) Virial = Virial + sum(W)
 
   end subroutine cKspaceModel_discount_rigid_pairs
 

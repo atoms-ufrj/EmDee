@@ -131,7 +131,7 @@ contains
     class(cCoulModel), intent(inout) :: model
     real(rb),          intent(in)    :: alpha
 
-    model%alpha = alpha
+    if (model%requires_kspace) model%alpha = alpha
 
   end subroutine cCoulModel_kspace_setup
 
