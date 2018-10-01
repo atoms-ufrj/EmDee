@@ -45,6 +45,9 @@ type, bind(C) :: tEnergy
   real(rb)    :: ShadowPotential
   real(rb)    :: ShadowKinetic
   real(rb)    :: ShadowRotational
+  real(rb)    :: Bond
+  real(rb)    :: Angle
+  real(rb)    :: Dihedral
   type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
   type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
   type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components

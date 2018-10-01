@@ -26,6 +26,9 @@ immutable tEnergy
   ShadowPotential::Float64
   ShadowKinetic::Float64
   ShadowRotational::Float64
+  Bond::Float64
+  Angle::Float64
+  Dihedral::Float64
   LayerPotential::Ref{Float64}  # Vector with multilayer potential energy components
   LayerDispersion::Ref{Float64} # Vector with multilayer dispersion energy components
   LayerCoulomb::Ref{Float64}    # Vector with multilayer coulombic energy components
@@ -175,7 +178,7 @@ function verlet_step( md::tEmDee, dt::Real )
          Ref(md), dt )
 end
 #---------------------------------------------------------------------------------------------------
-function rdf( md::tEmDee, bins::Int, pairs::Int, itype::IntegerArray, jtype::IntegerArray, 
+function rdf( md::tEmDee, bins::Int, pairs::Int, itype::IntegerArray, jtype::IntegerArray,
               g::RealArray )
   ccall( (:EmDee_rdf,"libemdee"), Void,
          (tEmDee, Int32, Int32, Vector{Int32}, Vector{Int32}, Matrix{Float64}),

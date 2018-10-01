@@ -27,7 +27,7 @@ integer(ib), parameter, private :: extra = 500
 
 type tStruct
   integer(ib) :: i, j, k, l
-  class(cModel), allocatable :: model
+  class(cModel), pointer :: model => null()
 end type tStruct
 
 type structList

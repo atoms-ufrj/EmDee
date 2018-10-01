@@ -18,6 +18,9 @@ typedef struct {
     double ShadowPotential;
     double ShadowKinetic;
     double ShadowRotational;
+    double Bond;
+    double Angle;
+    double Dihedral;
     double *LayerPotential;  // Vector with multilayer potential energy components
     double *LayerDispersion; // Vector with multilayer dispersion energy components
     double *LayerCoulomb;    // Vector with multilayer coulombic energy components
@@ -39,7 +42,7 @@ typedef struct {
   } Options;
 } tEmDee;
 
-tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types, 
+tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types,
                      double* masses, int* bodies );
 
 void EmDee_share_phase_space( tEmDee mdkeep, tEmDee* mdlose );
@@ -97,4 +100,3 @@ void* EmDee_bond_none();
 void* EmDee_angle_none();
 
 void* EmDee_dihedral_none();
-

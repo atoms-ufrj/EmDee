@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "04 Jun 2018"
+character(11), parameter :: VERSION = "01 Oct 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -54,6 +54,9 @@ type, bind(C), public :: tEnergy
   real(rb)    :: ShadowPotential
   real(rb)    :: ShadowKinetic
   real(rb)    :: ShadowRotational
+  real(rb)    :: Bond
+  real(rb)    :: Angle
+  real(rb)    :: Dihedral
   type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
   type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
   type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
@@ -206,7 +209,7 @@ contains
     EmDee_system % Energy % RotPart = zero
     EmDee_system % Energy % ShadowPotential = zero
     EmDee_system % Energy % ShadowKinetic = zero
-    EmDee_system % Energy % ShadowRotational = zero    
+    EmDee_system % Energy % ShadowRotational = zero
     EmDee_system % Energy % LayerPotential = c_loc(me%Energy(1))
     EmDee_system % Energy % LayerDispersion = c_loc(me%Epair(1))
     EmDee_system % Energy % LayerCoulomb = c_loc(me%Ecoul(1))
@@ -699,7 +702,7 @@ contains
 
       case ("charges")
         if (me%initialized) &
-          call error( "upload", "cannot set charges after box and coordinates initialization" ) 
+          call error( "upload", "cannot set charges after box and coordinates initialization" )
         call c_f_pointer( address, Vector, [me%natoms] )
         !$omp parallel num_threads(me%nthreads)
         call assign_charges( omp_get_thread_num() + 1, Vector )
@@ -1146,7 +1149,7 @@ contains
   subroutine EmDee_compute_forces( md ) bind(C,name="EmDee_compute_forces")
     type(tEmDee), intent(inout) :: md
 
-    real(rb) :: time, Epair, Ecoul, Elong, Wpair, Wcoul
+    real(rb) :: time, Epair, Ecoul, Elong, Ebond, Eangle, Wpair, Wcoul, Wbond, Wangle
     logical(lb) :: compute
     real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
     type(tData),  pointer :: me
@@ -1160,7 +1163,11 @@ contains
 
     md%Time%Pair = md%Time%Pair - omp_get_wtime()
     compute = md%Energy%Compute
-    !$omp parallel num_threads(me%nthreads) reduction(+:Epair,Ecoul,Elong,Wpair,Wcoul)
+    Ebond = zero
+    Eangle = zero
+    Wbond = zero
+    Wangle = zero
+    !$omp parallel num_threads(me%nthreads) reduction(+:Epair,Ecoul,Elong,Ebond,Eangle,Wpair,Wcoul,Wbond,Wangle)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
@@ -1168,9 +1175,9 @@ contains
         call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
         Elong = zero
         me%threadElong(:,thread) = zero
-        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Epair, Wpair )
-        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Epair, Wpair )
-        if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Epair, Wpair )
+        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ebond, Wbond )
+        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Eangle, Wangle )
+        ! if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Epair, Wpair )
       end associate
     end block
     !$omp end parallel
@@ -1187,17 +1194,20 @@ contains
       md%BodyVirial = rigid_body_virial( me )
       md%Virial = md%Virial + md%BodyVirial
     end if
+    md%Virial = md%Virial + Wbond + Wangle
 
     if (compute) then
       md%Energy%Dispersion = Epair
       md%Energy%Coulomb = Ecoul + Elong
       md%Energy%Fourier = Elong
-      md%Energy%Potential = Epair + md%Energy%Coulomb
+      md%Energy%Potential = Epair + md%Energy%Coulomb + Ebond + Eangle
       md%Energy%ShadowPotential = md%Energy%Potential
+      md%Energy%Bond = Ebond
+      md%Energy%Angle = Eangle
       me%Epair = sum(me%threadEpair,2)
       me%Elong = sum(me%threadElong,2)
       me%Ecoul = sum(me%threadEcoul,2) + me%Elong
-      me%Energy = me%Epair + me%Ecoul
+      me%Energy = me%Epair + me%Ecoul + Ebond + Eangle
     end if
 
     md%Energy%UpToDate = compute

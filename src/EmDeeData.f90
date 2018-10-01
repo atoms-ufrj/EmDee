@@ -420,7 +420,7 @@ contains
         end select
         Potential = Potential + E
         Virial = Virial + W
-        Fij = W*Rij*invR2
+        Fij =  W*invR2*me%Lbox*Rij
         F(:,bond%i) = F(:,bond%i) + Fij
         F(:,bond%j) = F(:,bond%j) - Fij
       end associate
@@ -437,8 +437,8 @@ contains
     real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
 
     integer  :: i, j, k, m, nangles
-    real(rb) :: aa, bb, ab, axb, theta, Ea, Fa
-    real(rb) :: Rj(3), Fi(3), Fk(3), a(3), b(3)
+    real(rb) :: aa, bb, ab, theta, Ea, Fa, factor
+    real(rb) :: Fi(3), Fk(3), avec(3), bvec(3)
 
     nangles = (me%angles%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*nangles + 1, min( me%angles%number, threadId*nangles )
@@ -446,27 +446,25 @@ contains
         i = angle%i
         j = angle%j
         k = angle%k
-        Rj = R(:,j)
-        a = R(:,i) - Rj
-        b = R(:,k) - Rj
-        a = a - anint(a)
-        b = b - anint(b)
-        aa = sum(a*a)
-        bb = sum(b*b)
-        ab = sum(a*b)
-        axb = sqrt(aa*bb - ab*ab)
-        theta = atan2(axb,ab)
+        avec = R(:,i) - R(:,j)
+        bvec = R(:,k) - R(:,j)
+        avec = me%Lbox*(avec - anint(avec))
+        bvec = me%Lbox*(bvec - anint(bvec))
+        aa = sum(avec*avec)
+        bb = sum(bvec*bvec)
+        ab = sum(avec*bvec)
+        theta = acos(ab/sqrt(aa*bb))
         select type (model => angle%model)
           include "compute_angle.f90"
         end select
-        Fa = Fa/(me%Lbox*axb)
-        Fi = Fa*(b - (ab/aa)*a)
-        Fk = Fa*(a - (ab/bb)*b)
+        factor =Fa/sqrt(aa*bb - ab*ab)
+        Fi = ((ab/aa)*avec - bvec)*factor
+        Fk = ((ab/bb)*bvec - avec)*factor
         F(:,i) = F(:,i) + Fi
         F(:,k) = F(:,k) + Fk
         F(:,j) = F(:,j) - (Fi + Fk)
         Potential = Potential + Ea
-        Virial = Virial + me%Lbox*sum(Fi*a + Fk*b)
+        Virial = Virial + sum(Fi*avec + Fk*bvec)
       end associate
     end do
 
