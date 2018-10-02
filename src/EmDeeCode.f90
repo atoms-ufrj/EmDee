@@ -1163,6 +1163,7 @@ contains
 
     md%Time%Pair = md%Time%Pair - omp_get_wtime()
     compute = md%Energy%Compute
+    Elong = zero
     Ebond = zero
     Eangle = zero
     Wbond = zero
@@ -1173,10 +1174,9 @@ contains
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
         call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
-        Elong = zero
         me%threadElong(:,thread) = zero
-        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ebond, Wbond )
-        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Eangle, Wangle )
+        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ebond, Wbond, Elong )
+        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Eangle, Wangle, Elong )
         ! if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Epair, Wpair )
       end associate
     end block

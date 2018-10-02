@@ -398,14 +398,14 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_bonds( me, threadId, R, F, Potential, Virial )
+  subroutine compute_bonds( me, threadId, R, F, Potential, Virial, Elong )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: threadId
     real(rb),    intent(in)    :: R(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elong
 
     integer  :: m, nbonds
-    real(rb) :: invL2, invR2, E, W
+    real(rb) :: invL2, invR2, E, W, EL, WL
     real(rb) :: Rij(3), Fij(3)
 
     nbonds = (me%bonds%number + me%nthreads - 1)/me%nthreads
@@ -420,7 +420,12 @@ contains
         end select
         Potential = Potential + E
         Virial = Virial + W
-        Fij =  W*invR2*me%Lbox*Rij
+        if (me%kspace_active) then
+          call me % kspace % discount( EL, WL, one/invR2, me%charge(bond%i)*me%charge(bond%j) )
+          Elong = Elong + EL
+          W = W + WL
+        end if
+        Fij = W*invR2*me%Lbox*Rij
         F(:,bond%i) = F(:,bond%i) + Fij
         F(:,bond%j) = F(:,bond%j) - Fij
       end associate
@@ -430,11 +435,11 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_angles( me, threadId, R, F, Potential, Virial )
+  subroutine compute_angles( me, threadId, R, F, Potential, Virial, Elong )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: threadId
     real(rb),    intent(in)    :: R(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial
+    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elong
 
     integer  :: i, j, k, m, nangles
     real(rb) :: aa, bb, ab, theta, Ea, Fa, factor
@@ -457,7 +462,7 @@ contains
         select type (model => angle%model)
           include "compute_angle.f90"
         end select
-        factor =Fa/sqrt(aa*bb - ab*ab)
+        factor = Fa/sqrt(aa*bb - ab*ab)
         Fi = ((ab/aa)*avec - bvec)*factor
         Fk = ((ab/bb)*bvec - avec)*factor
         F(:,i) = F(:,i) + Fi
@@ -465,6 +470,18 @@ contains
         F(:,j) = F(:,j) - (Fi + Fk)
         Potential = Potential + Ea
         Virial = Virial + sum(Fi*avec + Fk*bvec)
+        if (me%kspace_active) then
+          block
+            real(rb) :: Rik(3), RikSq, Fik(3), EL, WL
+            Rik = avec - bvec
+            RikSq = sum(Rik*Rik)
+            call me % kspace % discount( EL, WL, RikSq, me%charge(i)*me%charge(k) )
+            Elong = Elong + EL
+            Fik = WL*Rik/RikSq
+            F(:,i) = F(:,i) + Fik
+            F(:,k) = F(:,k) - Fik
+          end block
+        end if
       end associate
     end do
 
