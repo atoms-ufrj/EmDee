@@ -70,6 +70,12 @@ function EmDee_share_phase_space( mdkeep::tEmDee, mdlose::tEmDee )
          mdkeep, Ref(mdlose) )
 end
 #---------------------------------------------------------------------------------------------------
+function EmDee_layer_based_parameters( md::tEmDee, Rc::RealArray, Bonded::IntegerArray  )
+  ccall( (:EmDee_layer_based_parameters,"libemdee"), Void,
+         (tEmDee, Ptr{Float64}, Ptr{Int32}),
+         md, Rc, Bonded )
+end
+#---------------------------------------------------------------------------------------------------
 function switch_model_layer( md::tEmDee, layer::Int )
   ccall( (:EmDee_switch_model_layer,"libemdee"), Void,
          (tEmDee, Int32),

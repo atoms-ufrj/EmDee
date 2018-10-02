@@ -42,6 +42,8 @@ tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int
 
 void EmDee_share_phase_space( tEmDee mdkeep, tEmDee* mdlose );
 
+void EmDee_layer_based_parameters( tEmDee md, double* Rc, int* Bonded );
+
 void EmDee_switch_model_layer( tEmDee md, int layer );
 
 void EmDee_set_pair_model( tEmDee md, int itype, int jtype, void* model, double kCoul );

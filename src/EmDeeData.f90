@@ -109,6 +109,8 @@ type :: tData
   logical,  allocatable :: multilayer(:,:)
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
+  logical,  allocatable :: pairs_exist(:)
+  logical,  allocatable :: bonded(:)
 
   logical :: multilayer_coulomb
   logical :: kspace_active
@@ -162,24 +164,27 @@ contains
     logical :: no_pair, no_coul, coul_only, neutral(me%ntypes), inert
     type(pair_none) :: PairNone
     type(coul_none) :: CoulNone
+    logical :: interact(me%ntypes,me%ntypes,me%nlayers)
 
+    interact = .false.
     do i = 1, me%ntypes
       neutral(i) = count((me%atomType == i) .and. me%charged) == 0
       do j = 1, i
         associate( pair => me%pair(i,j,:) )
-          k = 0
-          inert = .true.
-          do while (inert .and. (k < me%nlayers))
-            k = k + 1
+          do k = 1, me%nlayers
             no_pair = same_type_as( pair(k)%model, PairNone )
             no_coul = same_type_as( me%coul(k)%model, CoulNone ) .or. (.not.pair(k)%coulomb)
             coul_only = no_pair .and. (.not.no_coul)
             inert = (no_pair .and. no_coul) .or. (coul_only .and. neutral(i) .and. neutral(j))
+            interact(i,j,k) = .not.inert
           end do
-          me%interact(i,j) = .not.inert
+          me%interact(i,j) = any(interact(i,j,:))
           me%interact(j,i) = me%interact(i,j)
         end associate
       end do
+    end do
+    do k = 1, me%nlayers
+      me%pairs_exist(k) = any(interact(:,:,k))
     end do
 
   end subroutine check_actual_interactions
@@ -402,35 +407,41 @@ contains
     integer  :: m, nbonds, itype, jtype
     real(rb) :: invL2, invR2, E, W, EL, WL, QiQj
     real(rb) :: Rij(3), Fij(3)
-    logical  :: kspace
+    logical  :: bonded, kspace
 
+    bonded = me%bonded(me%layer)
     kspace = me%coul(me%layer)%model%requires_kspace
-    nbonds = (me%bonds%number + me%nthreads - 1)/me%nthreads
-    invL2 = one/me%Lbox**2
-    do m = (threadId - 1)*nbonds + 1, min( me%bonds%number, threadId*nbonds )
-      associate(bond => me%bonds%item(m))
-        Rij = R(:,bond%i) - R(:,bond%j)
-        Rij = Rij - anint(Rij)
-        invR2 = invL2/sum(Rij*Rij)
-        select type (model => bond%model)
-          include "compute_bond.f90"
-        end select
-        Potential = Potential + E
-        Virial = Virial + W
-        if (kspace) then
-          itype = me%atomType(bond%i)
-          jtype = me%atomType(bond%j)
-          QiQj = me%pair(itype,jtype,me%layer)%kCoul*me%charge(bond%i)*me%charge(bond%j)
-          call me % kspace % discount( EL, WL, one/invR2, QiQj )
-          Ecoul = Ecoul + EL
-          W = W + WL
-        end if
-        Fij = W*invR2*me%Lbox*Rij
-        F(:,bond%i) = F(:,bond%i) + Fij
-        F(:,bond%j) = F(:,bond%j) - Fij
-      end associate
-    end do
-
+    if (me%bonds%exist.and.(bonded.or.kspace)) then
+      nbonds = (me%bonds%number + me%nthreads - 1)/me%nthreads
+      invL2 = one/me%Lbox**2
+      do m = (threadId - 1)*nbonds + 1, min( me%bonds%number, threadId*nbonds )
+        associate(bond => me%bonds%item(m))
+          Rij = R(:,bond%i) - R(:,bond%j)
+          Rij = Rij - anint(Rij)
+          invR2 = invL2/sum(Rij*Rij)
+          if (bonded) then
+            select type (model => bond%model)
+              include "compute_bond.f90"
+            end select
+            Potential = Potential + E
+            Virial = Virial + W
+          else
+            W = zero
+          end if
+          if (kspace) then
+            itype = me%atomType(bond%i)
+            jtype = me%atomType(bond%j)
+            QiQj = me%pair(itype,jtype,me%layer)%kCoul*me%charge(bond%i)*me%charge(bond%j)
+            call me % kspace % discount( EL, WL, one/invR2, QiQj )
+            Ecoul = Ecoul + EL
+            W = W + WL
+          end if
+          Fij = W*invR2*me%Lbox*Rij
+          F(:,bond%i) = F(:,bond%i) + Fij
+          F(:,bond%j) = F(:,bond%j) - Fij
+        end associate
+      end do
+    end if
   end subroutine compute_bonds
 
 !===================================================================================================
@@ -444,52 +455,56 @@ contains
     integer  :: i, j, k, m, nangles, itype, ktype
     real(rb) :: aa, bb, ab, theta, Ea, Fa, factor, QiQk
     real(rb) :: Fi(3), Fk(3), avec(3), bvec(3)
-    logical  :: kspace
+    logical  :: bonded, kspace
 
+    bonded = me%bonded(me%layer)
     kspace = me%coul(me%layer)%model%requires_kspace
-    nangles = (me%angles%number + me%nthreads - 1)/me%nthreads
-    do m = (threadId - 1)*nangles + 1, min( me%angles%number, threadId*nangles )
-      associate (angle => me%angles%item(m))
-        i = angle%i
-        j = angle%j
-        k = angle%k
-        avec = R(:,i) - R(:,j)
-        bvec = R(:,k) - R(:,j)
-        avec = me%Lbox*(avec - anint(avec))
-        bvec = me%Lbox*(bvec - anint(bvec))
-        aa = sum(avec*avec)
-        bb = sum(bvec*bvec)
-        ab = sum(avec*bvec)
-        theta = acos(ab/sqrt(aa*bb))
-        select type (model => angle%model)
-          include "compute_angle.f90"
-        end select
-        factor = Fa/sqrt(aa*bb - ab*ab)
-        Fi = ((ab/aa)*avec - bvec)*factor
-        Fk = ((ab/bb)*bvec - avec)*factor
-        F(:,i) = F(:,i) + Fi
-        F(:,k) = F(:,k) + Fk
-        F(:,j) = F(:,j) - (Fi + Fk)
-        Potential = Potential + Ea
-        Virial = Virial + sum(Fi*avec + Fk*bvec)
-        if (kspace) then
-          block
-            real(rb) :: Rik(3), RikSq, Fik(3), EL, WL
-            Rik = avec - bvec
-            RikSq = sum(Rik*Rik)
-            itype = me%atomType(i)
-            ktype = me%atomType(k)
-            QiQk = me%pair(itype,ktype,me%layer)%kCoul*me%charge(i)*me%charge(k)
-            call me % kspace % discount( EL, WL, RikSq, QiQk )
-            Ecoul = Ecoul + EL
-            Fik = WL*Rik/RikSq
-            F(:,i) = F(:,i) + Fik
-            F(:,k) = F(:,k) - Fik
-          end block
-        end if
-      end associate
-    end do
-
+    if (me%angles%exist.and.(bonded.or.kspace)) then
+      nangles = (me%angles%number + me%nthreads - 1)/me%nthreads
+      do m = (threadId - 1)*nangles + 1, min( me%angles%number, threadId*nangles )
+        associate (angle => me%angles%item(m))
+          i = angle%i
+          j = angle%j
+          k = angle%k
+          avec = R(:,i) - R(:,j)
+          bvec = R(:,k) - R(:,j)
+          avec = me%Lbox*(avec - anint(avec))
+          bvec = me%Lbox*(bvec - anint(bvec))
+          if (bonded) then
+            aa = sum(avec*avec)
+            bb = sum(bvec*bvec)
+            ab = sum(avec*bvec)
+            theta = acos(ab/sqrt(aa*bb))
+            select type (model => angle%model)
+              include "compute_angle.f90"
+            end select
+            factor = Fa/sqrt(aa*bb - ab*ab)
+            Fi = ((ab/aa)*avec - bvec)*factor
+            Fk = ((ab/bb)*bvec - avec)*factor
+            F(:,i) = F(:,i) + Fi
+            F(:,k) = F(:,k) + Fk
+            F(:,j) = F(:,j) - (Fi + Fk)
+            Potential = Potential + Ea
+            Virial = Virial + sum(Fi*avec + Fk*bvec)
+          end if
+          if (kspace) then
+            block
+              real(rb) :: Rik(3), RikSq, Fik(3), EL, WL
+              Rik = avec - bvec
+              RikSq = sum(Rik*Rik)
+              itype = me%atomType(i)
+              ktype = me%atomType(k)
+              QiQk = me%pair(itype,ktype,me%layer)%kCoul*me%charge(i)*me%charge(k)
+              call me % kspace % discount( EL, WL, RikSq, QiQk )
+              Ecoul = Ecoul + EL
+              Fik = WL*Rik/RikSq
+              F(:,i) = F(:,i) + Fik
+              F(:,k) = F(:,k) - Fik
+            end block
+          end if
+        end associate
+      end do
+    end if
   end subroutine compute_angles
 
 !===================================================================================================
@@ -506,6 +521,7 @@ contains
     real(rb) :: normRkj, normX, a, b, phi, factor14
     real(rb) :: rij(3), rkj(3), rlk(3), x(3), y(3), z(3), u(3), v(3), w(3)
 
+    if (.not.me%dihedrals%exist) return
     invL2 = one/me%Lbox**2
     Rc2 = me%RcSq*invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
@@ -592,15 +608,21 @@ contains
 
     real(rb) :: Rc2, L2, invL2
 
-    L2 = me%Lbox**2
-    invL2 = one/L2
-    Rc2 = me%RcSq*invL2
-    if (compute) then
-#     define compute
-#     include "compute.f90"
-#     undef compute
-    else
-#     include "compute.f90"
+    F = zero
+    Wpair = zero
+    Wcoul = zero
+    Epair = zero
+    if (me%pairs_exist(me%layer)) then
+      L2 = me%Lbox**2
+      invL2 = one/L2
+      Rc2 = me%layerRcSq(me%layer)*invL2
+      if (compute) then
+#       define compute
+#       include "compute.f90"
+#       undef compute
+      else
+#       include "compute.f90"
+      end if
     end if
 
     contains

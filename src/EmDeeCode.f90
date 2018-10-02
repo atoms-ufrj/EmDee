@@ -169,6 +169,8 @@ contains
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
     allocate( me%interact(me%ntypes,me%ntypes), source = .false. )
+    allocate( me%pairs_exist(me%nlayers), source = .false. )
+    allocate( me%bonded(me%nlayers), source = .true. )
 
     ! Allocate memory for variables regarding Coulomb models:
     allocate( coul_none :: noCoul%model )
@@ -250,6 +252,27 @@ contains
 
 !===================================================================================================
 
+  subroutine EmDee_layer_based_parameters( md, Rc, Bonded ) bind(C,name="EmDee_layer_based_parameters")
+    type(tEmDee), value      :: md
+    real(rb),     intent(in) :: Rc(*)
+    integer(ib),  intent(in) :: Bonded(*)
+
+    type(tData), pointer :: me
+
+    call c_f_pointer( md%data, me )
+
+    me%layerRc = Rc(1:me%nlayers)
+    me%layerRcSq = me%layerRc**2
+    if (any(me%layerRc < zero .or. me%layerRc < me%Rc)) then
+      call error("layer-based parameters", "invalid cutoff specification")
+    end if
+
+    me%bonded = Bonded(1:me%nlayers) /= 0
+
+  end subroutine EmDee_layer_based_parameters
+
+!===================================================================================================
+
   subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_switch_model_layer")
     type(tEmDee), value :: md
     integer(ib),  value :: layer
@@ -328,7 +351,7 @@ contains
     type(tEmDee), value      :: md
     integer(ib),  value      :: itype, jtype
     type(c_ptr),  intent(in) :: model(*)
-    real(rb),     value      :: kCoul
+    real(rb),     intent(in) :: kCoul(*)
 
     character(*), parameter :: task = "pair multimodel setup"
 
@@ -344,16 +367,15 @@ contains
       call error( task, "provided type index is out of range" )
     end if
 
-    write(C,'(I5)') me%nlayers
-    C = adjustl(C)
     do layer = 1, me%nlayers
       if (.not.c_associated(model(layer))) then
-        call error( task, trim(C)//" valid pair models must be provided" )
+        write(C,'(I5)') me%nlayers
+        call error( task, trim(adjustl(C))//" valid pair models must be provided" )
       end if
       call c_f_pointer( model(layer), container )
       select type ( pair => container%model )
         class is (cPairModel)
-          call set_pair_type( me, itype, jtype, layer, container, kCoul )
+          call set_pair_type( me, itype, jtype, layer, container, kCoul(layer) )
         class default
           call error( task, "a valid pair model must be provided" )
       end select
@@ -1149,9 +1171,8 @@ contains
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
         call compute_pairs( me, thread, compute, Rs, F, E(pair), E(coul), W(pair), W(coul) )
-        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E(bond), W(bond), E(coul) )
-        if (me%angles%exist) call compute_angles( me, thread, Rs, F, E(angle), W(angle), E(coul) )
-        ! if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E(dihed), W(dihed) )
+        call compute_bonds( me, thread, Rs, F, E(bond), W(bond), E(coul) )
+        call compute_angles( me, thread, Rs, F, E(angle), W(angle), E(coul) )
       end associate
     end block
     !$omp end parallel

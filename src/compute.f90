@@ -27,9 +27,6 @@ block
 #endif
   real(rb), allocatable :: Rvec(:,:)
 
-  F = zero
-  Wpair = zero
-  Wcoul = zero
   associate ( neighbor => me%neighbor(thread) )
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))

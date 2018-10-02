@@ -88,9 +88,17 @@ interface
     type(tEmDee), intent(inout) :: mdlose
   end subroutine EmDee_share_phase_space
 
+  subroutine EmDee_layer_based_parameters( md, Rc, Bonded ) &
+    bind(C,name="EmDee_layer_based_parameters")
+    import :: c_double, c_int, tEmDee
+    type(tEmDee),   value      :: md
+    real(c_double), intent(in) :: Rc(*)
+    integer(c_int), intent(in) :: Bonded(*)
+  end subroutine EmDee_layer_based_parameters
+
   subroutine EmDee_switch_model_layer( md, layer ) &
     bind(C,name="EmDee_switch_model_layer")
-    import :: c_int, c_ptr, tEmDee
+    import :: c_int, tEmDee
     type(tEmDee),   value :: md
     integer(c_int), value :: layer
   end subroutine EmDee_switch_model_layer
