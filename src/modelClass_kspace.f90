@@ -328,7 +328,7 @@ contains
     r = sqrt(rsq)
     x = me%alpha*r
     expmx2 = exp(-x*x)
-    E = -QiQj*uerf( x, expmx2 )/r
+    E = -QiQj*(one - uerfc( x, expmx2 ))/r
     W = E + QiQj*me%beta*expmx2
 
   end subroutine cKspaceModel_discount

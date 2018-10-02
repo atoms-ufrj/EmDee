@@ -317,7 +317,7 @@ contains
     q(:,1) = [q(1,2) + a(1,3)*w1, q(2,2) + a(2,3)*w1, a(1,1)*a(2,2) - q(3,2)]
     call compute_eigenvector( q(:,1), a, n1, n2 )
 
-    ! Prepare calculation of second eigenvector     
+    ! Prepare calculation of second eigenvector
     t = w1 - w2
 
     ! Is this eigenvalue degenerate?
@@ -679,16 +679,6 @@ contains
     real(rb)                :: y
     y = realpart(x)**2 + imagpart(x)**2
   end function normSq
-
-!---------------------------------------------------------------------------------------------------
-
-  pure function uerf( x, expmx2 ) result( erfx )
-    real(rb), intent(in) :: x, expmx2
-    real(rb)             :: erfx
-    real(rb) :: t
-    t = one/(one + p*x)
-    erfx = one - t*(a1 + t*(a2 + t*(a3 + t*(a4 + t*a5))))*expmx2
-  end function uerf
 
 !---------------------------------------------------------------------------------------------------
 

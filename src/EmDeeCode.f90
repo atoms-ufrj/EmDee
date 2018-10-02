@@ -17,8 +17,10 @@
 !            Applied Thermodynamics and Molecular Simulation
 !            Federal University of Rio de Janeiro, Brazil
 
+! TODO: Check kspace discounts in rigid bodies (presence of kCoul)
+! TODO: Compute bond and angle discounts for different energy layers (needed due to kCoul)
 ! TODO: Include kspace terms in subroutine update_forces.
-! TODO: Discount long-range electrostatic terms of bonds, angles, and dihedrals
+! TODO: Discount long-range electrostatic terms of dihedrals
 ! TODO: Change name of exported Julia wrapper
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
@@ -32,7 +34,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "01 Oct 2018"
+character(11), parameter :: VERSION = "02 Oct 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -1149,7 +1151,9 @@ contains
   subroutine EmDee_compute_forces( md ) bind(C,name="EmDee_compute_forces")
     type(tEmDee), intent(inout) :: md
 
-    real(rb) :: time, Epair, Ecoul, Elong, Ebond, Eangle, Wpair, Wcoul, Wbond, Wangle
+    integer, parameter :: pair=1, coul=2, long=3, bond=4, angle=5
+    real(rb) :: E(5), W(5)
+    real(rb) :: time
     logical(lb) :: compute
     real(rb), allocatable :: Rs(:,:), Fs(:,:,:)
     type(tData),  pointer :: me
@@ -1163,51 +1167,48 @@ contains
 
     md%Time%Pair = md%Time%Pair - omp_get_wtime()
     compute = md%Energy%Compute
-    Elong = zero
-    Ebond = zero
-    Eangle = zero
-    Wbond = zero
-    Wangle = zero
-    !$omp parallel num_threads(me%nthreads) reduction(+:Epair,Ecoul,Elong,Ebond,Eangle,Wpair,Wcoul,Wbond,Wangle)
+    E = zero
+    W = zero
+    !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
-        call compute_pairs( me, thread, compute, Rs, F, Epair, Ecoul, Wpair, Wcoul )
+        call compute_pairs( me, thread, compute, Rs, F, E(pair), E(coul), W(pair), W(coul) )
         me%threadElong(:,thread) = zero
-        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, Ebond, Wbond, Elong )
-        if (me%angles%exist) call compute_angles( me, thread, Rs, F, Eangle, Wangle, Elong )
-        ! if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, Epair, Wpair )
+        if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E(bond), W(bond), E(coul) )
+        if (me%angles%exist) call compute_angles( me, thread, Rs, F, E(angle), W(angle), E(coul) )
+        ! if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E(dihed), W(dihed) )
       end associate
     end block
     !$omp end parallel
     me%F = sum(Fs,3)
 
     if (me%kspace_active) then
-      call compute_kspace( me, compute, Rs, Elong, me%F )
-      md%Virial = Wpair - 3.0_rb*(Ecoul + Elong)
+      call compute_kspace( me, compute, Rs, E(long), me%F )
+      md%Virial = W(pair) - 3.0_rb*(E(coul) + E(long))
     else
-      md%Virial = Wpair + Wcoul
+      md%Virial = W(pair) + W(coul)
     end if
 
     if (me%nbodies /= 0) then
       md%BodyVirial = rigid_body_virial( me )
       md%Virial = md%Virial + md%BodyVirial
     end if
-    md%Virial = md%Virial + Wbond + Wangle
+    md%Virial = md%Virial + W(bond) + W(angle)
 
     if (compute) then
-      md%Energy%Dispersion = Epair
-      md%Energy%Coulomb = Ecoul + Elong
-      md%Energy%Fourier = Elong
-      md%Energy%Potential = Epair + md%Energy%Coulomb + Ebond + Eangle
+      md%Energy%Dispersion = E(pair)
+      md%Energy%Coulomb = E(coul) + E(long)
+      md%Energy%Fourier = E(long)
+      md%Energy%Bond = E(bond)
+      md%Energy%Angle = E(angle)
+      md%Energy%Potential = sum(E)
       md%Energy%ShadowPotential = md%Energy%Potential
-      md%Energy%Bond = Ebond
-      md%Energy%Angle = Eangle
       me%Epair = sum(me%threadEpair,2)
       me%Elong = sum(me%threadElong,2)
       me%Ecoul = sum(me%threadEcoul,2) + me%Elong
-      me%Energy = me%Epair + me%Ecoul + Ebond + Eangle
+      me%Energy = me%Epair + me%Ecoul + E(bond) + E(angle)
     end if
 
     md%Energy%UpToDate = compute

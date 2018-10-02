@@ -398,14 +398,14 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_bonds( me, threadId, R, F, Potential, Virial, Elong )
+  subroutine compute_bonds( me, threadId, R, F, Potential, Virial, Ecoul )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: threadId
     real(rb),    intent(in)    :: R(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elong
+    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Ecoul
 
-    integer  :: m, nbonds
-    real(rb) :: invL2, invR2, E, W, EL, WL
+    integer  :: m, nbonds, itype, jtype
+    real(rb) :: invL2, invR2, E, W, EL, WL, QiQj
     real(rb) :: Rij(3), Fij(3)
 
     nbonds = (me%bonds%number + me%nthreads - 1)/me%nthreads
@@ -421,8 +421,11 @@ contains
         Potential = Potential + E
         Virial = Virial + W
         if (me%kspace_active) then
-          call me % kspace % discount( EL, WL, one/invR2, me%charge(bond%i)*me%charge(bond%j) )
-          Elong = Elong + EL
+          itype = me%atomType(bond%i)
+          jtype = me%atomType(bond%j)
+          QiQj = me%pair(itype,jtype,me%layer)%kCoul*me%charge(bond%i)*me%charge(bond%j)
+          call me % kspace % discount( EL, WL, one/invR2, QiQj )
+          Ecoul = Ecoul + EL
           W = W + WL
         end if
         Fij = W*invR2*me%Lbox*Rij
@@ -435,14 +438,14 @@ contains
 
 !===================================================================================================
 
-  subroutine compute_angles( me, threadId, R, F, Potential, Virial, Elong )
+  subroutine compute_angles( me, threadId, R, F, Potential, Virial, Ecoul )
     type(tData), intent(inout) :: me
     integer,     intent(in)    :: threadId
     real(rb),    intent(in)    :: R(3,me%natoms)
-    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Elong
+    real(rb),    intent(inout) :: F(3,me%natoms), Potential, Virial, Ecoul
 
-    integer  :: i, j, k, m, nangles
-    real(rb) :: aa, bb, ab, theta, Ea, Fa, factor
+    integer  :: i, j, k, m, nangles, itype, ktype
+    real(rb) :: aa, bb, ab, theta, Ea, Fa, factor, QiQk
     real(rb) :: Fi(3), Fk(3), avec(3), bvec(3)
 
     nangles = (me%angles%number + me%nthreads - 1)/me%nthreads
@@ -475,8 +478,11 @@ contains
             real(rb) :: Rik(3), RikSq, Fik(3), EL, WL
             Rik = avec - bvec
             RikSq = sum(Rik*Rik)
-            call me % kspace % discount( EL, WL, RikSq, me%charge(i)*me%charge(k) )
-            Elong = Elong + EL
+            itype = me%atomType(i)
+            ktype = me%atomType(k)
+            QiQk = me%pair(itype,ktype,me%layer)%kCoul*me%charge(i)*me%charge(k)
+            call me % kspace % discount( EL, WL, RikSq, QiQk )
+            Ecoul = Ecoul + EL
             Fik = WL*Rik/RikSq
             F(:,i) = F(:,i) + Fik
             F(:,k) = F(:,k) - Fik
