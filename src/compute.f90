@@ -23,7 +23,6 @@ block
   real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
   logical  :: icharged, ijcharged
 #if defined(compute)
-  integer  :: l, layer
   real(rb) :: ECij
 #endif
   real(rb), allocatable :: Rvec(:,:)
@@ -31,17 +30,7 @@ block
   F = zero
   Wpair = zero
   Wcoul = zero
-#if defined(compute)
-  associate ( neighbor => me%neighbor(thread), &
-              LayerEpair => me%threadEpair(:,thread), &
-              LayerEcoul => me%threadEcoul(:,thread) )
-    Epair = zero
-    Ecoul = zero
-    LayerEpair = zero
-    LayerEcoul = zero
-#else
   associate ( neighbor => me%neighbor(thread) )
-#endif
     firstAtom = me%cellAtom%first(me%threadCell%first(thread))
     lastAtom = me%cellAtom%last(me%threadCell%last(thread))
     do k = firstAtom, lastAtom
@@ -143,29 +132,6 @@ block
             Fij = Wij*invR2*Rij
             Fi = Fi + Fij
             F(:,j) = F(:,j) - Fij
-#if defined(compute)
-            if (me%multilayer(jtype,itype)) then
-              LayerEpair(me%layer) = LayerEpair(me%layer) + Eij
-              LayerEcoul(me%layer) = LayerEcoul(me%layer) + ECij
-              do l = 1, me%nlayers-1
-                layer = me%other_layer(l)
-                associate( pair => me%pair(itype,jtype,layer) )
-                  select type ( model => pair%model )
-                    include "energy_compute_pair.f90"
-                  end select
-! MODEL MODIFICATION MUST COME HERE
-                  if (ijcharged.and.pair%coulomb) then
-                    QiQj = pair%kCoul*Qi*me%charge(j)
-                    select type ( model => me%coul(me%layer)%model )
-                      include "energy_compute_coul.f90"
-                    end select
-                  end if
-                  LayerEpair(layer) = LayerEpair(layer) + Eij
-                  LayerEcoul(layer) = LayerEcoul(layer) + ECij
-                end associate
-              end do
-            end if
-#endif
           end if
         end do
       end associate

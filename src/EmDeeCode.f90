@@ -18,8 +18,6 @@
 !            Federal University of Rio de Janeiro, Brazil
 
 ! TODO: Check kspace discounts in rigid bodies (presence of kCoul)
-! TODO: Compute bond and angle discounts for different energy layers (needed due to kCoul)
-! TODO: Include kspace terms in subroutine update_forces.
 ! TODO: Discount long-range electrostatic terms of dihedrals
 ! TODO: Change name of exported Julia wrapper
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
@@ -58,10 +56,6 @@ type, bind(C), public :: tEnergy
   real(rb)    :: ShadowPotential
   real(rb)    :: ShadowKinetic
   real(rb)    :: ShadowRotational
-  type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
-  type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
-  type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
-  type(c_ptr) :: LayerFourier         ! Vector with multilayer reciprocal energy components
   logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
@@ -98,7 +92,6 @@ contains
     type(c_ptr), value :: types, masses, bodies
     type(tEmDee)       :: EmDee_system
 
-    integer :: i
     integer,     pointer :: ptype(:)
     real(rb),    pointer :: pmass(:)
     type(tData), pointer :: me
@@ -122,6 +115,8 @@ contains
     me%natoms = N
     me%threadAtoms = (N + threads - 1)/threads
     me%kspace_active = .false.
+    allocate(me%layerRc(layers), source=me%Rc)
+    allocate(me%layerRcSq(layers), source=me%RcSq)
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -183,14 +178,6 @@ contains
 
     ! Allocate variables related to model layers:
     me%layer = 1
-    me%other_layer = [(i,i=2,me%nlayers)]
-    allocate( me%threadEpair(layers,threads), source = zero )
-    allocate( me%threadEcoul(layers,threads), source = zero )
-    allocate( me%threadElong(layers,threads), source = zero )
-    allocate( me%Epair(layers), source = zero )
-    allocate( me%Ecoul(layers), source = zero )
-    allocate( me%Elong(layers), source = zero )
-    allocate( me%Energy(layers), source = zero )
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -210,10 +197,6 @@ contains
     EmDee_system % Energy % ShadowPotential = zero
     EmDee_system % Energy % ShadowKinetic = zero
     EmDee_system % Energy % ShadowRotational = zero
-    EmDee_system % Energy % LayerPotential = c_loc(me%Energy(1))
-    EmDee_system % Energy % LayerDispersion = c_loc(me%Epair(1))
-    EmDee_system % Energy % LayerCoulomb = c_loc(me%Ecoul(1))
-    EmDee_system % Energy % LayerFourier = c_loc(me%Elong(1))
     EmDee_system % Energy % Compute = .true.
     EmDee_system % Energy % UpToDate = .false.
 
@@ -271,7 +254,6 @@ contains
     type(tEmDee), value :: md
     integer(ib),  value :: layer
 
-    integer :: i
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -279,9 +261,8 @@ contains
       if ((layer < 1).or.(layer > me%nlayers)) then
         call error( "model layer switch", "selected layer is out of range" )
       end if
-      if (me%initialized) call update_forces( md, layer )
       me%layer = layer
-      me%other_layer = [(i,i=1,layer-1), (i,i=layer+1,me%nlayers)]
+      if (me%initialized .and. md%Options%AutoForceCompute) call EmDee_compute_forces( md )
     end if
 
   end subroutine EmDee_switch_model_layer
@@ -347,7 +328,7 @@ contains
     type(tEmDee), value      :: md
     integer(ib),  value      :: itype, jtype
     type(c_ptr),  intent(in) :: model(*)
-    real(rb),     intent(in) :: kCoul(*)
+    real(rb),     value      :: kCoul
 
     character(*), parameter :: task = "pair multimodel setup"
 
@@ -372,7 +353,7 @@ contains
       call c_f_pointer( model(layer), container )
       select type ( pair => container%model )
         class is (cPairModel)
-          call set_pair_type( me, itype, jtype, layer, container, kCoul(layer) )
+          call set_pair_type( me, itype, jtype, layer, container, kCoul )
         class default
           call error( task, "a valid pair model must be provided" )
       end select
@@ -745,7 +726,7 @@ contains
     character(c_char), intent(in) :: option(*)
     type(c_ptr),       value      :: address
 
-    real(rb), pointer :: scalar, vector(:), matrix(:,:)
+    real(rb), pointer :: scalar, matrix(:,:)
     type(tData), pointer :: me
     character(sl) :: item
 
@@ -780,11 +761,6 @@ contains
         !$omp parallel num_threads(me%nthreads)
         call download( omp_get_thread_num() + 1, me%F, matrix )
         !$omp end parallel
-
-      case ("multienergy")
-        if (.not.md%Energy%UpToDate) call error( "download", "layer energies are outdated" )
-        call c_f_pointer( address, vector, [me%nlayers] )
-        vector = me%Epair + me%Ecoul
 
       case ("centersOfMass")
         call c_f_pointer( address, matrix, [3,me%nbodies+me%nfree] )
@@ -1173,7 +1149,6 @@ contains
       thread = omp_get_thread_num() + 1
       associate( F => Fs(:,:,thread) )
         call compute_pairs( me, thread, compute, Rs, F, E(pair), E(coul), W(pair), W(coul) )
-        me%threadElong(:,thread) = zero
         if (me%bonds%exist) call compute_bonds( me, thread, Rs, F, E(bond), W(bond), E(coul) )
         if (me%angles%exist) call compute_angles( me, thread, Rs, F, E(angle), W(angle), E(coul) )
         ! if (me%dihedrals%exist) call compute_dihedrals( me, thread, Rs, F, E(dihed), W(dihed) )
@@ -1183,7 +1158,7 @@ contains
     me%F = sum(Fs,3)
 
     if (me%kspace_active) then
-      call compute_kspace( me, compute, Rs, E(long), me%F )
+      call compute_kspace( me, Rs, E(long), me%F )
       W(long) = E(coul) + E(long) - W(coul)
     end if
 
@@ -1200,10 +1175,6 @@ contains
       md%Energy%Angle = E(angle)
       md%Energy%Potential = sum(E)
       md%Energy%ShadowPotential = md%Energy%Potential
-      me%Epair = sum(me%threadEpair,2)
-      me%Elong = sum(me%threadElong,2)
-      me%Ecoul = sum(me%threadEcoul,2) + me%Elong
-      me%Energy = me%Epair + me%Ecoul + E(bond) + E(angle)
     end if
 
     md%Energy%UpToDate = compute
@@ -1327,40 +1298,40 @@ contains
 !===================================================================================================
 !                              A U X I L I A R Y   P R O C E D U R E S
 !===================================================================================================
-
-  subroutine update_forces( md, layer )
-    type(tEmDee), intent(inout) :: md
-    integer,      intent(in)    :: layer
-
-    real(rb) :: DEpair, DEcoul, DWpair, DWcoul, time
-    real(rb), allocatable :: Rs(:,:), DF(:,:,:)
-    type(tData),  pointer :: me
-
-    call c_f_pointer( md%data, me )
-    md%Time%Pair = md%Time%Pair - omp_get_wtime()
-
-    allocate( Rs(3,me%natoms), DF(3,me%natoms,me%nthreads) )
-    Rs = (one/me%Lbox)*me%R
-
-    !$omp parallel num_threads(me%nthreads) reduction(+:DEpair,DEcoul,DWpair,DWcoul)
-    block
-      integer :: thread
-      thread = omp_get_thread_num() + 1
-      call update_pairs( me, thread, Rs, DF(:,:,thread), DEpair, DEcoul, DWpair, DWcoul, layer )
-    end block
-    !$omp end parallel
-
-    me%F = me%F + sum(DF,3)
-    md%Energy%Potential = md%Energy%Potential + DEpair
-    md%Energy%Coulomb = md%Energy%Coulomb + DEcoul
-    md%Virial = md%Virial + DWpair + DWcoul
-
-    time = omp_get_wtime()
-    md%Time%Pair = md%Time%Pair + time
-    md%Time%Total = time - me%startTime
-
-  end subroutine update_forces
-
+  !
+  ! subroutine update_forces( md, layer )
+  !   type(tEmDee), intent(inout) :: md
+  !   integer,      intent(in)    :: layer
+  !
+  !   real(rb) :: DEpair, DEcoul, DWpair, DWcoul, time
+  !   real(rb), allocatable :: Rs(:,:), DF(:,:,:)
+  !   type(tData),  pointer :: me
+  !
+  !   call c_f_pointer( md%data, me )
+  !   md%Time%Pair = md%Time%Pair - omp_get_wtime()
+  !
+  !   allocate( Rs(3,me%natoms), DF(3,me%natoms,me%nthreads) )
+  !   Rs = (one/me%Lbox)*me%R
+  !
+  !   !$omp parallel num_threads(me%nthreads) reduction(+:DEpair,DEcoul,DWpair,DWcoul)
+  !   block
+  !     integer :: thread
+  !     thread = omp_get_thread_num() + 1
+  !     call update_pairs( me, thread, Rs, DF(:,:,thread), DEpair, DEcoul, DWpair, DWcoul, layer )
+  !   end block
+  !   !$omp end parallel
+  !
+  !   me%F = me%F + sum(DF,3)
+  !   md%Energy%Potential = md%Energy%Potential + DEpair
+  !   md%Energy%Coulomb = md%Energy%Coulomb + DEcoul
+  !   md%Virial = md%Virial + DWpair + DWcoul
+  !
+  !   time = omp_get_wtime()
+  !   md%Time%Pair = md%Time%Pair + time
+  !   md%Time%Total = time - me%startTime
+  !
+  ! end subroutine update_forces
+  !
 !===================================================================================================
 
 end module EmDeeCode

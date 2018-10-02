@@ -28,10 +28,6 @@ immutable tEnergy
   ShadowPotential::Float64
   ShadowKinetic::Float64
   ShadowRotational::Float64
-  LayerPotential::Ref{Float64}  # Vector with multilayer potential energy components
-  LayerDispersion::Ref{Float64} # Vector with multilayer dispersion energy components
-  LayerCoulomb::Ref{Float64}    # Vector with multilayer coulombic energy components
-  LayerFourier::Ref{Float64}    # Vector with multilayer reciprocal energy components
   Compute::Int32                # Flag to activate/deactivate energy computations
   UpToDate::Int32               # Flag to attest whether energies have been computed
 end

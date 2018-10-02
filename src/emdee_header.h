@@ -20,10 +20,6 @@ typedef struct {
     double ShadowPotential;
     double ShadowKinetic;
     double ShadowRotational;
-    double *LayerPotential;  // Vector with multilayer potential energy components
-    double *LayerDispersion; // Vector with multilayer dispersion energy components
-    double *LayerCoulomb;    // Vector with multilayer coulombic energy components
-    double *LayerFourier;    // Vector with multilayer reciprocal energy components
     _Bool  Compute;          // Flag to activate/deactivate energy computations
     _Bool  UpToDate;         // Flag to attest whether energies have been computed
   } Energy;

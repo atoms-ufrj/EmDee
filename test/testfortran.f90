@@ -162,4 +162,3 @@ subroutine create_configuration
 end subroutine create_configuration
 !---------------------------------------------------------------------------------------------------
 end program testfortran
-
