@@ -10,7 +10,9 @@ typedef struct {
     double Potential;        // Total potential energy of the system
     double Dispersion;       // Dispersion (vdW) part of the potential energy
     double Coulomb;          // Electrostatic part of the potential energy
-    double Fourier;          // Reciprocal part of the electrostatic potential
+    double Bond;
+    double Angle;
+    double Dihedral;
     double Kinetic;          // Total kinetic energy of the system
     double TransPart[3];     // Translational kinetic energy at each dimension
     double Rotational;       // Rotational kinetic energy of the system
@@ -18,9 +20,6 @@ typedef struct {
     double ShadowPotential;
     double ShadowKinetic;
     double ShadowRotational;
-    double Bond;
-    double Angle;
-    double Dihedral;
     double *LayerPotential;  // Vector with multilayer potential energy components
     double *LayerDispersion; // Vector with multilayer dispersion energy components
     double *LayerCoulomb;    // Vector with multilayer coulombic energy components

@@ -48,7 +48,9 @@ type, bind(C), public :: tEnergy
   real(rb)    :: Potential            ! Total potential energy of the system
   real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
   real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
-  real(rb)    :: Fourier              ! Reciprocal part of the electrostatic potential
+  real(rb)    :: Bond
+  real(rb)    :: Angle
+  real(rb)    :: Dihedral
   real(rb)    :: Kinetic              ! Total kinetic energy of the system
   real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
   real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
@@ -56,9 +58,6 @@ type, bind(C), public :: tEnergy
   real(rb)    :: ShadowPotential
   real(rb)    :: ShadowKinetic
   real(rb)    :: ShadowRotational
-  real(rb)    :: Bond
-  real(rb)    :: Angle
-  real(rb)    :: Dihedral
   type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
   type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
   type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
@@ -204,7 +203,6 @@ contains
     EmDee_system % Energy % Potential = zero
     EmDee_system % Energy % Dispersion = zero
     EmDee_system % Energy % Coulomb = zero
-    EmDee_system % Energy % Fourier = zero
     EmDee_system % Energy % Kinetic = zero
     EmDee_system % Energy % TransPart = zero
     EmDee_system % Energy % Rotational = zero
@@ -1186,21 +1184,18 @@ contains
 
     if (me%kspace_active) then
       call compute_kspace( me, compute, Rs, E(long), me%F )
-      md%Virial = W(pair) - 3.0_rb*(E(coul) + E(long))
-    else
-      md%Virial = W(pair) + W(coul)
+      W(long) = E(coul) + E(long) - W(coul)
     end if
 
+    md%Virial = sum(W)
     if (me%nbodies /= 0) then
       md%BodyVirial = rigid_body_virial( me )
       md%Virial = md%Virial + md%BodyVirial
     end if
-    md%Virial = md%Virial + W(bond) + W(angle)
 
     if (compute) then
       md%Energy%Dispersion = E(pair)
       md%Energy%Coulomb = E(coul) + E(long)
-      md%Energy%Fourier = E(long)
       md%Energy%Bond = E(bond)
       md%Energy%Angle = E(angle)
       md%Energy%Potential = sum(E)

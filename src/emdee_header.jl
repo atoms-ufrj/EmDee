@@ -18,7 +18,9 @@ immutable tEnergy
   Potential::Float64            # Total potential energy of the system
   Dispersion::Float64           # Dispersion (vdW) part of the potential energy
   Coulomb::Float64              # Electrostatic part of the potential energy
-  Fourier::Float64              # Reciprocal part of the electrostatic potential
+  Bond::Float64
+  Angle::Float64
+  Dihedral::Float64
   Kinetic::Float64              # Total kinetic energy of the system
   TransPart::tVec3D             # Translational kinetic energy at each dimension
   Rotational::Float64           # Rotational kinetic energy of the system
@@ -26,9 +28,6 @@ immutable tEnergy
   ShadowPotential::Float64
   ShadowKinetic::Float64
   ShadowRotational::Float64
-  Bond::Float64
-  Angle::Float64
-  Dihedral::Float64
   LayerPotential::Ref{Float64}  # Vector with multilayer potential energy components
   LayerDispersion::Ref{Float64} # Vector with multilayer dispersion energy components
   LayerCoulomb::Ref{Float64}    # Vector with multilayer coulombic energy components

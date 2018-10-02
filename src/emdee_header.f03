@@ -37,7 +37,9 @@ type, bind(C) :: tEnergy
   real(rb)    :: Potential            ! Total potential energy of the system
   real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
   real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
-  real(rb)    :: Fourier              ! Reciprocal part of the electrostatic potential
+  real(rb)    :: Bond
+  real(rb)    :: Angle
+  real(rb)    :: Dihedral
   real(rb)    :: Kinetic              ! Total kinetic energy of the system
   real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
   real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
@@ -45,9 +47,6 @@ type, bind(C) :: tEnergy
   real(rb)    :: ShadowPotential
   real(rb)    :: ShadowKinetic
   real(rb)    :: ShadowRotational
-  real(rb)    :: Bond
-  real(rb)    :: Angle
-  real(rb)    :: Dihedral
   type(c_ptr) :: LayerPotential       ! Vector with multilayer potential energy components
   type(c_ptr) :: LayerDispersion      ! Vector with multilayer dispersion energy components
   type(c_ptr) :: LayerCoulomb         ! Vector with multilayer coulombic energy components
