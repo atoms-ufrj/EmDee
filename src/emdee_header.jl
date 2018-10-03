@@ -76,12 +76,6 @@ function EmDee_layer_based_parameters( md::tEmDee, Rc::RealArray, Bonded::Intege
          md, Rc, Bonded )
 end
 #---------------------------------------------------------------------------------------------------
-function switch_model_layer( md::tEmDee, layer::Int )
-  ccall( (:EmDee_switch_model_layer,"libemdee"), Void,
-         (tEmDee, Int32),
-         md, layer )
-end
-#---------------------------------------------------------------------------------------------------
 function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel, kCoul::Real )
   ccall( (:EmDee_set_pair_model,"libemdee"), Void,
          (tEmDee, Int32, Int32, tModel, Float64),
@@ -137,16 +131,22 @@ function ignore_pair( md::tEmDee, i::Integer, j::Integer )
          md, i, j )
 end
 #---------------------------------------------------------------------------------------------------
+function download( md::tEmDee, option::String, address::RealArray )
+  ccall( (:EmDee_download,"libemdee"), Void,
+         (tEmDee, Cstring, Ptr{Float64}),
+         md, option, Array{Float64}(address) )
+end
+#---------------------------------------------------------------------------------------------------
 function upload( md::tEmDee, option::String, address::RealArray )
   ccall( (:EmDee_upload,"libemdee"), Void,
          (Ptr{tEmDee}, Cstring, Ptr{Float64}),
          Ref(md), option, Array{Float64}(address) )
 end
 #---------------------------------------------------------------------------------------------------
-function download( md::tEmDee, option::String, address::RealArray )
-  ccall( (:EmDee_download,"libemdee"), Void,
-         (tEmDee, Cstring, Ptr{Float64}),
-         md, option, Array{Float64}(address) )
+function switch_model_layer( md::tEmDee, layer::Int )
+  ccall( (:EmDee_switch_model_layer,"libemdee"), Void,
+         (Ptr{tEmDee}, Int32),
+         md, layer )
 end
 #---------------------------------------------------------------------------------------------------
 function random_momenta( md::tEmDee, kT::Real, adjust::Integer, seed::Integer )

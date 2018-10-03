@@ -44,8 +44,6 @@ void EmDee_share_phase_space( tEmDee mdkeep, tEmDee* mdlose );
 
 void EmDee_layer_based_parameters( tEmDee md, double* Rc, int* Bonded );
 
-void EmDee_switch_model_layer( tEmDee md, int layer );
-
 void EmDee_set_pair_model( tEmDee md, int itype, int jtype, void* model, double kCoul );
 
 void EmDee_set_pair_multimodel( tEmDee md, int itype, int jtype, void* model[], double kCoul[] );
@@ -64,9 +62,11 @@ void EmDee_add_angle( tEmDee md, int i, int j, int k, void* model );
 
 void EmDee_add_dihedral( tEmDee md, int i, int j, int k, int l, void* model );
 
+void EmDee_download( tEmDee md, char *option, double* address );
+
 void EmDee_upload( tEmDee* md, char *option, double* address );
 
-void EmDee_download( tEmDee md, char *option, double* address );
+void EmDee_switch_model_layer( tEmDee* md, int layer );
 
 void EmDee_random_momenta( tEmDee* md, double kT, _Bool adjust, int seed );
 

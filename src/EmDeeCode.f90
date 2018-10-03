@@ -115,8 +115,6 @@ contains
     me%natoms = N
     me%threadAtoms = (N + threads - 1)/threads
     me%kspace_active = .false.
-    allocate(me%layerRc(layers), source=me%Rc)
-    allocate(me%layerRcSq(layers), source=me%RcSq)
 
     ! Set up atom types:
     if (c_associated(types)) then
@@ -180,6 +178,11 @@ contains
 
     ! Allocate variables related to model layers:
     me%layer = 1
+    allocate(me%layerRc(layers), source=me%Rc)
+    allocate(me%layerRcSq(layers), source=me%RcSq)
+
+    ! Set system as uninitialized:
+    me%initialized = .false.
 
     ! Set up mutable entities:
     EmDee_system % builds = 0
@@ -257,38 +260,23 @@ contains
     real(rb),     intent(in) :: Rc(*)
     integer(ib),  intent(in) :: Bonded(*)
 
+    character(*), parameter :: task = "layer-based parameter setting"
+
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
 
+    if (me%initialized) call error(task, "system has already been initialized")
+
     me%layerRc = Rc(1:me%nlayers)
     me%layerRcSq = me%layerRc**2
     if (any(me%layerRc < zero .or. me%layerRc > me%Rc)) then
-      call error("layer-based parameters", "invalid cutoff specification")
+      call error(task, "invalid cutoff specification")
     end if
 
     me%bonded = Bonded(1:me%nlayers) /= 0
 
   end subroutine EmDee_layer_based_parameters
-
-!===================================================================================================
-
-  subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_switch_model_layer")
-    type(tEmDee), value :: md
-    integer(ib),  value :: layer
-
-    type(tData), pointer :: me
-
-    call c_f_pointer( md%data, me )
-    if (layer /= me%layer) then
-      if ((layer < 1).or.(layer > me%nlayers)) then
-        call error( "model layer switch", "selected layer is out of range" )
-      end if
-      me%layer = layer
-      if (me%initialized .and. md%Options%AutoForceCompute) call EmDee_compute_forces( md )
-    end if
-
-  end subroutine EmDee_switch_model_layer
 
 !===================================================================================================
 
@@ -634,6 +622,151 @@ contains
 
   end subroutine EmDee_add_dihedral
 
+  !===================================================================================================
+
+    subroutine EmDee_download( md, option, address ) bind(C,name="EmDee_download")
+      type(tEmDee),      value      :: md
+      character(c_char), intent(in) :: option(*)
+      type(c_ptr),       value      :: address
+
+      real(rb), pointer :: scalar, matrix(:,:)
+      type(tData), pointer :: me
+      character(sl) :: item
+
+      call c_f_pointer( md%data, me )
+      item = string(option)
+      if (.not.c_associated(address)) call error( "download", "provided address is invalid" )
+
+      select case (item)
+
+        case ("box")
+          call c_f_pointer( address, scalar )
+          scalar = me%Lbox
+
+        case ("coordinates")
+          if (.not.associated( me%R )) call error( "download", "coordinates have not been allocated" )
+          call c_f_pointer( address, matrix, [3,me%natoms] )
+          !$omp parallel num_threads(me%nthreads)
+          call download( omp_get_thread_num() + 1, me%R, matrix )
+          !$omp end parallel
+
+        case ("momenta")
+          call c_f_pointer( address, matrix, [3,me%natoms] )
+          !$omp parallel num_threads(me%nthreads)
+          call get_momenta( omp_get_thread_num() + 1, matrix )
+          !$omp end parallel
+
+        case ("forces")
+          call c_f_pointer( address, matrix, [3,me%natoms] )
+          if (me%kspace_active) then
+            call me % kspace % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Forces = me%F )
+          end if
+          !$omp parallel num_threads(me%nthreads)
+          call download( omp_get_thread_num() + 1, me%F, matrix )
+          !$omp end parallel
+
+        case ("centersOfMass")
+          call c_f_pointer( address, matrix, [3,me%nbodies+me%nfree] )
+          !$omp parallel num_threads(me%nthreads)
+          call get_centers_of_mass( omp_get_thread_num() + 1 )
+          !$omp end parallel
+
+        case ("quaternions", "quatmom", "quattau")
+          call c_f_pointer( address, matrix, [4,me%nbodies] )
+          !$omp parallel num_threads(me%nthreads)
+          call get_quaternions( omp_get_thread_num() + 1, item, matrix )
+          !$omp end parallel
+
+        case ("angmom", "bodycoord", "bodymom", "bodyforces", "torques", "inertia")
+          call c_f_pointer( address, matrix, [3,me%nbodies] )
+          !$omp parallel num_threads(me%nthreads)
+          call get_body_properties( omp_get_thread_num() + 1, item, matrix )
+          !$omp end parallel
+
+        case default
+          call error( "download", "invalid option" )
+
+      end select
+
+      contains
+        !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        subroutine get_momenta( thread, Pext )
+          integer,  intent(in)    :: thread
+          real(rb), intent(inout) :: Pext(3,me%natoms)
+          integer :: i
+          forall (i = (thread - 1)*me%threadFreeAtoms + 1 : min(thread*me%threadFreeAtoms, me%nfree))
+            Pext(:,me%free(i)) = me%P(:,me%free(i))
+          end forall
+          forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
+            Pext(:,me%body(i)%index) = me%body(i) % particle_momenta()
+          end forall
+        end subroutine get_momenta
+        !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        subroutine download( thread, origin, destination )
+          integer,  intent(in)    :: thread
+          real(rb), intent(in)    :: origin(3,me%natoms)
+          real(rb), intent(inout) :: destination(3,me%natoms)
+          integer :: first, last
+          first = (thread - 1)*me%threadAtoms + 1
+          last = min(thread*me%threadAtoms, me%natoms)
+          destination(:,first:last) = origin(:,first:last)
+        end subroutine download
+        !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        subroutine get_centers_of_mass( thread )
+          integer,  intent(in) :: thread
+          integer :: i
+          forall (i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies) )
+            matrix(:,i) = me%body(i)%rcm
+          end forall
+          forall(i = (thread - 1)*me%threadFreeAtoms + 1 : min(thread*me%threadFreeAtoms,me%nfree) )
+            matrix(:,i+me%nbodies) = me%R(:,me%free(i))
+          end forall
+        end subroutine get_centers_of_mass
+        !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        subroutine get_quaternions( thread, item, matrix )
+          integer,       intent(in)  :: thread
+          character(sl), intent(in)  :: item
+          real(rb),      intent(out) :: matrix(:,:)
+
+          integer :: i
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+            select case (item)
+              case ("quaternions")
+                matrix(:,i) = me%body(i)%q
+              case ("quatmom")
+                matrix(:,i) = me%body(i)%pi
+              case ("quattau")
+                matrix(:,i) = matmul(matrix_C(me%body(i)%q), two*me%body(i)%tau)
+            end select
+          end do
+        end subroutine get_quaternions
+        !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        subroutine get_body_properties( thread, item, matrix )
+          integer,       intent(in)  :: thread
+          character(sl), intent(in)  :: item
+          real(rb),      intent(out) :: matrix(:,:)
+
+          integer :: i
+          do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
+            select case (item)
+              case ("angmom")
+                matrix(:,i) = me%body(i)%omega
+              case ("bodycoord")
+                matrix(:,i) = me%body(i)%Rcm
+              case ("bodymom")
+                matrix(:,i) = me%body(i)%Pcm
+              case ("bodyforces")
+                matrix(:,i) = me%body(i)%F
+              case ("torques")
+                matrix(:,i) = me%body(i)%tau
+              case ("inertia")
+                matrix(:,i) = me%body(i)%MoI
+              end select
+          end do
+        end subroutine get_body_properties
+        !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    end subroutine EmDee_download
+
 !===================================================================================================
 
   subroutine EmDee_upload( md, option, address ) bind(C,name="EmDee_upload")
@@ -741,150 +874,24 @@ contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 
-!===================================================================================================
+  !===================================================================================================
 
-  subroutine EmDee_download( md, option, address ) bind(C,name="EmDee_download")
-    type(tEmDee),      value      :: md
-    character(c_char), intent(in) :: option(*)
-    type(c_ptr),       value      :: address
+    subroutine EmDee_switch_model_layer( md, layer ) bind(C,name="EmDee_switch_model_layer")
+      type(tEmDee), intent(inout) :: md
+      integer(ib),  value         :: layer
 
-    real(rb), pointer :: scalar, matrix(:,:)
-    type(tData), pointer :: me
-    character(sl) :: item
+      type(tData), pointer :: me
 
-    call c_f_pointer( md%data, me )
-    item = string(option)
-    if (.not.c_associated(address)) call error( "download", "provided address is invalid" )
-
-    select case (item)
-
-      case ("box")
-        call c_f_pointer( address, scalar )
-        scalar = me%Lbox
-
-      case ("coordinates")
-        if (.not.associated( me%R )) call error( "download", "coordinates have not been allocated" )
-        call c_f_pointer( address, matrix, [3,me%natoms] )
-        !$omp parallel num_threads(me%nthreads)
-        call download( omp_get_thread_num() + 1, me%R, matrix )
-        !$omp end parallel
-
-      case ("momenta")
-        call c_f_pointer( address, matrix, [3,me%natoms] )
-        !$omp parallel num_threads(me%nthreads)
-        call get_momenta( omp_get_thread_num() + 1, matrix )
-        !$omp end parallel
-
-      case ("forces")
-        call c_f_pointer( address, matrix, [3,me%natoms] )
-        if (me%kspace_active) then
-          call me % kspace % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Forces = me%F )
+      call c_f_pointer( md%data, me )
+      if (layer /= me%layer) then
+        if ((layer < 1).or.(layer > me%nlayers)) then
+          call error( "model layer switch", "selected layer is out of range" )
         end if
-        !$omp parallel num_threads(me%nthreads)
-        call download( omp_get_thread_num() + 1, me%F, matrix )
-        !$omp end parallel
+        me%layer = layer
+        if (me%initialized .and. md%Options%AutoForceCompute) call EmDee_compute_forces( md )
+      end if
 
-      case ("centersOfMass")
-        call c_f_pointer( address, matrix, [3,me%nbodies+me%nfree] )
-        !$omp parallel num_threads(me%nthreads)
-        call get_centers_of_mass( omp_get_thread_num() + 1 )
-        !$omp end parallel
-
-      case ("quaternions", "quatmom", "quattau")
-        call c_f_pointer( address, matrix, [4,me%nbodies] )
-        !$omp parallel num_threads(me%nthreads)
-        call get_quaternions( omp_get_thread_num() + 1, item, matrix )
-        !$omp end parallel
-
-      case ("angmom", "bodycoord", "bodymom", "bodyforces", "torques", "inertia")
-        call c_f_pointer( address, matrix, [3,me%nbodies] )
-        !$omp parallel num_threads(me%nthreads)
-        call get_body_properties( omp_get_thread_num() + 1, item, matrix )
-        !$omp end parallel
-
-      case default
-        call error( "download", "invalid option" )
-
-    end select
-
-    contains
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine get_momenta( thread, Pext )
-        integer,  intent(in)    :: thread
-        real(rb), intent(inout) :: Pext(3,me%natoms)
-        integer :: i
-        forall (i = (thread - 1)*me%threadFreeAtoms + 1 : min(thread*me%threadFreeAtoms, me%nfree))
-          Pext(:,me%free(i)) = me%P(:,me%free(i))
-        end forall
-        forall(i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies))
-          Pext(:,me%body(i)%index) = me%body(i) % particle_momenta()
-        end forall
-      end subroutine get_momenta
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine download( thread, origin, destination )
-        integer,  intent(in)    :: thread
-        real(rb), intent(in)    :: origin(3,me%natoms)
-        real(rb), intent(inout) :: destination(3,me%natoms)
-        integer :: first, last
-        first = (thread - 1)*me%threadAtoms + 1
-        last = min(thread*me%threadAtoms, me%natoms)
-        destination(:,first:last) = origin(:,first:last)
-      end subroutine download
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine get_centers_of_mass( thread )
-        integer,  intent(in) :: thread
-        integer :: i
-        forall (i = (thread - 1)*me%threadBodies + 1 : min(thread*me%threadBodies,me%nbodies) )
-          matrix(:,i) = me%body(i)%rcm
-        end forall
-        forall(i = (thread - 1)*me%threadFreeAtoms + 1 : min(thread*me%threadFreeAtoms,me%nfree) )
-          matrix(:,i+me%nbodies) = me%R(:,me%free(i))
-        end forall
-      end subroutine get_centers_of_mass
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine get_quaternions( thread, item, matrix )
-        integer,       intent(in)  :: thread
-        character(sl), intent(in)  :: item
-        real(rb),      intent(out) :: matrix(:,:)
-
-        integer :: i
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-          select case (item)
-            case ("quaternions")
-              matrix(:,i) = me%body(i)%q
-            case ("quatmom")
-              matrix(:,i) = me%body(i)%pi
-            case ("quattau")
-              matrix(:,i) = matmul(matrix_C(me%body(i)%q), two*me%body(i)%tau)
-          end select
-        end do
-      end subroutine get_quaternions
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      subroutine get_body_properties( thread, item, matrix )
-        integer,       intent(in)  :: thread
-        character(sl), intent(in)  :: item
-        real(rb),      intent(out) :: matrix(:,:)
-
-        integer :: i
-        do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
-          select case (item)
-            case ("angmom")
-              matrix(:,i) = me%body(i)%omega
-            case ("bodycoord")
-              matrix(:,i) = me%body(i)%Rcm
-            case ("bodymom")
-              matrix(:,i) = me%body(i)%Pcm
-            case ("bodyforces")
-              matrix(:,i) = me%body(i)%F
-            case ("torques")
-              matrix(:,i) = me%body(i)%tau
-            case ("inertia")
-              matrix(:,i) = me%body(i)%MoI
-            end select
-        end do
-      end subroutine get_body_properties
-      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  end subroutine EmDee_download
+    end subroutine EmDee_switch_model_layer
 
 !===================================================================================================
 
@@ -1182,8 +1189,6 @@ contains
       call compute_kspace( me, Rs, E(long), me%F )
       W(long) = E(coul) + E(long) - W(coul)
     end if
-
-print*, E([coul,long])
 
     md%Virial = sum(W)
     if (me%nbodies /= 0) then

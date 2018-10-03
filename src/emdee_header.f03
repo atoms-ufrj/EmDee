@@ -96,13 +96,6 @@ interface
     integer(c_int), intent(in) :: Bonded(*)
   end subroutine EmDee_layer_based_parameters
 
-  subroutine EmDee_switch_model_layer( md, layer ) &
-    bind(C,name="EmDee_switch_model_layer")
-    import :: c_int, tEmDee
-    type(tEmDee),   value :: md
-    integer(c_int), value :: layer
-  end subroutine EmDee_switch_model_layer
-
   subroutine EmDee_set_pair_model( md, itype, jtype, model, kCoul ) &
     bind(C,name="EmDee_set_pair_model")
     import :: c_int, c_ptr, c_double, tEmDee
@@ -173,6 +166,14 @@ interface
     type(c_ptr),    value :: model
   end subroutine EmDee_add_dihedral
 
+  subroutine EmDee_download( md, item, address ) &
+    bind(C,name="EmDee_download")
+    import :: c_ptr, c_char, tEmDee
+    type(tEmDee),      value      :: md
+    character(c_char), intent(in) :: item(*)
+    type(c_ptr),       value      :: address
+  end subroutine EmDee_download
+
   subroutine EmDee_upload( md, item, address ) &
     bind(C,name="EmDee_upload")
     import :: c_ptr, c_char, tEmDee
@@ -181,13 +182,12 @@ interface
     type(c_ptr),       value         :: address
   end subroutine EmDee_upload
 
-  subroutine EmDee_download( md, item, address ) &
-    bind(C,name="EmDee_download")
-    import :: c_ptr, c_char, tEmDee
-    type(tEmDee),      value      :: md
-    character(c_char), intent(in) :: item(*)
-    type(c_ptr),       value      :: address
-  end subroutine EmDee_download
+  subroutine EmDee_switch_model_layer( md, layer ) &
+    bind(C,name="EmDee_switch_model_layer")
+    import :: c_int, tEmDee
+    type(tEmDee),   intent(inout) :: md
+    integer(c_int), value         :: layer
+  end subroutine EmDee_switch_model_layer
 
   subroutine EmDee_random_momenta( md, kT, adjust, seed ) &
     bind(C,name="EmDee_random_momenta")
