@@ -255,9 +255,11 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_layer_based_parameters( md, Rc, Bonded ) bind(C,name="EmDee_layer_based_parameters")
+  subroutine EmDee_layer_based_parameters( md, Rc, ApplyRc, Bonded ) &
+    bind(C,name="EmDee_layer_based_parameters")
     type(tEmDee), value      :: md
-    real(rb),     intent(in) :: Rc(*)
+    real(rb),     value      :: Rc
+    integer(ib),  intent(in) :: ApplyRc(*)
     integer(ib),  intent(in) :: Bonded(*)
 
     character(*), parameter :: task = "layer-based parameter setting"
@@ -269,11 +271,15 @@ contains
 
     if (me%initialized) call error(task, "system has already been initialized")
 
-    me%layerRc = Rc(1:me%nlayers)
-    me%layerRcSq = me%layerRc**2
-    if (any(me%layerRc < zero .or. me%layerRc > me%Rc)) then
+    if (any(ApplyRc(1:me%nlayers) /= 0).and.((Rc <= zero).or.(Rc > me%Rc))) then
       call error(task, "invalid cutoff specification")
     end if
+    where (ApplyRc(1:me%nlayers) /= 0)
+      me%layerRc = Rc
+    elsewhere
+      me%layerRc = me%Rc
+    end where
+    me%layerRcSq = me%layerRc**2
 
     ! Mark layers with bonded interactions:
     me%bonded = Bonded(1:me%nlayers) /= 0
