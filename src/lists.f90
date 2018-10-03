@@ -27,9 +27,9 @@ type tList
   integer :: nitems
   integer :: nobjects
   integer :: count
-  integer,  pointer     :: first(:)
-  integer,  pointer     :: middle(:)
-  integer,  pointer     :: last(:)
+  integer,  pointer     :: first(:) => NULL()
+  integer,  pointer     :: middle(:) => NULL()
+  integer,  pointer     :: last(:) => NULL()
   integer,  allocatable :: item(:)
   logical,  allocatable :: check(:)
   real(rb), allocatable :: value(:)
