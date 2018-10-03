@@ -527,7 +527,7 @@ contains
 
     if (.not.me%dihedrals%exist) return
     invL2 = one/me%Lbox**2
-    Rc2 = me%RcSq*invL2
+    Rc2 = me%layerRcSq(me%layer)*invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*ndihedrals + 1, min( me%dihedrals%number, threadId*ndihedrals )
       associate (dihedral => me%dihedrals%item(m))
@@ -571,7 +571,7 @@ contains
           j = dihedral%l
           rij = rij + rlk - rkj
           r2 = sum(rij*rij)
-          if (r2 < me%RcSq) then
+          if (r2 < me%layerRcSq(me%layer)) then
             invR2 = invL2/r2
             invR = sqrt(invR2)
             Qi = me%charge(i)

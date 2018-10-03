@@ -262,6 +262,7 @@ contains
 
     character(*), parameter :: task = "layer-based parameter setting"
 
+    integer :: layer
     type(tData), pointer :: me
 
     call c_f_pointer( md%data, me )
@@ -274,7 +275,13 @@ contains
       call error(task, "invalid cutoff specification")
     end if
 
+    ! Mark layers with bonded interactions:
     me%bonded = Bonded(1:me%nlayers) /= 0
+
+    ! Reinitialize coulomb models:
+    do layer = 1, me%nlayers
+      call me % coul(layer) % model % cutoff_setup( me%layerRc(layer) )
+    end do
 
   end subroutine EmDee_layer_based_parameters
 
@@ -443,7 +450,7 @@ contains
       class is (cCoulModel)
         do layer = 1, me%nlayers
           me%coul(layer) = container
-          call me % coul(layer) % model % cutoff_setup( me%Rc )
+          call me % coul(layer) % model % cutoff_setup( me%layerRc(layer) )
         end do
       class default
         call error( task, "a valid coulomb model must be provided" )
@@ -478,7 +485,7 @@ contains
       select type ( coul => container%model )
         class is (cCoulModel)
           me%coul(layer) = container
-          call me % coul(layer) % model % cutoff_setup( me%Rc )
+          call me % coul(layer) % model % cutoff_setup( me%layerRc(layer) )
         class default
           call error( task, "a valid coulomb model must be provided" )
       end select
@@ -1185,7 +1192,7 @@ contains
     !$omp end parallel
     me%F = sum(Fs,3)
 
-    if (me%kspace_active) then
+    if (me%coul(me%layer)%model%requires_kspace) then
       call compute_kspace( me, Rs, E(long), me%F )
       W(long) = E(coul) + E(long) - W(coul)
     end if

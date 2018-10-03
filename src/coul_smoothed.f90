@@ -114,7 +114,7 @@ contains
 
     real(rb) :: r2, u, u2, u3, G
 
-    ECij = QiQj*(invR + model%eshift)
+    ECij = QiQj*invR
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -146,7 +146,7 @@ contains
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
       WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r2
-      WCij = WCij*G + (WCij + QiQj*model%eshift)*WG
+      WCij = WCij*(G + WG)
     end if
 
   end subroutine coul_smoothed_virial
