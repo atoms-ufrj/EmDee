@@ -70,11 +70,11 @@ function EmDee_share_phase_space( mdkeep::tEmDee, mdlose::tEmDee )
          mdkeep, Ref(mdlose) )
 end
 #---------------------------------------------------------------------------------------------------
-function EmDee_layer_based_parameters( md::tEmDee, Rc::Float64, ApplyRc::IntegerArray,
+function EmDee_layer_based_parameters( md::tEmDee, InternalRc::Float64, Apply::IntegerArray,
                                        Bonded::IntegerArray  )
   ccall( (:EmDee_layer_based_parameters,"libemdee"), Void,
          (tEmDee, Float64, Ptr{Int32}, Ptr{Int32}),
-         md, Rc, ApplyRc, Bonded )
+         md, InternalRc, Apply, Bonded )
 end
 #---------------------------------------------------------------------------------------------------
 function set_pair_model( md::tEmDee, itype::Integer, jtype::Integer, model::tModel, kCoul::Real )

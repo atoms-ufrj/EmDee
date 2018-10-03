@@ -111,6 +111,9 @@ contains
     me%RcSq = rc*rc
     me%xRc = rc + skin
     me%xRcSq = me%xRc**2
+    me%InRc = me%Rc
+    me%InRcSq = me%RcSq
+    me%xInRcSq = me%xRcSq
     me%skinSq = skin*skin
     me%natoms = N
     me%threadAtoms = (N + threads - 1)/threads
@@ -167,8 +170,6 @@ contains
     allocate( me%multilayer(me%ntypes,me%ntypes), source = .false. )
     allocate( me%overridable(me%ntypes,me%ntypes), source = .true. )
     allocate( me%interact(me%ntypes,me%ntypes), source = .false. )
-    allocate( me%pairs_exist(me%nlayers), source = .false. )
-    allocate( me%bonded(me%nlayers), source = .true. )
 
     ! Allocate memory for variables regarding Coulomb models:
     allocate( coul_none :: noCoul%model )
@@ -176,10 +177,11 @@ contains
     me%multilayer_coulomb = .false.
     allocate( me%coul(me%nlayers), source = noCoul )
 
-    ! Allocate variables related to model layers:
+    ! Allocate other variables related to model layers:
+    allocate( me%pairs_exist(me%nlayers), source = .false. )
+    allocate(me%useInRc(layers), source=.false.)
+    allocate(me%bonded(layers), source=.true.)
     me%layer = 1
-    allocate(me%layerRc(layers), source=me%Rc)
-    allocate(me%layerRcSq(layers), source=me%RcSq)
 
     ! Set system as uninitialized:
     me%initialized = .false.
@@ -255,11 +257,11 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_layer_based_parameters( md, Rc, ApplyRc, Bonded ) &
+  subroutine EmDee_layer_based_parameters( md, InternalRc, Apply, Bonded ) &
     bind(C,name="EmDee_layer_based_parameters")
     type(tEmDee), value      :: md
-    real(rb),     value      :: Rc
-    integer(ib),  intent(in) :: ApplyRc(*)
+    real(rb),     value      :: InternalRc
+    integer(ib),  intent(in) :: Apply(*)
     integer(ib),  intent(in) :: Bonded(*)
 
     character(*), parameter :: task = "layer-based parameter setting"
@@ -271,22 +273,20 @@ contains
 
     if (me%initialized) call error(task, "system has already been initialized")
 
-    if (any(ApplyRc(1:me%nlayers) /= 0).and.((Rc <= zero).or.(Rc > me%Rc))) then
-      call error(task, "invalid cutoff specification")
+    me%useInRc = Apply(1:me%nlayers) /= 0
+    if (any(me%useInRc).and.((InternalRc <= zero).or.(InternalRc > me%Rc))) then
+      call error(task, "invalid internal cutoff specification")
     end if
-    where (ApplyRc(1:me%nlayers) /= 0)
-      me%layerRc = Rc
-    elsewhere
-      me%layerRc = me%Rc
-    end where
-    me%layerRcSq = me%layerRc**2
+    me%InRc = InternalRc
+    me%InRcSq = InternalRc**2
+    me%xInRcSq = (InternalRc + me%skin)**2
 
     ! Mark layers with bonded interactions:
     me%bonded = Bonded(1:me%nlayers) /= 0
 
     ! Reinitialize coulomb models:
     do layer = 1, me%nlayers
-      call me % coul(layer) % model % cutoff_setup( me%layerRc(layer) )
+      call me % coul(layer) % model % cutoff_setup( merge(me%InRc, me%Rc, me%useInRc(layer)) )
     end do
 
   end subroutine EmDee_layer_based_parameters
@@ -456,7 +456,7 @@ contains
       class is (cCoulModel)
         do layer = 1, me%nlayers
           me%coul(layer) = container
-          call me % coul(layer) % model % cutoff_setup( me%layerRc(layer) )
+          call me % coul(layer) % model % cutoff_setup( merge(me%InRc, me%Rc, me%useInRc(layer)) )
         end do
       class default
         call error( task, "a valid coulomb model must be provided" )
@@ -491,7 +491,7 @@ contains
       select type ( coul => container%model )
         class is (cCoulModel)
           me%coul(layer) = container
-          call me % coul(layer) % model % cutoff_setup( me%layerRc(layer) )
+          call me % coul(layer) % model % cutoff_setup( merge(me%InRc, me%Rc, me%useInRc(layer)) )
         class default
           call error( task, "a valid coulomb model must be provided" )
       end select

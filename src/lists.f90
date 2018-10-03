@@ -27,9 +27,9 @@ type tList
   integer :: nitems
   integer :: nobjects
   integer :: count
-  integer,  allocatable :: first(:)
-  integer,  allocatable :: middle(:)
-  integer,  allocatable :: last(:)
+  integer,  pointer     :: first(:)
+  integer,  pointer     :: middle(:)
+  integer,  pointer     :: last(:)
   integer,  allocatable :: item(:)
   logical,  allocatable :: check(:)
   real(rb), allocatable :: value(:)
@@ -51,12 +51,12 @@ contains
     list%nobjects = nobjects
     list%nitems = nitems
     list%count  = 0
-    if (allocated(list%first)) deallocate( list%first, list%last, list%item )
+    if (associated(list%first)) deallocate( list%first, list%last, list%item )
     allocate( list%first(nobjects), list%last(nobjects), list%item(nitems) )
     list%first = 1
     list%last = 0
     if (present(middle)) then
-      if (middle) allocate( list%middle(nitems) )
+      if (middle) allocate( list%middle(nobjects) )
     end if
     if (present(check)) then
       if (check) allocate( list%check(nitems) )
@@ -83,12 +83,6 @@ contains
     deallocate( list%item )
     call move_alloc( item, list%item )
     list%nitems = size
-    if (allocated(list%middle)) then
-      allocate( item(size) )
-      item(1:n) = list%middle(1:n)
-      deallocate( list%middle )
-      call move_alloc( item, list%middle )
-    end if
     if (allocated(list%check)) then
       allocate( check(size) )
       check(1:n) = list%check(1:n)

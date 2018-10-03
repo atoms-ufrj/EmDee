@@ -38,7 +38,7 @@ block
       Ri = Rs(:,i)
       Fi = zero
       associate ( partner => me%pair(:,itype,me%layer), &
-                  jlist => neighbor%item(neighbor%first(i):neighbor%last(i)) )
+                  jlist => neighbor%item(neighbor%first(i):upper(i)) )
         Rvec = Rs(:,jlist)
         forall (m=1:size(jlist)) Rvec(:,m) = pbc(Ri - Rvec(:,m))
         do m = 1, size(jlist)

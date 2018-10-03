@@ -64,11 +64,11 @@ type :: tData
   real(rb) :: xRc                         ! Extended cutoff distance (including skin)
   real(rb) :: xRcSq                       ! Extended cutoff distance squared
   real(rb) :: skinSq                      ! Square of the neighbor list skin width
+  real(rb) :: InRc                        ! Internal cut-off distance
+  real(rb) :: InRcSq                      ! Internal cut-off distance squared
+  real(rb) :: xInRcSq                     ! Extended internal cutoff distance squared
   real(rb) :: totalMass                   ! Sum of the masses of all atoms
   real(rb) :: startTime                   ! Time recorded at initialization
-
-  real(rb), allocatable :: layerRc(:)
-  real(rb), allocatable :: layerRcSq(:)
 
   logical :: initialized = .false.        ! Flag for checking coordinates initialization
 
@@ -110,7 +110,10 @@ type :: tData
   logical,  allocatable :: overridable(:,:)
   logical,  allocatable :: interact(:,:)
   logical,  allocatable :: pairs_exist(:)
+
+  ! Fields related to model layers:
   logical,  allocatable :: bonded(:)
+  logical,  allocatable :: useInRc(:)
 
   logical :: multilayer_coulomb
   logical :: kspace_active
@@ -198,7 +201,9 @@ contains
     real(rb),             intent(in)    :: kCoul
 
     integer :: ktype
+    real(rb) :: layerRc(me%nlayers)
 
+    layerRc = merge(me%InRc, me%Rc, me%useInRc)
     select type (pmodel => container%model)
       class is (cPairModel)
         associate (pair => me%pair(:,:,layer))
@@ -206,11 +211,11 @@ contains
             pair(itype,itype) = container
             pair(itype,itype)%coulomb = kCoul /= zero
             if (pair(itype,itype)%coulomb) pair(itype,itype)%kCoul = kCoul
-            call pair(itype,itype) % model % modifier_setup( me%layerRc(layer) )
+            call pair(itype,itype) % model % modifier_setup( layerRc(layer) )
             do ktype = 1, me%ntypes
               if ((ktype /= itype).and.me%overridable(itype,ktype)) then
                 pair(itype,ktype) = pair(ktype,ktype) % mix( pair(itype,itype) )
-                call pair(itype,ktype) % model % modifier_setup( me%layerRc(layer) )
+                call pair(itype,ktype) % model % modifier_setup( layerRc(layer) )
                 pair(ktype,itype) = pair(itype,ktype)
               end if
             end do
@@ -218,7 +223,7 @@ contains
             pair(itype,jtype) = container
             pair(itype,jtype)%coulomb = kCoul /= zero
             if (pair(itype,jtype)%coulomb) pair(itype,jtype)%kCoul = kCoul
-            call pair(itype,jtype) % model % modifier_setup( me%layerRc(layer) )
+            call pair(itype,jtype) % model % modifier_setup( layerRc(layer) )
             pair(jtype,itype) = pair(itype,jtype)
           end if
         end associate
@@ -328,7 +333,7 @@ contains
     character(*), parameter :: task = "system initialization"
 
     integer :: i, bodyDoF
-    real(rb) :: L(3), kspaceRc
+    real(rb) :: L(3), kspaceRc, layerRc(me%nlayers)
     integer, allocatable :: bodyAtom(:), coulomb_with_kspace(:)
     logical, allocatable :: kspace_required(:)
 
@@ -348,8 +353,9 @@ contains
 
     ! Check if all coulomb models requiring kspace have the same cutoff:
     if (size(coulomb_with_kspace) > 0) then
-      kspaceRc = me%layerRc(coulomb_with_kspace(1))
-      if (any(me%layerRc(coulomb_with_kspace) /= kspaceRc)) then
+      layerRc = merge(me%InRc, me%Rc, me%useInRc)
+      kspaceRc = layerRc(coulomb_with_kspace(1))
+      if (any(layerRc(coulomb_with_kspace) /= kspaceRc)) then
         call error(task, "all layers with ewald-like coulomb models must have the same cutoff")
       end if
     end if
@@ -527,7 +533,7 @@ contains
 
     if (.not.me%dihedrals%exist) return
     invL2 = one/me%Lbox**2
-    Rc2 = me%layerRcSq(me%layer)*invL2
+    Rc2 = merge(me%InRcSq, me%RcSq, me%useInRc(me%layer))*invL2
     ndihedrals = (me%dihedrals%number + me%nthreads - 1)/me%nthreads
     do m = (threadId - 1)*ndihedrals + 1, min( me%dihedrals%number, threadId*ndihedrals )
       associate (dihedral => me%dihedrals%item(m))
@@ -571,7 +577,7 @@ contains
           j = dihedral%l
           rij = rij + rlk - rkj
           r2 = sum(rij*rij)
-          if (r2 < me%layerRcSq(me%layer)) then
+          if (r2 < Rc2) then
             invR2 = invL2/r2
             invR = sqrt(invR2)
             Qi = me%charge(i)
@@ -611,6 +617,7 @@ contains
     real(rb),    intent(out)   :: F(3,me%natoms), Epair, Ecoul, Wpair, Wcoul
 
     real(rb) :: Rc2, L2, invL2
+    integer, pointer :: upper(:)
 
     F = zero
     Wpair = zero
@@ -619,7 +626,13 @@ contains
     if (me%pairs_exist(me%layer)) then
       L2 = me%Lbox**2
       invL2 = one/L2
-      Rc2 = me%layerRcSq(me%layer)*invL2
+      if (me%useInRc(me%layer)) then
+          Rc2 = me%InRcSq*invL2
+          upper => me%neighbor(thread)%middle(:)
+      else
+          Rc2 = me%RcSq*invL2
+          upper => me%neighbor(thread)%last(:)
+      end if
       if (compute) then
 #       define compute
 #       include "compute.f90"
