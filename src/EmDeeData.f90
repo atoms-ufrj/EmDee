@@ -206,11 +206,11 @@ contains
             pair(itype,itype) = container
             pair(itype,itype)%coulomb = kCoul /= zero
             if (pair(itype,itype)%coulomb) pair(itype,itype)%kCoul = kCoul
-            call pair(itype,itype) % model % modifier_setup( me%Rc )
+            call pair(itype,itype) % model % modifier_setup( me%layerRc(layer) )
             do ktype = 1, me%ntypes
               if ((ktype /= itype).and.me%overridable(itype,ktype)) then
                 pair(itype,ktype) = pair(ktype,ktype) % mix( pair(itype,itype) )
-                call pair(itype,ktype) % model % modifier_setup( me%Rc )
+                call pair(itype,ktype) % model % modifier_setup( me%layerRc(layer) )
                 pair(ktype,itype) = pair(itype,ktype)
               end if
             end do
@@ -218,7 +218,7 @@ contains
             pair(itype,jtype) = container
             pair(itype,jtype)%coulomb = kCoul /= zero
             if (pair(itype,jtype)%coulomb) pair(itype,jtype)%kCoul = kCoul
-            call pair(itype,jtype) % model % modifier_setup( me%Rc )
+            call pair(itype,jtype) % model % modifier_setup( me%layerRc(layer) )
             pair(jtype,itype) = pair(itype,jtype)
           end if
         end associate
@@ -327,11 +327,10 @@ contains
 
     character(*), parameter :: task = "system initialization"
 
-    integer :: i, layer, bodyDoF
-    logical :: kspace_required
-    real(rb) :: L(3)
-
-    integer, allocatable :: bodyAtom(:)
+    integer :: i, bodyDoF
+    real(rb) :: L(3), kspaceRc
+    integer, allocatable :: bodyAtom(:), coulomb_with_kspace(:)
+    logical, allocatable :: kspace_required(:)
 
     !$omp parallel num_threads(me%nthreads)
     call update_rigid_bodies( me, omp_get_thread_num() + 1 )
@@ -343,31 +342,36 @@ contains
 
     call check_actual_interactions( me )
 
-    ! Find out if any coulomb model requires a kspace solver:
-    layer = 0
-    kspace_required = .false.
-    do while (.not.kspace_required.and.(layer < me%nlayers))
-      layer = layer + 1
-      kspace_required = me%coul(layer)%model%requires_kspace
-    end do
+    ! Find out which coulomb models require a kspace solver:
+    kspace_required = [(me%coul(i)%model%requires_kspace, i=1, me%nlayers)]
+    coulomb_with_kspace = pack([(i, i=1, me%nlayers)], kspace_required)
 
-    ! Now check if demand and supply are inconsistent:
-    if (kspace_required .neqv. me%kspace_active) then
-      if (kspace_required) then
-        call error( task, "a kspace solver is required, but has not been defined" )
-      else
-        ! Deactivate kspace solver once it is not required:
-        me%kspace_active = .false.
+    ! Check if all coulomb models requiring kspace have the same cutoff:
+    if (size(coulomb_with_kspace) > 0) then
+      kspaceRc = me%layerRc(coulomb_with_kspace(1))
+      if (any(me%layerRc(coulomb_with_kspace) /= kspaceRc)) then
+        call error(task, "all layers with ewald-like coulomb models must have the same cutoff")
       end if
     end if
 
+    ! Now check if demand and supply are inconsistent:
+    if (any(kspace_required) .neqv. me%kspace_active) then
+      if (me%kspace_active) then
+        ! Deactivate kspace solver since it is not required:
+        me%kspace_active = .false.
+      else
+        call error( task, "a kspace solver is required, but has not been defined" )
+      end if
+    end if
+
+    ! Initialize kspace solver and related coulomb models, if needed:
     if (me%kspace_active) then
-      bodyAtom = [(me%body(i)%index,i=1,me%nbodies)]
+      bodyAtom = [(me%body(i)%index, i=1, me%nbodies)]
       L = me%Lbox
-      call me % kspace % initialize( me%nthreads, me%Rc, L, me%atomType, me%charge, &
+      call me % kspace % initialize( me%nthreads, kspaceRc, L, me%atomType, me%charge, &
                                      me%R, me%body%NP, bodyAtom, me%pair%kCoul )
-      do layer = 1, me%nlayers
-        call me % coul(layer) % model % kspace_setup( me%kspace%alpha )
+      do i = 1, size(coulomb_with_kspace)
+        call me % coul(coulomb_with_kspace(i)) % model % kspace_setup( me%kspace%alpha )
       end do
     end if
 

@@ -32,7 +32,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "02 Oct 2018"
+character(11), parameter :: VERSION = "03 Oct 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -263,7 +263,7 @@ contains
 
     me%layerRc = Rc(1:me%nlayers)
     me%layerRcSq = me%layerRc**2
-    if (any(me%layerRc < zero .or. me%layerRc < me%Rc)) then
+    if (any(me%layerRc < zero .or. me%layerRc > me%Rc)) then
       call error("layer-based parameters", "invalid cutoff specification")
     end if
 
@@ -1182,6 +1182,8 @@ contains
       call compute_kspace( me, Rs, E(long), me%F )
       W(long) = E(coul) + E(long) - W(coul)
     end if
+
+print*, E([coul,long])
 
     md%Virial = sum(W)
     if (me%nbodies /= 0) then
