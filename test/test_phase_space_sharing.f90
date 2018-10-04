@@ -61,7 +61,7 @@ call EmDee_upload( other, "box"//c_null_char, c_loc(L) )
 call run( 100, Nprop )
 
 call EmDee_share_phase_space( md, other )
-other%Energy%Compute = .true.
+other%Options%Compute = .true.
 call EmDee_compute_forces( other )
 
 print*
@@ -69,7 +69,7 @@ associate( system => other )
   print*, 0, mvv2e*system%Energy%Potential, mvv2e*system%Virial, &
         mvv2e*(system%Energy%Potential + system%Kinetic%Total)
   do step = 1, 100
-    system%Energy%Compute = mod(step,Nprop) == 0
+    system%Options%Compute = mod(step,Nprop) == 0
     call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
     call EmDee_displace( md, 1.0_rb, 0.0_rb, Dt )
     call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )

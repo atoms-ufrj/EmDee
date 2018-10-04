@@ -45,7 +45,6 @@ type, bind(C), public :: tEnergy
   real(rb)    :: Angle
   real(rb)    :: Dihedral
   real(rb)    :: ShadowPotential
-  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
 

@@ -14,7 +14,6 @@ typedef struct {
     double Angle;
     double Dihedral;
     double ShadowPotential;
-    _Bool  Compute;          // Flag to activate/deactivate energy computations
     _Bool  UpToDate;         // Flag to attest whether energies have been computed
   } Energy;
   struct {
@@ -36,6 +35,7 @@ typedef struct {
     int    RotationMode;     // Algorithm used for free rotation of rigid bodies
     _Bool  AutoForceCompute; // Flag to activate/deactivate automatic force computations
     _Bool  AutoBodyUpdate;   // Flag to activate/deactivate automatic rigid body update
+    _Bool  Compute;          // Flag to activate/deactivate energy computations
   } Options;
 } tEmDee;
 

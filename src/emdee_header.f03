@@ -31,6 +31,7 @@ type, bind(C) :: tOpts
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
   logical(lb) :: AutoForceCompute     ! Flag to activate/deactivate automatic force computations
   logical(lb) :: AutoBodyUpdate       ! Flag to activate/deactivate automatic rigid body update
+  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
 end type tOpts
 
 type, bind(C), public :: tEnergy
@@ -41,7 +42,6 @@ type, bind(C), public :: tEnergy
   real(rb)    :: Angle
   real(rb)    :: Dihedral
   real(rb)    :: ShadowPotential
-  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
 

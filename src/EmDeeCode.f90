@@ -38,6 +38,7 @@ type, bind(C), public :: tOpts
   logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
   logical(lb) :: AutoBodyUpdate       ! Flag to activate/deactivate automatic rigid body update
+  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
 end type tOpts
 
 type, bind(C), public :: tTime
@@ -188,7 +189,6 @@ contains
     EmDee_system % Energy % ShadowPotential = zero
     EmDee_system % Kinetic % ShadowKinetic = zero
     EmDee_system % Kinetic % ShadowRotational = zero
-    EmDee_system % Energy % Compute = .true.
     EmDee_system % Energy % UpToDate = .false.
 
     allocate( me%layerEnergy(layers), source = EmDee_system % Energy )
@@ -203,6 +203,7 @@ contains
     EmDee_system % Options % Rotate = .true.
     EmDee_system % Options % RotationMode = 0
     EmDee_system % Options % AutoBodyUpdate = .true.
+    EmDee_system % Options % Compute = .true.
 
   end function EmDee_system
 
@@ -1001,20 +1002,20 @@ contains
       call EmDee_compute_forces( md )
     end if
 
-    if (md%Energy%compute) allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
+    if (md%Options%Compute) allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
     !$omp parallel num_threads(me%nthreads)
     block
       integer :: thread
       thread = omp_get_thread_num() + 1
       call boost( me, thread, CP, CF, me%F, md%Options%translate, md%Options%rotate )
-      if (md%Energy%compute) then
+      if (md%Options%Compute) then
         call kinetic_energies( me, thread, md%Options%translate, md%Options%rotate, &
                                twoKEt(:,thread), twoKEr(:,thread) )
       end if
     end block
     !$omp end parallel
 
-    if (md%Energy%compute) then
+    if (md%Options%Compute) then
       if (md%Options%translate) md%Kinetic%TransPart = half*sum(twoKEt,2)
       if (md%Options%rotate) then
         md%Kinetic%RotPart = half*sum(twoKEr,2)
@@ -1077,7 +1078,7 @@ contains
     dt_2 = half*dt
     call c_f_pointer( md%data, me )
 
-    if (md%Energy%compute) then
+    if (md%Options%Compute) then
       Us = zero
       Ks_t = zero
       Ks_r = zero
@@ -1095,7 +1096,7 @@ contains
     call post_force(omp_get_thread_num() + 1, Us, Ks_t, Ks_r)
     !$omp end parallel
 
-    if (md%Energy%Compute) then
+    if (md%Options%Compute) then
       md%Kinetic%TransPart = half*sum(twoKEt,2)
       md%Kinetic%RotPart = half*sum(twoKEr,2)
       md%Kinetic%Rotational = sum(md%Kinetic%RotPart)
@@ -1125,7 +1126,7 @@ contains
       subroutine pre_force( thread )
         integer, intent(in) :: thread
         integer :: i, j
-        if (md%Energy%Compute) then
+        if (md%Options%Compute) then
           do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
             associate (b => me%body(i))
               r0(:,i) = 2.5_rb*b%rcm + dt_2*b%invMass*(b%pcm - dt_2*b%F)
@@ -1147,7 +1148,7 @@ contains
         integer :: i, j
         real(rb) :: tau_b(3), rdot(3), qdot(4)
         call boost( me, thread, one, dt_2, me%F, TRUE, TRUE )
-        if (md%Energy%compute) then
+        if (md%Options%Compute) then
           call kinetic_energies( me, thread, TRUE, TRUE, twoKEt(:,thread), twoKEr(:,thread) )
           do i = (thread - 1)*me%threadBodies + 1, min(thread*me%threadBodies,me%nbodies)
             associate (b => me%body(i))
@@ -1190,7 +1191,7 @@ contains
     call handle_neighbor_lists( me, md%builds, md%Time%Neighbor, Rs )
 
     md%Time%Pair = md%Time%Pair - omp_get_wtime()
-    compute = md%Energy%Compute
+    compute = md%Options%Compute
     E = zero
     W = zero
     !$omp parallel num_threads(me%nthreads) reduction(+:E,W)
