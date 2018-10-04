@@ -98,12 +98,12 @@ install:
 
 uninstall:
 	rm -f $(PREFIX)/lib/libemdee.so
-	rm -f $(addprefix $(PREFIX)/include/,emdee.h emdee.f03 libemdee.jl)
+	rm -f $(addprefix $(PREFIX)/include/,emdee.h emdee.f03)
 	ldconfig
 
 lib: $(LIBDIR)/libemdee.so
 
-include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h $(INCDIR)/libemdee.jl
+include: $(INCDIR)/emdee.f03 $(INCDIR)/emdee.h
 
 # Executables:
 
@@ -113,11 +113,6 @@ $(TSTDIR)/%: $(TSTDIR)/%.f90 $(INCDIR)/emdee.f03 $(TSTDIR)/common/contained.f90 
 $(BINDIR)/testc: $(SRCDIR)/testc.c $(INCDIR)/emdee.h $(LIBDIR)/libemdee.so
 	mkdir -p $(BINDIR)
 	$(CC) $(C_OPTS) -o $@ $(LN_OPTS) $< $(EMDEELIB) -lm
-
-$(BINDIR)/testjulia: $(SRCDIR)/testjulia.jl $(INCDIR)/libemdee.jl $(LIBDIR)/libemdee.so
-	mkdir -p $(BINDIR)
-	(echo '#!/usr/bin/env julia' && echo 'DIR="${CURDIR}"' && cat $<) > $@
-	chmod +x $@
 
 $(OBJDIR)/mConfig.o: $(TSTDIR)/common/mConfig.f90 $(LIBDIR)/libemdee.so
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
@@ -135,10 +130,6 @@ $(INCDIR)/emdee.f03: $(SRCDIR)/emdee_header.f03 $(SRCDIR)/make_f_header.sh
 $(INCDIR)/emdee.h: $(SRCDIR)/emdee_header.h $(SRCDIR)/make_c_header.sh
 	mkdir -p $(INCDIR) $(LIBDIR)
 	bash $(SRCDIR)/make_c_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/emdee.h
-
-$(INCDIR)/libemdee.jl: $(SRCDIR)/emdee_header.jl $(SRCDIR)/make_j_header.sh
-	mkdir -p $(INCDIR) $(LIBDIR)
-	bash $(SRCDIR)/make_j_header.sh $(ALLMODELS) $(KSPACE) > $(INCDIR)/libemdee.jl
 
 # Object files:
 

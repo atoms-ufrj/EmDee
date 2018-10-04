@@ -19,7 +19,6 @@
 
 ! TODO: Check kspace discounts in rigid bodies (presence of kCoul)
 ! TODO: Discount long-range electrostatic terms of dihedrals
-! TODO: Change name of exported Julia wrapper
 ! TODO: Replace type(c_ptr) arguments by array arguments when possible
 ! TODO: Create indexing for having sequential body particles and free particles in arrays
 
