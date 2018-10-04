@@ -33,23 +33,26 @@ type, bind(C) :: tOpts
   logical(lb) :: AutoBodyUpdate       ! Flag to activate/deactivate automatic rigid body update
 end type tOpts
 
-type, bind(C) :: tEnergy
+type, bind(C), public :: tEnergy
   real(rb)    :: Potential            ! Total potential energy of the system
   real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
   real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
   real(rb)    :: Bond
   real(rb)    :: Angle
   real(rb)    :: Dihedral
-  real(rb)    :: Kinetic              ! Total kinetic energy of the system
-  real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
-  real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
-  real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
   real(rb)    :: ShadowPotential
-  real(rb)    :: ShadowKinetic
-  real(rb)    :: ShadowRotational
   logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tEnergy
+
+type, bind(C), public :: tKinetic
+  real(rb)    :: Total                ! Total kinetic energy of the system
+  real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
+  real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
+  real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
+  real(rb)    :: ShadowKinetic
+  real(rb)    :: ShadowRotational
+end type tKinetic
 
 type, bind(C), public :: tTime
   real(rb) :: Pair                    ! Time taken in force calculations
@@ -58,16 +61,17 @@ type, bind(C), public :: tTime
   real(rb) :: Total                   ! Total time since initialization
 end type tTime
 
-type, bind(C) :: tEmDee
-  integer(ib)   :: Builds             ! Number of neighbor list builds
-  type(tTime)   :: Time
-  type(tEnergy) :: Energy             ! All energy terms
-  real(rb)      :: Virial             ! Total internal virial of the system
-  real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
-  integer(ib)   :: DoF                ! Total number of degrees of freedom
-  integer(ib)   :: RotDoF             ! Number of rotational degrees of freedom
-  type(c_ptr)   :: Data               ! Pointer to system data
-  type(tOpts)   :: Options            ! List of options to change EmDee's behavior
+type, bind(C), public :: tEmDee
+  integer(ib)    :: Builds             ! Number of neighbor list builds
+  type(tTime)    :: Time
+  type(tEnergy)  :: Energy             ! All potential energy terms
+  type(tKinetic) :: Kinetic            ! All kinetic energy terms
+  real(rb)       :: Virial             ! Total internal virial of the system
+  real(rb)       :: BodyVirial         ! Rigid body contribution to the internal virial
+  integer(ib)    :: DoF                ! Total number of degrees of freedom
+  integer(ib)    :: RotDoF             ! Number of rotational degrees of freedom
+  type(c_ptr)    :: Data               ! Pointer to system data
+  type(tOpts)    :: Options            ! List of options to change EmDee's behavior
 end type tEmDee
 
 interface

@@ -32,33 +32,14 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "03 Oct 2018"
+character(11), parameter :: VERSION = "04 Oct 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
   logical(lb) :: Rotate               ! Flag to activate/deactivate rotations
   integer(ib) :: RotationMode         ! Algorithm used for free rotation of rigid bodies
-  logical(lb) :: AutoForceCompute     ! Flag to activate/deactivate automatic force computations
   logical(lb) :: AutoBodyUpdate       ! Flag to activate/deactivate automatic rigid body update
 end type tOpts
-
-type, bind(C), public :: tEnergy
-  real(rb)    :: Potential            ! Total potential energy of the system
-  real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
-  real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
-  real(rb)    :: Bond
-  real(rb)    :: Angle
-  real(rb)    :: Dihedral
-  real(rb)    :: Kinetic              ! Total kinetic energy of the system
-  real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
-  real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
-  real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
-  real(rb)    :: ShadowPotential
-  real(rb)    :: ShadowKinetic
-  real(rb)    :: ShadowRotational
-  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
-  logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
-end type tEnergy
 
 type, bind(C), public :: tTime
   real(rb) :: Pair
@@ -68,15 +49,16 @@ type, bind(C), public :: tTime
 end type tTime
 
 type, bind(C), public :: tEmDee
-  integer(ib)   :: Builds             ! Number of neighbor list builds
-  type(tTime)   :: Time
-  type(tEnergy) :: Energy             ! All energy terms
-  real(rb)      :: Virial             ! Total internal virial of the system
-  real(rb)      :: BodyVirial         ! Rigid body contribution to the internal virial
-  integer(ib)   :: DoF                ! Total number of degrees of freedom
-  integer(ib)   :: RotDoF             ! Number of rotational degrees of freedom
-  type(c_ptr)   :: Data               ! Pointer to system data
-  type(tOpts)   :: Options            ! List of options to change EmDee's behavior
+  integer(ib)    :: Builds             ! Number of neighbor list builds
+  type(tTime)    :: Time
+  type(tEnergy)  :: Energy             ! All potential energy terms
+  type(tKinetic) :: Kinetic            ! All kinetic energy terms
+  real(rb)       :: Virial             ! Total internal virial of the system
+  real(rb)       :: BodyVirial         ! Rigid body contribution to the internal virial
+  integer(ib)    :: DoF                ! Total number of degrees of freedom
+  integer(ib)    :: RotDoF             ! Number of rotational degrees of freedom
+  type(c_ptr)    :: Data               ! Pointer to system data
+  type(tOpts)    :: Options            ! List of options to change EmDee's behavior
 end type tEmDee
 
 contains
@@ -144,7 +126,7 @@ contains
 
     ! Initialize counters and other mutable entities:
     me%startTime = omp_get_wtime()
-    allocate( me%P(3,N), me%F(3,N), me%R0(3,N), source = zero )
+    allocate( me%P(3,N), me%R0(3,N), source = zero )
     allocate( me%charge(N), source = zero )
     allocate( me%charged(N), source = .false. )
     allocate( me%cell(0), me%atomsInCell(0) )
@@ -179,9 +161,12 @@ contains
 
     ! Allocate other variables related to model layers:
     allocate( me%pairs_exist(me%nlayers), source = .false. )
-    allocate(me%useInRc(layers), source=.false.)
-    allocate(me%bonded(layers), source=.true.)
+    allocate( me%useInRc(layers), source = .false. )
+    allocate( me%bonded(layers), source = .true. )
+    allocate( me%forcesUpToDate(layers), source = .false. )
+    allocate( me%layerF(3,N,layers), source = zero )
     me%layer = 1
+    me%F => me%layerF(:,:,1)
 
     ! Set system as uninitialized:
     me%initialized = .false.
@@ -197,15 +182,17 @@ contains
     EmDee_system % Energy % Potential = zero
     EmDee_system % Energy % Dispersion = zero
     EmDee_system % Energy % Coulomb = zero
-    EmDee_system % Energy % Kinetic = zero
-    EmDee_system % Energy % TransPart = zero
-    EmDee_system % Energy % Rotational = zero
-    EmDee_system % Energy % RotPart = zero
+    EmDee_system % Kinetic % Total = zero
+    EmDee_system % Kinetic % TransPart = zero
+    EmDee_system % Kinetic % Rotational = zero
+    EmDee_system % Kinetic % RotPart = zero
     EmDee_system % Energy % ShadowPotential = zero
-    EmDee_system % Energy % ShadowKinetic = zero
-    EmDee_system % Energy % ShadowRotational = zero
+    EmDee_system % Kinetic % ShadowKinetic = zero
+    EmDee_system % Kinetic % ShadowRotational = zero
     EmDee_system % Energy % Compute = .true.
     EmDee_system % Energy % UpToDate = .false.
+
+    allocate( me%layerEnergy(layers), source = EmDee_system % Energy )
 
     EmDee_system % Virial = zero
     EmDee_system % BodyVirial = zero
@@ -216,7 +203,6 @@ contains
 
     EmDee_system % Options % Rotate = .true.
     EmDee_system % Options % RotationMode = 0
-    EmDee_system % Options % AutoForceCompute = .true.
     EmDee_system % Options % AutoBodyUpdate = .true.
 
   end function EmDee_system
@@ -248,10 +234,10 @@ contains
     lose%body => keep%body
     lose%Lbox => keep%Lbox
 
-    mdlose%Energy%Kinetic = mdkeep%Energy%Kinetic
-    mdlose%Energy%TransPart = mdkeep%Energy%TransPart
-    mdlose%Energy%Rotational = mdkeep%Energy%Rotational
-    mdlose%Energy%RotPart = mdkeep%Energy%RotPart
+    mdlose%Kinetic%Total = mdkeep%Kinetic%Total
+    mdlose%Kinetic%TransPart = mdkeep%Kinetic%TransPart
+    mdlose%Kinetic%Rotational = mdkeep%Kinetic%Rotational
+    mdlose%Kinetic%RotPart = mdkeep%Kinetic%RotPart
 
   end subroutine EmDee_share_phase_space
 
@@ -806,7 +792,9 @@ contains
           me%initialized = associated( me%R )
           if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
         end if
-        if (me%initialized.and.md%Options%AutoForceCompute) call EmDee_compute_forces( md )
+        me%forcesUpToDate = .false.
+        me%layerEnergy%UpToDate = .false.
+        md%Energy%UpToDate = .false.
 
       case ("coordinates")
         if (.not.associated( me%R )) allocate( me%R(3,me%natoms) )
@@ -822,7 +810,9 @@ contains
           call update_rigid_bodies( me, omp_get_thread_num() + 1 )
           !$omp end parallel
         end if
-        if (me%initialized.and.md%Options%AutoForceCompute) call EmDee_compute_forces( md )
+        me%forcesUpToDate = .false.
+        me%layerEnergy%UpToDate = .false.
+        md%Energy%UpToDate = .false.
 
       case ("momenta")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -835,12 +825,12 @@ contains
           call assign_momenta( me, thread, Matrix, twoKEt(:,thread), twoKEr(:,thread) )
         end block
         !$omp end parallel
-        md%Energy%RotPart = half*sum(TwoKEr,2)
-        md%Energy%TransPart = half*sum(twoKEt,2)
-        md%Energy%Rotational = sum(md%Energy%RotPart)
-        md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
-        md%Energy%ShadowKinetic = md%Energy%Kinetic
-        md%Energy%ShadowRotational = md%Energy%Rotational
+        md%Kinetic%RotPart = half*sum(TwoKEr,2)
+        md%Kinetic%TransPart = half*sum(twoKEt,2)
+        md%Kinetic%Rotational = sum(md%Kinetic%RotPart)
+        md%Kinetic%Total = sum(md%Kinetic%TransPart) + md%Kinetic%Rotational
+        md%Kinetic%ShadowKinetic = md%Kinetic%Total
+        md%Kinetic%ShadowRotational = md%Kinetic%Rotational
 
       case ("forces")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -856,7 +846,9 @@ contains
         !$omp parallel num_threads(me%nthreads)
         call assign_charges( omp_get_thread_num() + 1, Vector )
         !$omp end parallel
-        if (me%initialized.and.md%Options%AutoForceCompute) call EmDee_compute_forces( md )
+        me%forcesUpToDate = .false.
+        me%layerEnergy%UpToDate = .false.
+        md%Energy%UpToDate = .false.
 
       case default
         call error( "upload", "invalid option" )
@@ -901,7 +893,8 @@ contains
           call error( "model layer switch", "selected layer is out of range" )
         end if
         me%layer = layer
-        if (me%initialized .and. md%Options%AutoForceCompute) call EmDee_compute_forces( md )
+        md%Energy = me%layerEnergy(layer)
+        me%F => me%layerF(:,:,layer)
       end if
 
     end subroutine EmDee_switch_model_layer
@@ -942,12 +935,12 @@ contains
     end associate
     if (adjust) call adjust_momenta
 
-    md%Energy%RotPart = half*TwoKEr
-    md%Energy%TransPart = half*twoKEt
-    md%Energy%Rotational = sum(md%Energy%RotPart)
-    md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
-    md%Energy%ShadowKinetic = md%Energy%Kinetic
-    md%Energy%ShadowRotational = md%Energy%Rotational
+    md%Kinetic%RotPart = half*TwoKEr
+    md%Kinetic%TransPart = half*twoKEt
+    md%Kinetic%Rotational = sum(md%Kinetic%RotPart)
+    md%Kinetic%Total = sum(md%Kinetic%TransPart) + md%Kinetic%Rotational
+    md%Kinetic%ShadowKinetic = md%Kinetic%Total
+    md%Kinetic%ShadowRotational = md%Kinetic%Rotational
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -995,6 +988,10 @@ contains
     CP = one - alpha*CF
     CF = lambda*CF
 
+    if ((lambda /= zero).and.(.not.me%forcesUpToDate(me%layer))) then
+      call EmDee_compute_forces( md )
+    end if
+
     if (md%Energy%compute) allocate( twoKEt(3,me%nthreads), twoKEr(3,me%nthreads) )
     !$omp parallel num_threads(me%nthreads)
     block
@@ -1009,12 +1006,12 @@ contains
     !$omp end parallel
 
     if (md%Energy%compute) then
-      if (md%Options%translate) md%Energy%TransPart = half*sum(twoKEt,2)
+      if (md%Options%translate) md%Kinetic%TransPart = half*sum(twoKEt,2)
       if (md%Options%rotate) then
-        md%Energy%RotPart = half*sum(twoKEr,2)
-        md%Energy%Rotational = sum(md%Energy%RotPart)
+        md%Kinetic%RotPart = half*sum(twoKEr,2)
+        md%Kinetic%Rotational = sum(md%Kinetic%RotPart)
       end if
-      md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
+      md%Kinetic%Total = sum(md%Kinetic%TransPart) + md%Kinetic%Rotational
     end if
 
   end subroutine EmDee_boost
@@ -1049,9 +1046,11 @@ contains
       !$omp end parallel
     end associate
 
-    md%Time%Motion = md%Time%Motion + omp_get_wtime()
+    me%forcesUpToDate = .false.
+    me%layerEnergy%UpToDate = .false.
+    md%Energy%UpToDate = .false.
 
-    if (md%Options%AutoForceCompute) call EmDee_compute_forces( md )
+    md%Time%Motion = md%Time%Motion + omp_get_wtime()
 
   end subroutine EmDee_displace
 
@@ -1088,13 +1087,13 @@ contains
     !$omp end parallel
 
     if (md%Energy%Compute) then
-      md%Energy%TransPart = half*sum(twoKEt,2)
-      md%Energy%RotPart = half*sum(twoKEr,2)
-      md%Energy%Rotational = sum(md%Energy%RotPart)
-      md%Energy%Kinetic = sum(md%Energy%TransPart) + md%Energy%Rotational
+      md%Kinetic%TransPart = half*sum(twoKEt,2)
+      md%Kinetic%RotPart = half*sum(twoKEr,2)
+      md%Kinetic%Rotational = sum(md%Kinetic%RotPart)
+      md%Kinetic%Total = sum(md%Kinetic%TransPart) + md%Kinetic%Rotational
       md%Energy%ShadowPotential = md%Energy%ShadowPotential - dt*dt*Us/24.0_rb
-      md%Energy%ShadowRotational = Ks_r/(6.0_rb*dt)
-      md%Energy%ShadowKinetic = (Ks_t + Ks_r)/(6.0_rb*dt)
+      md%Kinetic%ShadowRotational = Ks_r/(6.0_rb*dt)
+      md%Kinetic%ShadowKinetic = (Ks_t + Ks_r)/(6.0_rb*dt)
     end if
 
     contains
@@ -1219,6 +1218,8 @@ contains
     end if
 
     md%Energy%UpToDate = compute
+    me%forcesUpToDate(me%layer) = .true.
+    me%layerEnergy(me%layer) = md%Energy
     time = omp_get_wtime()
     md%Time%Pair = md%Time%Pair + time
     md%Time%Total = time - me%startTime

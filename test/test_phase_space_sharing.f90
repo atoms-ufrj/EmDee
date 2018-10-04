@@ -67,7 +67,7 @@ call EmDee_compute_forces( other )
 print*
 associate( system => other )
   print*, 0, mvv2e*system%Energy%Potential, mvv2e*system%Virial, &
-        mvv2e*(system%Energy%Potential + system%Energy%Kinetic)
+        mvv2e*(system%Energy%Potential + system%Kinetic%Total)
   do step = 1, 100
     system%Energy%Compute = mod(step,Nprop) == 0
     call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
@@ -75,7 +75,7 @@ associate( system => other )
     call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
     if (mod(step,Nprop) == 0) then
       print*, step, mvv2e*system%Energy%Potential, mvv2e*system%Virial, &
-              mvv2e*(system%Energy%Potential + system%Energy%Kinetic)
+              mvv2e*(system%Energy%Potential + system%Kinetic%Total)
     end if
   end do
   print*, "neighbor list builds = ", system%builds

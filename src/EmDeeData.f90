@@ -37,6 +37,27 @@ type, private :: tCell
   integer :: neighbor(nbcells)
 end type tCell
 
+type, bind(C), public :: tEnergy
+  real(rb)    :: Potential            ! Total potential energy of the system
+  real(rb)    :: Dispersion           ! Dispersion (vdW) part of the potential energy
+  real(rb)    :: Coulomb              ! Electrostatic part of the potential energy
+  real(rb)    :: Bond
+  real(rb)    :: Angle
+  real(rb)    :: Dihedral
+  real(rb)    :: ShadowPotential
+  logical(lb) :: Compute              ! Flag to activate/deactivate energy computations
+  logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
+end type tEnergy
+
+type, bind(C), public :: tKinetic
+  real(rb)    :: Total                ! Total kinetic energy of the system
+  real(rb)    :: TransPart(3)         ! Translational kinetic energy at each dimension
+  real(rb)    :: Rotational           ! Total rotational kinetic energy of the system
+  real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
+  real(rb)    :: ShadowKinetic
+  real(rb)    :: ShadowRotational
+end type tKinetic
+
 type :: tData
 
   integer :: natoms                       ! Number of atoms in the system
@@ -92,7 +113,7 @@ type :: tData
   real(rb),    pointer :: P(:,:) => null()   ! Momenta of all atoms
   type(tBody), pointer :: body(:) => null()  ! Pointer to the rigid bodies present in the system
 
-  real(rb), allocatable :: F(:,:)         ! Resultant forces on all atoms
+  real(rb), pointer     :: F(:,:)         ! Resultant forces on all atoms
   real(rb), allocatable :: charge(:)      ! Electric charges of all atoms
   real(rb), allocatable :: mass(:)        ! Masses of all atoms
   real(rb), allocatable :: invMass(:)     ! Inverses of atoms masses
@@ -112,8 +133,11 @@ type :: tData
   logical,  allocatable :: pairs_exist(:)
 
   ! Fields related to model layers:
-  logical,  allocatable :: bonded(:)
-  logical,  allocatable :: useInRc(:)
+  logical,       allocatable :: bonded(:)
+  logical,       allocatable :: useInRc(:)
+  logical,       allocatable :: forcesUpToDate(:)
+  real(rb),      allocatable :: layerF(:,:,:)
+  type(tEnergy), allocatable :: layerEnergy(:)
 
   logical :: multilayer_coulomb
   logical :: kspace_active

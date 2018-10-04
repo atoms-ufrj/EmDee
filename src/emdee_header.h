@@ -13,16 +13,18 @@ typedef struct {
     double Bond;
     double Angle;
     double Dihedral;
+    double ShadowPotential;
+    _Bool  Compute;          // Flag to activate/deactivate energy computations
+    _Bool  UpToDate;         // Flag to attest whether energies have been computed
+  } Energy;
+  struct {
     double Kinetic;          // Total kinetic energy of the system
     double TransPart[3];     // Translational kinetic energy at each dimension
     double Rotational;       // Rotational kinetic energy of the system
     double RotPart[3];       // Rotational kinetic energy around each principal axis
-    double ShadowPotential;
     double ShadowKinetic;
     double ShadowRotational;
-    _Bool  Compute;          // Flag to activate/deactivate energy computations
-    _Bool  UpToDate;         // Flag to attest whether energies have been computed
-  } Energy;
+  } Kinetic;
   double Virial;             // Total internal virial of the system
   double BodyVirial;         // Rigid body contribution to the internal virial
   int    DoF;                // Total number of degrees of freedom
