@@ -405,6 +405,8 @@ contains
       end do
     end if
 
+    me%initialized = .true.
+
   end subroutine perform_initialization
 
 !===================================================================================================

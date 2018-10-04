@@ -787,13 +787,13 @@ contains
         call c_f_pointer( address, scalar )
         if (.not.associated(me%Lbox)) allocate( me%Lbox )
         me%Lbox = scalar
-        if (.not.me%initialized) then
-          me%initialized = associated( me%R )
-          if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
+        if (me%initialized) then
+          me%forcesUpToDate = .false.
+          me%layerEnergy%UpToDate = .false.
+          md%Energy%UpToDate = .false.
+        else if (associated( me%R )) then
+          call initialize_system()
         end if
-        me%forcesUpToDate = .false.
-        me%layerEnergy%UpToDate = .false.
-        md%Energy%UpToDate = .false.
 
       case ("coordinates")
         if (.not.associated( me%R )) allocate( me%R(3,me%natoms) )
@@ -801,17 +801,18 @@ contains
         !$omp parallel num_threads(me%nthreads)
         call upload( omp_get_thread_num() + 1, Matrix, me%R )
         !$omp end parallel
-        if (.not.me%initialized) then
-          me%initialized = associated(me%Lbox)
-          if (me%initialized) call perform_initialization( me, md%DOF, md%RotDoF )
-        else if (md%Options%AutoBodyUpdate) then
-          !$omp parallel num_threads(me%nthreads)
-          call update_rigid_bodies( me, omp_get_thread_num() + 1 )
-          !$omp end parallel
+        if (me%initialized) then
+          me%forcesUpToDate = .false.
+          me%layerEnergy%UpToDate = .false.
+          md%Energy%UpToDate = .false.
+          if (md%Options%AutoBodyUpdate) then
+            !$omp parallel num_threads(me%nthreads)
+            call update_rigid_bodies( me, omp_get_thread_num() + 1 )
+            !$omp end parallel
+          end if
+        else if (associated(me%Lbox)) then
+          call initialize_system()
         end if
-        me%forcesUpToDate = .false.
-        me%layerEnergy%UpToDate = .false.
-        md%Energy%UpToDate = .false.
 
       case ("momenta")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -875,6 +876,15 @@ contains
         last = min(thread*me%threadAtoms, me%natoms)
         destination(:,first:last) = origin(:,first:last)
       end subroutine upload
+      !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      subroutine initialize_system()
+        integer :: layer
+        call perform_initialization( me, md%DOF, md%RotDoF )
+        do layer = me%nlayers, 1, -1
+          call EmDee_switch_model_layer( md, layer )
+          call EmDee_compute_forces( md )
+        end do
+      end subroutine initialize_system
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   end subroutine EmDee_upload
 
