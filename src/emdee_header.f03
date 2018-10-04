@@ -52,6 +52,7 @@ type, bind(C), public :: tKinetic
   real(rb)    :: RotPart(3)           ! Rotational kinetic energy around each principal axis
   real(rb)    :: ShadowKinetic
   real(rb)    :: ShadowRotational
+  logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tKinetic
 
 type, bind(C), public :: tTime

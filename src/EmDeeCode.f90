@@ -832,6 +832,7 @@ contains
         md%Kinetic%Total = sum(md%Kinetic%TransPart) + md%Kinetic%Rotational
         md%Kinetic%ShadowKinetic = md%Kinetic%Total
         md%Kinetic%ShadowRotational = md%Kinetic%Rotational
+        md%Kinetic%UpToDate = .true.
 
       case ("forces")
         if (.not.me%initialized) call error( "upload", "box and coordinates have not been defined" )
@@ -951,6 +952,7 @@ contains
     md%Kinetic%Total = sum(md%Kinetic%TransPart) + md%Kinetic%Rotational
     md%Kinetic%ShadowKinetic = md%Kinetic%Total
     md%Kinetic%ShadowRotational = md%Kinetic%Rotational
+    md%Kinetic%UpToDate = .true.
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1023,6 +1025,7 @@ contains
       end if
       md%Kinetic%Total = sum(md%Kinetic%TransPart) + md%Kinetic%Rotational
     end if
+    md%Kinetic%UpToDate = md%Options%Compute
 
   end subroutine EmDee_boost
 
@@ -1105,6 +1108,7 @@ contains
       md%Kinetic%ShadowRotational = Ks_r/(6.0_rb*dt)
       md%Kinetic%ShadowKinetic = (Ks_t + Ks_r)/(6.0_rb*dt)
     end if
+    md%Kinetic%UpToDate = md%Options%Compute
 
     contains
       !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
