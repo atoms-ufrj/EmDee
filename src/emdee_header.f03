@@ -55,6 +55,11 @@ type, bind(C), public :: tKinetic
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tKinetic
 
+type, bind(C), public :: tVirial
+  real(rb)    :: Total                ! Total internal virial of the system
+  real(rb)    :: Body                 ! Rigid body contribution to the internal virial
+end type tVirial
+
 type, bind(C), public :: tTime
   real(rb) :: Pair                    ! Time taken in force calculations
   real(rb) :: Motion
@@ -67,8 +72,7 @@ type, bind(C), public :: tEmDee
   type(tTime)    :: Time
   type(tEnergy)  :: Energy             ! All potential energy terms
   type(tKinetic) :: Kinetic            ! All kinetic energy terms
-  real(rb)       :: Virial             ! Total internal virial of the system
-  real(rb)       :: BodyVirial         ! Rigid body contribution to the internal virial
+  type(tVirial)  :: Virial             ! Total internal virial of the system
   integer(ib)    :: DoF                ! Total number of degrees of freedom
   integer(ib)    :: RotDoF             ! Number of rotational degrees of freedom
   type(c_ptr)    :: Data               ! Pointer to system data

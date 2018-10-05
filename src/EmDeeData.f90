@@ -58,6 +58,11 @@ type, bind(C), public :: tKinetic
   logical(lb) :: UpToDate             ! Flag to attest whether energies have been computed
 end type tKinetic
 
+type, bind(C), public :: tVirial
+  real(rb)    :: Total                ! Total internal virial of the system
+  real(rb)    :: Body                 ! Rigid body contribution to the internal virial
+end type tVirial
+
 type :: tData
 
   integer :: natoms                       ! Number of atoms in the system
@@ -138,6 +143,7 @@ type :: tData
   logical,       allocatable :: forcesUpToDate(:)
   real(rb),      allocatable :: layerF(:,:,:)
   type(tEnergy), allocatable :: layerEnergy(:)
+  type(tVirial), allocatable :: layerVirial(:)
 
   logical :: multilayer_coulomb
   logical :: kspace_active
@@ -653,11 +659,11 @@ contains
       L2 = me%Lbox**2
       invL2 = one/L2
       if (me%useInRc(me%layer)) then
-          Rc2 = me%InRcSq*invL2
-          upper => me%neighbor(thread)%middle(:)
+        Rc2 = me%InRcSq*invL2
+        upper => me%neighbor(thread)%middle(:)
       else
-          Rc2 = me%RcSq*invL2
-          upper => me%neighbor(thread)%last(:)
+        Rc2 = me%RcSq*invL2
+        upper => me%neighbor(thread)%last(:)
       end if
       if (compute) then
 #       define compute

@@ -94,6 +94,7 @@ contains
     s = sqrt(inverse_of_x_plus_ln_x(-log(me%accuracy)))
     alpha = s/Rc
     me%kmax = two*alpha*s
+    write(*,'("KSPACE PARAMETERS: alpha = ",F10.5," and kmax = ",F10.5)') alpha, me%kmax
 
   end subroutine kspace_ewald_set_parameters
 

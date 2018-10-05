@@ -24,6 +24,8 @@
 
 module EmDeeCode
 
+#define PRINT .false.
+
 use EmDeeData
 use neighbor_lists
 
@@ -31,7 +33,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "04 Oct 2018"
+character(11), parameter :: VERSION = "05 Oct 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -53,8 +55,7 @@ type, bind(C), public :: tEmDee
   type(tTime)    :: Time
   type(tEnergy)  :: Energy             ! All potential energy terms
   type(tKinetic) :: Kinetic            ! All kinetic energy terms
-  real(rb)       :: Virial             ! Total internal virial of the system
-  real(rb)       :: BodyVirial         ! Rigid body contribution to the internal virial
+  type(tVirial)  :: Virial
   integer(ib)    :: DoF                ! Total number of degrees of freedom
   integer(ib)    :: RotDoF             ! Number of rotational degrees of freedom
   type(c_ptr)    :: Data               ! Pointer to system data
@@ -192,9 +193,10 @@ contains
     EmDee_system % Energy % UpToDate = .false.
 
     allocate( me%layerEnergy(layers), source = EmDee_system % Energy )
+    allocate( me%layerVirial(layers), source = EmDee_system % Virial )
 
-    EmDee_system % Virial = zero
-    EmDee_system % BodyVirial = zero
+    EmDee_system % Virial % Total = zero
+    EmDee_system % Virial % Body = zero
     EmDee_system % DoF = 3*(N - 1)
     EmDee_system % RotDoF = 0
     EmDee_system % data = c_loc(me)
@@ -657,12 +659,15 @@ contains
 
         case ("forces")
           call c_f_pointer( address, matrix, [3,me%natoms] )
-          if (me%kspace_active) then
-            call me % kspace % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Forces = me%F )
-          end if
+          if (.not.me%forcesUpToDate(me%layer)) call EmDee_compute_forces( md )
+!          if (me%kspace_active) then
+!            call me % kspace % discount_rigid_pairs( me%layer, me%Lbox*[1,1,1], me%R, Forces = me%F )
+!          end if
           !$omp parallel num_threads(me%nthreads)
           call download( omp_get_thread_num() + 1, me%F, matrix )
           !$omp end parallel
+
+if (PRINT) print*, "downloaded from layer ", me%layer
 
         case ("centersOfMass")
           call c_f_pointer( address, matrix, [3,me%nbodies+me%nfree] )
@@ -841,6 +846,8 @@ contains
         call upload( omp_get_thread_num() + 1, Matrix, me%F )
         !$omp end parallel
 
+if (PRINT) print*, "uploaded to layer ", me%layer
+
       case ("charges")
         if (me%initialized) &
           call error( "upload", "cannot set charges after box and coordinates initialization" )
@@ -905,7 +912,9 @@ contains
         end if
         me%layer = layer
         md%Energy = me%layerEnergy(layer)
+        md%Virial = me%layerVirial(layer)
         me%F => me%layerF(:,:,layer)
+if (PRINT) print*, "switched to layer ", me%layer
       end if
 
     end subroutine EmDee_switch_model_layer
@@ -1027,6 +1036,8 @@ contains
     end if
     md%Kinetic%UpToDate = md%Options%Compute
 
+if (PRINT) print*, "BOOST - layer = ", me%layer, " | dt = ", dt
+
   end subroutine EmDee_boost
 
 !===================================================================================================
@@ -1064,6 +1075,8 @@ contains
     md%Energy%UpToDate = .false.
 
     md%Time%Motion = md%Time%Motion + omp_get_wtime()
+
+if (PRINT) print*, "MOVE dt = ", dt
 
   end subroutine EmDee_displace
 
@@ -1216,10 +1229,10 @@ contains
       W(long) = E(coul) + E(long) - W(coul)
     end if
 
-    md%Virial = sum(W)
+    md%Virial%Total = sum(W)
     if (me%nbodies /= 0) then
-      md%BodyVirial = rigid_body_virial( me )
-      md%Virial = md%Virial + md%BodyVirial
+      md%Virial%Body = rigid_body_virial( me )
+      md%Virial%Total = md%Virial%Total + md%Virial%Body
     end if
 
     if (compute) then
@@ -1234,9 +1247,12 @@ contains
     md%Energy%UpToDate = compute
     me%forcesUpToDate(me%layer) = .true.
     me%layerEnergy(me%layer) = md%Energy
+    me%layerVirial(me%layer) = md%Virial
     time = omp_get_wtime()
     md%Time%Pair = md%Time%Pair + time
     md%Time%Total = time - me%startTime
+
+if (PRINT) print*, "FORCE - layer = ", me%layer
 
   end subroutine EmDee_compute_forces
 

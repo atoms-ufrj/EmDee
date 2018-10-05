@@ -58,16 +58,16 @@
 
     integer :: step
 
-    print*, 0, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
-            mvv2e*(md%Energy%Potential + md%Kinetic%Kinetic)
+    print*, 0, mvv2e*md%Energy%Potential, mvv2e*md%Virial%Total, &
+            mvv2e*(md%Energy%Potential + md%Kinetic%Total)
     do step = 1, Nsteps
-      md%Energy%Compute = mod(step,Nprop) == 0
+      md%Options%Compute = mod(step,Nprop) == 0
       call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
       call EmDee_displace( md, 1.0_rb, 0.0_rb, Dt )
       call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
       if (mod(step,Nprop) == 0) then
-        print*, step, mvv2e*md%Energy%Potential, mvv2e*md%Virial, &
-                mvv2e*(md%Energy%Potential + md%Kinetic%Kinetic)
+        print*, step, mvv2e*md%Energy%Potential, mvv2e*md%Virial%Total, &
+                mvv2e*(md%Energy%Potential + md%Kinetic%Total)
       end if
     end do
     if (Nsteps > 0) then
@@ -78,7 +78,7 @@
       print*, "execution time = ", md%Time%Total, " s."
     end if
 
-    obtained = mvv2e*[md%Energy%Potential, md%Virial, md%Energy%Potential + md%Kinetic%Kinetic]
+    obtained = mvv2e*[md%Energy%Potential, md%Virial%Total, md%Energy%Potential + md%Kinetic%Total]
     if (any(abs(obtained - expected) > tol)) then
       write(*,*)
       write(*,'("Obtained = ")',advance="no"); write(*,*) obtained

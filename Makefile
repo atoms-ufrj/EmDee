@@ -83,7 +83,7 @@ TESTS = $(patsubst %.f90,%,$(wildcard $(TSTDIR)/*.f90))
 all: lib include $(TSTDIR)/testfortran
 # DELETE $(TSTDIR)/testfortran above
 
-test: $(addprefix $(BINDIR)/,testc testjulia) $(TESTS)
+test: $(addprefix $(BINDIR)/,testc) $(TESTS)
 	cd $(TSTDIR) && bash run_tests.sh
 
 clean:

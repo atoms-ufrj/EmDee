@@ -66,7 +66,7 @@ call EmDee_compute_forces( other )
 
 print*
 associate( system => other )
-  print*, 0, mvv2e*system%Energy%Potential, mvv2e*system%Virial, &
+  print*, 0, mvv2e*system%Energy%Potential, mvv2e*system%Virial%Total, &
         mvv2e*(system%Energy%Potential + system%Kinetic%Total)
   do step = 1, 100
     system%Options%Compute = mod(step,Nprop) == 0
@@ -74,7 +74,7 @@ associate( system => other )
     call EmDee_displace( md, 1.0_rb, 0.0_rb, Dt )
     call EmDee_boost( md, 1.0_rb, 0.0_rb, Dt_2 )
     if (mod(step,Nprop) == 0) then
-      print*, step, mvv2e*system%Energy%Potential, mvv2e*system%Virial, &
+      print*, step, mvv2e*system%Energy%Potential, mvv2e*system%Virial%Total, &
               mvv2e*(system%Energy%Potential + system%Kinetic%Total)
     end if
   end do

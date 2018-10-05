@@ -24,7 +24,6 @@ This repository contains:
 * A test program in 3 versions:
   * A fortran source code + build instructions (Makefile)
   * A C source code + build instructions (Makefile)
-  * A julia script
 * An example input data file for the test program
 
 Standard compilation and testing
@@ -44,17 +43,6 @@ Standard compilation and testing
 >      sudo apt-get install gfortran
 
 #### Further dependencies for running the test
-
-##### To run the julia script test:
-
-* julia
-
-> **Tested with:**
-> - julia version 0.4.5
->
-> **Can usually be installed via apt:**
->
->      sudo apt install julia
 
 ### Compiling the library:
 
@@ -76,14 +64,12 @@ Standard compilation and testing
 
         make test
 
-  This will compile the c and fortran test programs and create a copy of the default julia
-testscript inside the `test` directory.
+  This will compile the c and fortran test programs.
 
 * Run each test using the input file provided in the `example` directory.
 
         test/testfortran <N_threads> examples/data.inp
         test/testc <N_threads> examples/data.inp
-        test/testjulia <N_threads> examples/data.inp
 
   In the commands above, N_threads (optional) is the number of parallel threads to be used for
 the calculations.
