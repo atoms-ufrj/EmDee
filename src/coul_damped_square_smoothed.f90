@@ -34,12 +34,11 @@ implicit none
 
 type, extends(cCoulModel) :: coul_damped_square_smoothed
   real(rb) :: damp    !<> Damping parameter (unit = 1/distance)
-  real(rb) :: skin    !<> Smoothing skin width (unit = distance)
+  real(rb) :: skinWidth    !<> Smoothing skinWidth width (unit = distance)
 
   real(rb) :: beta = zero
   real(rb) :: Rm2 = zero
   real(rb) :: invRm = zero
-  real(rb) :: factor = zero
 
   contains
     procedure :: setup => coul_damped_square_smoothed_setup
@@ -63,7 +62,7 @@ contains
 
     ! Model parameters:
     model%Damp = params(1)
-    model%skin = params(2)
+    model%skinWidth = params(2)
 
     ! Pre-computed quantities:
     model%alpha = model%damp
@@ -78,8 +77,8 @@ contains
     class(coul_damped_square_smoothed), intent(inout) :: model
     real(rb),                    intent(in)    :: Rc
 
-    model%Rm2 = (Rc - model%skin)**2
-    model%invRm = one/(Rc - model%skin)
+    model%Rm2 = (Rc - model%skinWidth)**2
+    model%invRm = one/(Rc - model%skinWidth)
     model%factor = one/(Rc**2 - model%Rm2)
 
   end subroutine coul_damped_square_smoothed_apply_cutoff

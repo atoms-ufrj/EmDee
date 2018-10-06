@@ -83,10 +83,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_softcore_cut_compute( model, Eij, Wij, invR, invR2 )
+  subroutine pair_softcore_cut_compute( model, Eij, Wij, invR, invR2, QiQj )
     class(pair_softcore_cut), intent(in)  :: model
     real(rb),                 intent(out) :: Eij, Wij
-    real(rb),                 intent(in)  :: invR, invR2
+    real(rb),                 intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
 
@@ -102,10 +102,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_softcore_cut_energy( model, Eij, invR, invR2 )
+  subroutine pair_softcore_cut_energy( model, Eij, invR, invR2, QiQj )
     class(pair_softcore_cut), intent(in)  :: model
     real(rb),                 intent(out) :: Eij
-    real(rb),                 intent(in)  :: invR, invR2
+    real(rb),                 intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: rsig2, rsig6, sinv
 
@@ -118,10 +118,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_softcore_cut_virial( model, Wij, invR, invR2 )
+  subroutine pair_softcore_cut_virial( model, Wij, invR, invR2, QiQj )
     class(pair_softcore_cut), intent(in)  :: model
     real(rb),                 intent(out) :: Wij
-    real(rb),                 intent(in)  :: invR, invR2
+    real(rb),                 intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: rsig2, rsig6, sinv, sinvSq, sinvCb
 

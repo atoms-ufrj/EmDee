@@ -32,11 +32,10 @@ implicit none
 !!           parameter or series of equally-sized allocatable parameters.
 
 type, extends(cCoulModel) :: coul_square_smoothed
-  real(rb) :: skin    !<> Smoothing skin width (unit = distance)
+  real(rb) :: skinWidth    !<> Smoothing skinWidth width (unit = distance)
 
   real(rb) :: Rm2 = zero
   real(rb) :: invRm = zero
-  real(rb) :: factor = zero
 
   contains
     procedure :: setup => coul_square_smoothed_setup
@@ -59,7 +58,7 @@ contains
     model%name = "smoothed"
 
     ! Model parameters:
-    model%skin = params(1)
+    model%skinWidth = params(1)
 
   end subroutine coul_square_smoothed_setup
 
@@ -70,8 +69,8 @@ contains
     class(coul_square_smoothed), intent(inout) :: model
     real(rb),             intent(in)    :: Rc
 
-    model%Rm2 = (Rc - model%skin)**2
-    model%invRm = one/(Rc - model%skin)
+    model%Rm2 = (Rc - model%skinWidth)**2
+    model%invRm = one/(Rc - model%skinWidth)
     model%factor = one/(Rc**2 - model%Rm2)
 
   end subroutine coul_square_smoothed_apply_cutoff

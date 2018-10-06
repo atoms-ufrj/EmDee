@@ -20,51 +20,21 @@
 module coulModelClass
 
 use global
-use modelClass
+use nonBondedModelClass
 
 implicit none
 
 !> Abstract class for coul interaction models
-type, abstract, extends(cModel) :: cCoulModel
+type, abstract, extends(cNonBondedModel) :: cCoulModel
   logical  :: shifted = .false.
   logical  :: shifted_force = .false.
-  real(rb) :: eshift = zero
-  real(rb) :: fshift = zero
   logical  :: requires_kspace = .false.
   real(rb) :: alpha = zero
   contains
-    procedure(cCoulModel_compute), deferred :: compute
-    procedure(cCoulModel_energy),  deferred :: energy
-    procedure(cCoulModel_virial),  deferred :: virial
     procedure :: cutoff_setup => cCoulModel_cutoff_setup
     procedure :: apply_cutoff => cCoulModel_apply_cutoff
     procedure :: kspace_setup => cCoulModel_kspace_setup
 end type cCoulModel
-
-abstract interface
-
-  subroutine cCoulModel_compute( model, Eij, Wij, invR, invR2, QiQj )
-    import
-    class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: Eij, Wij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
-  end subroutine cCoulModel_compute
-
-  subroutine cCoulModel_energy( model, Eij, invR, invR2, QiQj )
-    import
-    class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: Eij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
-  end subroutine cCoulModel_energy
-
-  subroutine cCoulModel_virial( model, Wij, invR, invR2, QiQj )
-    import
-    class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: Wij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
-  end subroutine cCoulModel_virial
-
-end interface
 
 !> Container structure for coul models
 type coulContainer
