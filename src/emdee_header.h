@@ -84,11 +84,11 @@ void EmDee_rdf( tEmDee md, int bins, int pairs, int itype[], int jtype[], double
 
 void* EmDee_shifted_force( void* model );
 
+void* EmDee_square_smoothed( void* model, double Rm );
+
+void* EmDee_shifted_square_smoothed( void* model, double Rm );
+
 void* EmDee_smoothed( void* model, double Rm );
-
-void* EmDee_shifted_smoothed( void* model, double Rm );
-
-void* EmDee_openmm_smoothed( void* model, double Rm );
 
 void* EmDee_pair_none();
 

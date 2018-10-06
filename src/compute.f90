@@ -18,6 +18,7 @@
 !            Federal University of Rio de Janeiro, Brazil
 
 block
+  use pairModelClass
   integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
   real(rb) :: r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc, Eij, r2fac, u, u2, u3, G, WG
   real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
@@ -61,33 +62,16 @@ block
                 end select
                 select case (model%modifier)
 #if defined(compute)
-                  case (1)
+                  case (SHIFTED)
                     Eij = Eij + model%eshift
 #endif
-                  case (2)
+                  case (SHIFTED_FORCE)
                     rFc = model%fshift/invR
                     Wij = Wij - rFc
 #if defined(compute)
                     Eij = Eij + model%eshift + rFc
 #endif
-                  case (3,4)
-                    r2fac = r2*L2*model%factor
-                    if (r2fac > model%Rm2fac) then
-#ifndef compute
-                      select type ( model )
-                        include "energy_compute_pair.f90"
-                      end select
-#endif
-                      u = r2fac - model%Rm2fac
-                      u2 = u*u
-                      u3 = u*u2
-                      G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
-                      WG = -30.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*r2fac
-                      Eij = Eij + model%eshift
-                      Wij = Wij*G + Eij*WG
-                      Eij = Eij*G
-                    end if
-                  case (5)
+                  case (SMOOTHED)
                     r2fac = model%factor/invR
                     if (r2fac > model%Rm2fac) then
 #ifndef compute
@@ -100,6 +84,23 @@ block
                       u3 = u*u2
                       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
                       WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*r2fac
+                      Eij = Eij + model%eshift
+                      Wij = Wij*G + Eij*WG
+                      Eij = Eij*G
+                    end if
+                  case (SQUARE_SMOOTHED, SHIFTED_SQUARE_SMOOTHED)
+                    r2fac = r2*L2*model%factor
+                    if (r2fac > model%Rm2fac) then
+#ifndef compute
+                      select type ( model )
+                        include "energy_compute_pair.f90"
+                      end select
+#endif
+                      u = r2fac - model%Rm2fac
+                      u2 = u*u
+                      u3 = u*u2
+                      G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
+                      WG = -30.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*r2fac
                       Eij = Eij + model%eshift
                       Wij = Wij*G + Eij*WG
                       Eij = Eij*G

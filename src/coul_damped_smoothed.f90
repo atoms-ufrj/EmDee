@@ -37,6 +37,7 @@ type, extends(cCoulModel) :: coul_damped_smoothed
   real(rb) :: skin    !<> Smoothing skin width (unit = distance)
 
   real(rb) :: beta = zero
+  real(rb) :: Rm = zero
   real(rb) :: Rm2 = zero
   real(rb) :: invRm = zero
   real(rb) :: factor = zero
@@ -59,7 +60,7 @@ contains
     integer,  optional,          intent(in)    :: iparams(:)
 
     ! Model name:
-    model%name = "damped_smoothed"
+    model%name = "damped_openmm_smoothed"
 
     ! Model parameters:
     model%Damp = params(1)
@@ -78,9 +79,10 @@ contains
     class(coul_damped_smoothed), intent(inout) :: model
     real(rb),                    intent(in)    :: Rc
 
-    model%Rm2 = (Rc - model%skin)**2
-    model%invRm = one/(Rc - model%skin)
-    model%factor = one/(Rc**2 - model%Rm2)
+    model%Rm = Rc - model%skin
+    model%Rm2 = model%Rm**2
+    model%invRm = one/model%Rm
+    model%factor = one/(Rc - model%Rm)
 
   end subroutine coul_damped_smoothed_apply_cutoff
 
@@ -94,20 +96,20 @@ contains
     real(rb),                    intent(out) :: ECij, WCij
     real(rb),                    intent(in)  :: invR, invR2, QiQj
 
-    real(rb) :: x, expmx2, r2, u, u2, u3, G, WG
+    real(rb) :: x, expmx2, r, u, u2, u3, G, WG
 
-    x = model%alpha/invR
+    r = one/invR
+    x = model%alpha*r
     expmx2 = exp(-x*x)
     ECij = QiQj*uerfc(x,expmx2)*invR
     WCij = ECij + QiQj*model%beta*expmx2
 
-    if (invR < model%invRm) then
-      r2 = one/invR2
-      u = model%factor*(r2 - model%Rm2)
+    if (r > model%Rm) then
+      u = model%factor*(r - model%Rm)
       u2 = u*u
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
-      WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r2
+      WG = -30.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r
       WCij = WCij*G + ECij*WG
       ECij = ECij*G
     end if
@@ -122,14 +124,14 @@ contains
     real(rb),                    intent(out) :: ECij
     real(rb),                    intent(in)  :: invR, invR2, QiQj
 
-    real(rb) :: x, r2, u, u2, u3, G
+    real(rb) :: x, r, u, u2, u3, G
 
-    x = model%alpha/invR
+    r = one/invR
+    x = model%alpha*r
     ECij = QiQj*uerfc(x,exp(-x*x))*invR
 
-    if (invR < model%invRm) then
-      r2 = one/invR2
-      u = model%factor*(r2 - model%Rm2)
+    if (r > model%Rm) then
+      u = model%factor*(r - model%Rm)
       u2 = u*u
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
@@ -146,20 +148,20 @@ contains
     real(rb),                    intent(out) :: WCij
     real(rb),                    intent(in)  :: invR, invR2, QiQj
 
-    real(rb) :: x, ECij, expmx2, r2, u, u2, u3, G, WG
+    real(rb) :: x, ECij, expmx2, r, u, u2, u3, G, WG
 
-    x = model%alpha/invR
+    r = one/invR
+    x = model%alpha*r
     expmx2 = exp(-x*x)
     ECij = QiQj*uerfc(x,expmx2)*invR
     WCij = ECij + QiQj*model%beta*expmx2
 
-    if (invR < model%invRm) then
-      r2 = one/invR2
-      u = model%factor*(r2 - model%Rm2)
+    if (r > model%Rm) then
+      u = model%factor*(r - model%Rm)
       u2 = u*u
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
-      WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r2
+      WG = -30.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r
       WCij = WCij*G + ECij*WG
     end if
 

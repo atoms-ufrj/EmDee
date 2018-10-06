@@ -24,12 +24,12 @@ use modelClass
 
 implicit none
 
-integer, parameter :: NONE = 0,             &
-                      SHIFTED = 1,          &
-                      SHIFTED_FORCE = 2,    &
-                      SMOOTHED = 3,         &
-                      SHIFTED_SMOOTHED = 4, &
-                      OPENMM_SMOOTHED = 5
+integer, parameter :: NONE = 0,                    &
+                      SHIFTED = 1,                 &
+                      SHIFTED_FORCE = 2,           &
+                      SMOOTHED = 3,                &
+                      SQUARE_SMOOTHED = 4,         &
+                      SHIFTED_SQUARE_SMOOTHED = 5
 
 !> Abstract class for pair interaction models
 type, abstract, extends(cModel) :: cPairModel
@@ -109,7 +109,8 @@ contains
 !                             P A I R     M O D E L    C L A S S
 !===================================================================================================
 
-  type(c_ptr) function EmDee_shifted( model ) bind(C,name="EmDee_shifted")
+  type(c_ptr) function EmDee_shifted( model ) &
+    bind(C,name="EmDee_shifted")
     type(c_ptr), value :: model
 
     type(modelContainer),  pointer :: container
@@ -133,7 +134,8 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_shifted_force( model ) bind(C,name="EmDee_shifted_force")
+  type(c_ptr) function EmDee_shifted_force( model ) &
+    bind(C,name="EmDee_shifted_force")
     type(c_ptr), value :: model
 
     type(modelContainer),  pointer :: container
@@ -157,7 +159,8 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_smoothed( model, skin ) bind(C,name="EmDee_smoothed")
+  type(c_ptr) function EmDee_smoothed( model, skin ) &
+    bind(C,name="EmDee_smoothed")
     type(c_ptr), value :: model
     real(rb),    value :: skin
 
@@ -183,7 +186,8 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_shifted_smoothed( model, skin ) bind(C,name="EmDee_shifted_smoothed")
+  type(c_ptr) function EmDee_square_smoothed( model, skin ) &
+    bind(C,name="EmDee_square_smoothed")
     type(c_ptr), value :: model
     real(rb),    value :: skin
 
@@ -191,25 +195,26 @@ contains
     class(cPairModel), allocatable :: new
 
     if (.not.c_associated(model)) then
-      call error( "shifted-smoothed potential assignment", "a valid pair model must be provided" )
+      call error( "square-smoothed potential assignment", "a valid pair model must be provided" )
     end if
     call c_f_pointer( model, container )
 
     select type ( pair => container%model )
       class is (cPairModel)
         allocate( new, source = pair )
-        new%modifier = SHIFTED_SMOOTHED
+        new%modifier = SQUARE_SMOOTHED
         new%skin = skin
-        EmDee_shifted_smoothed = new % deliver()
+        EmDee_square_smoothed = new % deliver()
       class default
-        call error( "shifted-smoothed potential assignment", "a valid pair model must be provided" )
+        call error( "square-smoothed potential assignment", "a valid pair model must be provided" )
     end select
 
-  end function EmDee_shifted_smoothed
+  end function EmDee_square_smoothed
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_openmm_smoothed( model, skin ) bind(C,name="EmDee_openmm_smoothed")
+  type(c_ptr) function EmDee_shifted_square_smoothed( model, skin ) &
+    bind(C,name="EmDee_shifted_square_smoothed")
     type(c_ptr), value :: model
     real(rb),    value :: skin
 
@@ -217,21 +222,23 @@ contains
     class(cPairModel), allocatable :: new
 
     if (.not.c_associated(model)) then
-      call error( "openmm-smoothed potential assignment", "a valid pair model must be provided" )
+      call error( "shifted-square-smoothed potential assignment", &
+                  "a valid pair model must be provided" )
     end if
     call c_f_pointer( model, container )
 
     select type ( pair => container%model )
       class is (cPairModel)
         allocate( new, source = pair )
-        new%modifier = OPENMM_SMOOTHED
+        new%modifier = SHIFTED_SQUARE_SMOOTHED
         new%skin = skin
-        EmDee_openmm_smoothed = new % deliver()
+        EmDee_shifted_square_smoothed = new % deliver()
       class default
-        call error( "openmm-smoothed potential assignment", "a valid pair model must be provided" )
+        call error( "shifted-square-smoothed potential assignment", &
+                    "a valid pair model must be provided" )
     end select
 
-  end function EmDee_openmm_smoothed
+  end function EmDee_shifted_square_smoothed
 
 !---------------------------------------------------------------------------------------------------
 
@@ -250,7 +257,7 @@ contains
     model%RmSq = model%Rm**2
 
     select case (model%modifier)
-      case (SHIFTED, SHIFTED_FORCE, SHIFTED_SMOOTHED)
+      case (SHIFTED, SHIFTED_FORCE, SHIFTED_SQUARE_SMOOTHED)
 
         ! Compute energies and virials at cutoff:
         invR = one/cutoff
@@ -264,18 +271,18 @@ contains
         else
           model%fshift = zero
           model%eshift = -E
-          if (model%modifier == SHIFTED_SMOOTHED) then
+          if (model%modifier == SHIFTED_SQUARE_SMOOTHED) then
             model%factor = one/(cutoff**2 - model%RmSq)
             model%Rm2fac = model%factor*model%RmSq
           end if
         end if
 
-      case (SMOOTHED)
+      case (SQUARE_SMOOTHED)
 
         model%factor = one/(cutoff**2 - model%RmSq)
         model%Rm2fac = model%factor*model%RmSq
 
-      case (OPENMM_SMOOTHED)
+      case (SMOOTHED)
 
         model%factor = one/(cutoff - model%Rm)
         model%Rm2fac = model%factor*model%Rm

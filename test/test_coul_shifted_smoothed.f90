@@ -42,7 +42,7 @@ do i = 1, ntypes
   end if
   call EmDee_set_pair_model( md, i, i, pair, kCoul )
 end do
-call EmDee_set_coul_model( md, EmDee_coul_shifted_smoothed( 1.0_rb ) )
+call EmDee_set_coul_model( md, EmDee_coul_shifted_square_smoothed( 1.0_rb ) )
 call EmDee_upload( md, "charges"//c_null_char, c_loc(Q) )
 call EmDee_upload( md, "coordinates"//c_null_char, c_loc(R(1,1)) )
 call EmDee_upload( md, "box"//c_null_char, c_loc(L) )
