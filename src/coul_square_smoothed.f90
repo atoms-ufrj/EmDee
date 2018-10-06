@@ -81,15 +81,15 @@ contains
 ! whose distance is equal to 1/invR. If the Coulomb model requires a kspace solver, then only the
 ! real-space, short-range contribution must be computed here.
 
-  subroutine coul_square_smoothed_compute( model, ECij, WCij, invR, invR2, QiQj )
+  subroutine coul_square_smoothed_compute( model, Eij, Wij, invR, invR2, QiQj )
     class(coul_square_smoothed), intent(in)  :: model
-    real(rb),             intent(out) :: ECij, WCij
+    real(rb),             intent(out) :: Eij, Wij
     real(rb),             intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: r2, u, u2, u3, G, WG
 
-    WCij = QiQj*invR
-    ECij = WCij
+    Wij = QiQj*invR
+    Eij = Wij
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -98,8 +98,8 @@ contains
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
       WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r2
-      WCij = WCij*G + ECij*WG
-      ECij = ECij*G
+      Wij = Wij*G + Eij*WG
+      Eij = Eij*G
     end if
 
   end subroutine coul_square_smoothed_compute
@@ -107,14 +107,14 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
-  subroutine coul_square_smoothed_energy( model, ECij, invR, invR2, QiQj )
+  subroutine coul_square_smoothed_energy( model, Eij, invR, invR2, QiQj )
     class(coul_square_smoothed), intent(in)  :: model
-    real(rb),             intent(out) :: ECij
+    real(rb),             intent(out) :: Eij
     real(rb),             intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: r2, u, u2, u3, G
 
-    ECij = QiQj*invR
+    Eij = QiQj*invR
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -122,7 +122,7 @@ contains
       u2 = u*u
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
-      ECij = ECij*G
+      Eij = Eij*G
     end if
 
   end subroutine coul_square_smoothed_energy
@@ -130,14 +130,14 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
-  subroutine coul_square_smoothed_virial( model, WCij, invR, invR2, QiQj )
+  subroutine coul_square_smoothed_virial( model, Wij, invR, invR2, QiQj )
     class(coul_square_smoothed), intent(in)  :: model
-    real(rb),             intent(out) :: WCij
+    real(rb),             intent(out) :: Wij
     real(rb),             intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: r2, u, u2, u3, G, WG
 
-    WCij = QiQj*invR
+    Wij = QiQj*invR
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -146,7 +146,7 @@ contains
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
       WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r2
-      WCij = WCij*(G + WG)
+      Wij = Wij*(G + WG)
     end if
 
   end subroutine coul_square_smoothed_virial

@@ -91,9 +91,9 @@ contains
 ! whose distance is equal to 1/invR. If the Coulomb model requires a kspace solver, then only the
 ! real-space, short-range contribution must be computed here.
 
-  subroutine coul_damped_smoothed_compute( model, ECij, WCij, invR, invR2, QiQj )
+  subroutine coul_damped_smoothed_compute( model, Eij, Wij, invR, invR2, QiQj )
     class(coul_damped_smoothed), intent(in)  :: model
-    real(rb),                    intent(out) :: ECij, WCij
+    real(rb),                    intent(out) :: Eij, Wij
     real(rb),                    intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x, expmx2, r, u, u2, u3, G, WG
@@ -101,8 +101,8 @@ contains
     r = one/invR
     x = model%alpha*r
     expmx2 = exp(-x*x)
-    ECij = QiQj*uerfc(x,expmx2)*invR
-    WCij = ECij + QiQj*model%beta*expmx2
+    Eij = QiQj*uerfc(x,expmx2)*invR
+    Wij = Eij + QiQj*model%beta*expmx2
 
     if (r > model%Rm) then
       u = model%factor*(r - model%Rm)
@@ -110,8 +110,8 @@ contains
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
       WG = -30.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r
-      WCij = WCij*G + ECij*WG
-      ECij = ECij*G
+      Wij = Wij*G + Eij*WG
+      Eij = Eij*G
     end if
 
   end subroutine coul_damped_smoothed_compute
@@ -119,23 +119,23 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
-  subroutine coul_damped_smoothed_energy( model, ECij, invR, invR2, QiQj )
+  subroutine coul_damped_smoothed_energy( model, Eij, invR, invR2, QiQj )
     class(coul_damped_smoothed), intent(in)  :: model
-    real(rb),                    intent(out) :: ECij
+    real(rb),                    intent(out) :: Eij
     real(rb),                    intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x, r, u, u2, u3, G
 
     r = one/invR
     x = model%alpha*r
-    ECij = QiQj*uerfc(x,exp(-x*x))*invR
+    Eij = QiQj*uerfc(x,exp(-x*x))*invR
 
     if (r > model%Rm) then
       u = model%factor*(r - model%Rm)
       u2 = u*u
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
-      ECij = ECij*G
+      Eij = Eij*G
     end if
 
   end subroutine coul_damped_smoothed_energy
@@ -143,18 +143,18 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
-  subroutine coul_damped_smoothed_virial( model, WCij, invR, invR2, QiQj )
+  subroutine coul_damped_smoothed_virial( model, Wij, invR, invR2, QiQj )
     class(coul_damped_smoothed), intent(in)  :: model
-    real(rb),                    intent(out) :: WCij
+    real(rb),                    intent(out) :: Wij
     real(rb),                    intent(in)  :: invR, invR2, QiQj
 
-    real(rb) :: x, ECij, expmx2, r, u, u2, u3, G, WG
+    real(rb) :: x, Eij, expmx2, r, u, u2, u3, G, WG
 
     r = one/invR
     x = model%alpha*r
     expmx2 = exp(-x*x)
-    ECij = QiQj*uerfc(x,expmx2)*invR
-    WCij = ECij + QiQj*model%beta*expmx2
+    Eij = QiQj*uerfc(x,expmx2)*invR
+    Wij = Eij + QiQj*model%beta*expmx2
 
     if (r > model%Rm) then
       u = model%factor*(r - model%Rm)
@@ -162,7 +162,7 @@ contains
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
       WG = -30.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r
-      WCij = WCij*G + ECij*WG
+      Wij = Wij*G + Eij*WG
     end if
 
   end subroutine coul_damped_smoothed_virial

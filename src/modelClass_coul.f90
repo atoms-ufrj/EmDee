@@ -43,24 +43,24 @@ end type cCoulModel
 
 abstract interface
 
-  subroutine cCoulModel_compute( model, ECij, WCij, invR, invR2, QiQj )
+  subroutine cCoulModel_compute( model, Eij, Wij, invR, invR2, QiQj )
     import
     class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: ECij, WCij
+    real(rb),          intent(out) :: Eij, Wij
     real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_compute
 
-  subroutine cCoulModel_energy( model, ECij, invR, invR2, QiQj )
+  subroutine cCoulModel_energy( model, Eij, invR, invR2, QiQj )
     import
     class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: ECij
+    real(rb),          intent(out) :: Eij
     real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_energy
 
-  subroutine cCoulModel_virial( model, WCij, invR, invR2, QiQj )
+  subroutine cCoulModel_virial( model, Wij, invR, invR2, QiQj )
     import
     class(cCoulModel), intent(in)  :: model
-    real(rb),          intent(out) :: WCij
+    real(rb),          intent(out) :: Wij
     real(rb),          intent(in)  :: invR, invR2, QiQj
   end subroutine cCoulModel_virial
 
@@ -183,28 +183,28 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_compute( model, ECij, WCij, invR, invR2, QiQj )
+  subroutine coul_none_compute( model, Eij, Wij, invR, invR2, QiQj )
     class(coul_none), intent(in)  :: model
-    real(rb),         intent(out) :: ECij, WCij
+    real(rb),         intent(out) :: Eij, Wij
     real(rb),         intent(in)  :: invR, invR2, QiQj
-    ECij = zero
-    WCij = zero
+    Eij = zero
+    Wij = zero
   end subroutine coul_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_energy( model, ECij, invR, invR2, QiQj )
+  subroutine coul_none_energy( model, Eij, invR, invR2, QiQj )
     class(coul_none), intent(in)  :: model
-    real(rb),         intent(out) :: ECij
+    real(rb),         intent(out) :: Eij
     real(rb),         intent(in)  :: invR, invR2, QiQj
-    ECij = zero
+    Eij = zero
   end subroutine coul_none_energy
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_virial( model, WCij, invR, invR2, QiQj )
+  subroutine coul_none_virial( model, Wij, invR, invR2, QiQj )
     class(coul_none), intent(in)  :: model
-    real(rb),         intent(out) :: WCij
+    real(rb),         intent(out) :: Wij
     real(rb),         intent(in)  :: invR, invR2, QiQj
   end subroutine coul_none_virial
 

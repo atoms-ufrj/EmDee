@@ -20,12 +20,9 @@
 block
   use pairModelClass
   integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-  real(rb) :: r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc, Eij, r2fac, u, u2, u3, G, WG
+  real(rb) :: r2, invR2, invR, Wij, Qi, QiQj, rFc, Eij, r2fac, u, u2, u3, G, WG
   real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
   logical  :: icharged, ijcharged
-#if defined(compute)
-  real(rb) :: ECij
-#endif
   real(rb), allocatable :: Rvec(:,:)
 
   associate ( neighbor => me%neighbor(thread) )
@@ -117,14 +114,14 @@ block
                 select type ( model => me%coul(me%layer)%model )
                   include "compute_coul.f90"
                 end select
-                Ecoul = Ecoul + ECij
+                Ecoul = Ecoul + Eij
 #else
                 select type ( model => me%coul(me%layer)%model )
                   include "virial_compute_coul.f90"
                 end select
 #endif
-                Wcoul = Wcoul + WCij
-                Wij = Wij + WCij
+                Wcoul = Wcoul + Wij
+                Wij = Wij + Wij
               end if
             end associate
             Fij = Wij*invR2*Rij

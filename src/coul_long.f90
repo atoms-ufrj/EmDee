@@ -77,48 +77,48 @@ contains
 ! whose distance is equal to 1/invR. If the Coulomb model requires a kspace solver, then only the
 ! real-space, short-range contribution must be computed here.
 
-  subroutine coul_long_compute( model, ECij, WCij, invR, invR2, QiQj )
+  subroutine coul_long_compute( model, Eij, Wij, invR, invR2, QiQj )
     class(coul_long), intent(in)  :: model
-    real(rb),         intent(out) :: ECij, WCij
+    real(rb),         intent(out) :: Eij, Wij
     real(rb),         intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x, expmx2
 
     x = model%alpha/invR
     expmx2 = exp(-x*x)
-    ECij = QiQj*uerfc(x,expmx2)*invR
-    WCij = ECij + QiQj*model%beta*expmx2
+    Eij = QiQj*uerfc(x,expmx2)*invR
+    Wij = Eij + QiQj*model%beta*expmx2
 
   end subroutine coul_long_compute
 
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
-  subroutine coul_long_energy( model, ECij, invR, invR2, QiQj )
+  subroutine coul_long_energy( model, Eij, invR, invR2, QiQj )
     class(coul_long), intent(in)  :: model
-    real(rb),         intent(out) :: ECij
+    real(rb),         intent(out) :: Eij
     real(rb),         intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x
 
     x = model%alpha/invR
-    ECij = QiQj*uerfc(x,exp(-x*x))*invR
+    Eij = QiQj*uerfc(x,exp(-x*x))*invR
 
   end subroutine coul_long_energy
 
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
-  subroutine coul_long_virial( model, WCij, invR, invR2, QiQj )
+  subroutine coul_long_virial( model, Wij, invR, invR2, QiQj )
     class(coul_long), intent(in)  :: model
-    real(rb),         intent(out) :: WCij
+    real(rb),         intent(out) :: Wij
     real(rb),         intent(in)  :: invR, invR2, QiQj
 
     real(rb) :: x, expmx2
 
     x = model%alpha/invR
     expmx2 = exp(-x*x)
-    WCij = QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
+    Wij = QiQj*(uerfc(x,expmx2)*invR + model%beta*expmx2)
 
   end subroutine coul_long_virial
 

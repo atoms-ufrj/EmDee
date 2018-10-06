@@ -29,8 +29,8 @@ if [[ $kind == "pair" ]]; then
   echo
 elif [[ $kind == "coul" ]]; then
   echo "type is (coul_none)"
-  echo "  ECij = zero"
-  echo "  WCij = zero"
+  echo "  Eij = zero"
+  echo "  Wij = zero"
   echo
 fi
 

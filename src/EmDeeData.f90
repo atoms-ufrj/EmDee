@@ -708,7 +708,7 @@ contains
   !   real(rb),    intent(out) :: DF(3,me%natoms), DEpair, DEcoul, DWpair, DWcoul
   !
   !   integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-  !   real(rb) :: invL2, Rc2, r2, invR2, invR, Wij, Qi, QiQj, WCij, rFc, DWij, DWCij
+  !   real(rb) :: invL2, Rc2, r2, invR2, invR, Wij, Qi, QiQj, Wij, rFc, DWij, DWij
   !   real(rb) :: Rij(3), Ri(3), DFi(3), DFij(3)
   !   logical  :: icharged, ijcharged
   !   logical  :: participant(me%ntypes)
@@ -765,9 +765,9 @@ contains
   !                 select type ( model => me%coul(me%layer)%model )
   !                   include "virial_compute_coul.f90"
   !                 end select
-  !                 DWCij = WCij
+  !                 DWij = Wij
   !               else
-  !                 DWCij = zero
+  !                 DWij = zero
   !               end if
   !             end associate
   !
@@ -788,16 +788,16 @@ contains
   !                 select type ( model => me%coul(me%layer)%model )
   !                   include "virial_compute_coul.f90"
   !                 end select
-  !                 DWCij = DWCij - WCij
+  !                 DWij = DWij - Wij
   !               end if
   !             end associate
   !
-  !             DFij = (DWij + DWCij)*invR2*Rij
+  !             DFij = (DWij + DWij)*invR2*Rij
   !             DFi = DFi + DFij
   !             DF(:,j) = DF(:,j) - DFij
   !
   !             DWpair = DWpair + DWij
-  !             DWcoul = DWcoul + DWCij
+  !             DWcoul = DWcoul + DWij
   !
   !           end if
   !         end do
