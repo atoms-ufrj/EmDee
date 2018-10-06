@@ -56,7 +56,9 @@ block
 #                   include "virial_compute_pair.f90"
 #                 endif
                 end select
+#               define energy_file "energy_compute_pair.f90"
 #               include "apply_modifier.f90"
+#               undef energy_file
               end associate
 #             if defined(compute)
                 Epair = Epair + Eij
@@ -64,13 +66,18 @@ block
               Wpair = Wpair + Wij
               Wsum = Wij
               if (ijcharged.and.pair%coulomb) then
-                select type ( model => me%coul(me%layer)%model )
-#                 if defined(compute)
-#                   include "compute_coul.f90"
-#                 else
-#                   include "virial_compute_coul.f90"
-#                 endif
-                end select
+                associate ( model => me%coul(me%layer)%model )
+                  select type ( model )
+#                   if defined(compute)
+#                     include "compute_coul.f90"
+#                   else
+#                     include "virial_compute_coul.f90"
+#                   endif
+                  end select
+#                 define energy_file "energy_compute_coul.f90"
+#                 include "apply_modifier.f90"
+#                 undef energy_file
+                end associate
                 QiQj = pair%kCoul*Qi*me%charge(j)
 #               if defined(compute)
                   Ecoul = Ecoul + QiQj*Eij

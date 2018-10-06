@@ -17,7 +17,7 @@ block
       if (r2fac > model%Rm2fac) then
 #       ifndef compute
           select type ( model )
-#           include "energy_compute_pair.f90"
+            include energy_file
           end select
 #       endif
         u = r2fac - model%Rm2fac
@@ -34,7 +34,7 @@ block
       if (r2fac > model%Rm2fac) then
 #       ifndef compute
           select type ( model )
-#           include "energy_compute_pair.f90"
+            include energy_file
           end select
 #       endif
         u = r2fac - model%Rm2fac

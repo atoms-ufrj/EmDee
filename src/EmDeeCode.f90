@@ -426,7 +426,8 @@ contains
 
     character(*), parameter :: task = "coulomb model setup"
 
-    integer :: layer
+    integer  :: layer
+    real(rb) :: layerRc
     type(tData), pointer :: me
     type(modelContainer), pointer :: container
 
@@ -443,8 +444,10 @@ contains
     select type ( coul => container%model )
       class is (cCoulModel)
         do layer = 1, me%nlayers
+          layerRc = merge(me%InRc, me%Rc, me%useInRc(layer))
           me%coul(layer) = container
-          call me % coul(layer) % model % cutoff_setup( merge(me%InRc, me%Rc, me%useInRc(layer)) )
+          call me % coul(layer) % model % cutoff_setup( layerRc )
+          call me % coul(layer) % model % modifier_setup( layerRc )
         end do
       class default
         call error( task, "a valid coulomb model must be provided" )
@@ -461,7 +464,8 @@ contains
 
     character(*), parameter :: task = "coulomb multimodel setup"
 
-    integer :: layer
+    integer  :: layer
+    real(rb) :: layerRc
     character(5) :: C
     type(tData), pointer :: me
     type(modelContainer), pointer :: container
@@ -472,6 +476,7 @@ contains
     write(C,'(I5)') me%nlayers
     C = adjustl(C)
     do layer = 1, me%nlayers
+      layerRc = merge(me%InRc, me%Rc, me%useInRc(layer))
       if (.not.c_associated(model(layer))) then
         call error( task, trim(C)//" valid coulomb models must be provided" )
       end if
@@ -479,7 +484,8 @@ contains
       select type ( coul => container%model )
         class is (cCoulModel)
           me%coul(layer) = container
-          call me % coul(layer) % model % cutoff_setup( merge(me%InRc, me%Rc, me%useInRc(layer)) )
+          call me % coul(layer) % model % cutoff_setup( layerRc )
+          call me % coul(layer) % model % modifier_setup( layerRc )
         class default
           call error( task, "a valid coulomb model must be provided" )
       end select
