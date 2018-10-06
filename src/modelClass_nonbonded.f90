@@ -50,25 +50,25 @@ end type cNonBondedModel
 
 abstract interface
 
-  subroutine cNonBondedModel_compute( model, Eij, Wij, invR, invR2, QiQj )
+  subroutine cNonBondedModel_compute( model, Eij, Wij, invR, invR2 )
     import
     class(cNonBondedModel), intent(in)  :: model
     real(rb),          intent(out) :: Eij, Wij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
+    real(rb),          intent(in)  :: invR, invR2
   end subroutine cNonBondedModel_compute
 
-  subroutine cNonBondedModel_energy( model, Eij, invR, invR2, QiQj )
+  subroutine cNonBondedModel_energy( model, Eij, invR, invR2 )
     import
     class(cNonBondedModel), intent(in)  :: model
     real(rb),          intent(out) :: Eij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
+    real(rb),          intent(in)  :: invR, invR2
   end subroutine cNonBondedModel_energy
 
-  subroutine cNonBondedModel_virial( model, Wij, invR, invR2, QiQj )
+  subroutine cNonBondedModel_virial( model, Wij, invR, invR2 )
     import
     class(cNonBondedModel), intent(in)  :: model
     real(rb),          intent(out) :: Wij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
+    real(rb),          intent(in)  :: invR, invR2
   end subroutine cNonBondedModel_virial
 
 end interface
@@ -232,7 +232,7 @@ contains
         ! Compute energies and virials at cutoff:
         invR = one/cutoff
         invR2 = invR*invR
-        call model%compute( E, W, invR, invR2, one )
+        call model%compute( E, W, invR, invR2 )
 
         ! Update energy and force shifts:
         if (model%modifier == SHIFTED_FORCE) then

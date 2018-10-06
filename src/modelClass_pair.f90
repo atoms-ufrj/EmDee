@@ -160,29 +160,29 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_compute( model, Eij, Wij, invR, invR2, QiQj )
+  subroutine pair_none_compute( model, Eij, Wij, invR, invR2 )
     class(pair_none),  intent(in)  :: model
     real(rb),          intent(out) :: Eij, Wij
-    real(rb),          intent(in)  :: invR, invR2, QiQj
+    real(rb),          intent(in)  :: invR, invR2
     Eij = zero
     Wij = zero
   end subroutine pair_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_energy( model, Eij, invR, invR2, QiQj )
+  subroutine pair_none_energy( model, Eij, invR, invR2 )
     class(pair_none), intent(in)  :: model
     real(rb),         intent(out) :: Eij
-    real(rb),         intent(in)  :: invR, invR2, QiQj
+    real(rb),         intent(in)  :: invR, invR2
     Eij = zero
   end subroutine pair_none_energy
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_none_virial( model, Wij, invR, invR2, QiQj )
+  subroutine pair_none_virial( model, Wij, invR, invR2 )
     class(pair_none), intent(in)  :: model
     real(rb),         intent(out) :: Wij
-    real(rb),         intent(in)  :: invR, invR2, QiQj
+    real(rb),         intent(in)  :: invR, invR2
     Wij = zero
   end subroutine pair_none_virial
 

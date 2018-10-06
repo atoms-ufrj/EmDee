@@ -70,10 +70,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_cut_compute( model, Eij, Wij, invR, invR2, QiQj )
+  subroutine pair_lj_cut_compute( model, Eij, Wij, invR, invR2 )
     class(pair_lj_cut), intent(in)  :: model
     real(rb),           intent(out) :: Eij, Wij
-    real(rb),           intent(in)  :: invR, invR2, QiQj
+    real(rb),           intent(in)  :: invR, invR2
 
     real(rb) :: sr2, sr6, sr12
 
@@ -87,10 +87,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_cut_energy( model, Eij, invR, invR2, QiQj )
+  subroutine pair_lj_cut_energy( model, Eij, invR, invR2 )
     class(pair_lj_cut), intent(in)  :: model
     real(rb),           intent(out) :: Eij
-    real(rb),           intent(in)  :: invR, invR2, QiQj
+    real(rb),           intent(in)  :: invR, invR2
 
     real(rb) :: sr2, sr6, sr12
 
@@ -103,10 +103,10 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine pair_lj_cut_virial( model, Wij, invR, invR2, QiQj )
+  subroutine pair_lj_cut_virial( model, Wij, invR, invR2 )
     class(pair_lj_cut), intent(in)  :: model
     real(rb),           intent(out) :: Wij
-    real(rb),           intent(in)  :: invR, invR2, QiQj
+    real(rb),           intent(in)  :: invR, invR2
 
     real(rb) :: sr2, sr6, sr12
 

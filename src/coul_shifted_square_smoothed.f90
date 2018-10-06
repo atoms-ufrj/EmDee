@@ -83,15 +83,15 @@ contains
 ! whose distance is equal to 1/invR. If the Coulomb model requires a kspace solver, then only the
 ! real-space, short-range contribution must be computed here.
 
-  subroutine coul_shifted_square_smoothed_compute( model, Eij, Wij, invR, invR2, QiQj )
+  subroutine coul_shifted_square_smoothed_compute( model, Eij, Wij, invR, invR2 )
     class(coul_shifted_square_smoothed), intent(in)  :: model
     real(rb),                     intent(out) :: Eij, Wij
-    real(rb),                     intent(in)  :: invR, invR2, QiQj
+    real(rb),                     intent(in)  :: invR, invR2
 
     real(rb) :: r2, u, u2, u3, G, WG
 
-    Wij = QiQj*invR
-    Eij = Wij + QiQj*model%eshift
+    Wij = invR
+    Eij = Wij + model%eshift
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -109,14 +109,14 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
-  subroutine coul_shifted_square_smoothed_energy( model, Eij, invR, invR2, QiQj )
+  subroutine coul_shifted_square_smoothed_energy( model, Eij, invR, invR2 )
     class(coul_shifted_square_smoothed), intent(in)  :: model
     real(rb),                     intent(out) :: Eij
-    real(rb),                     intent(in)  :: invR, invR2, QiQj
+    real(rb),                     intent(in)  :: invR, invR2
 
     real(rb) :: r2, u, u2, u3, G
 
-    Eij = QiQj*(invR + model%eshift)
+    Eij = invR + model%eshift
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -132,14 +132,14 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
-  subroutine coul_shifted_square_smoothed_virial( model, Wij, invR, invR2, QiQj )
+  subroutine coul_shifted_square_smoothed_virial( model, Wij, invR, invR2 )
     class(coul_shifted_square_smoothed), intent(in)  :: model
     real(rb),                     intent(out) :: Wij
-    real(rb),                     intent(in)  :: invR, invR2, QiQj
+    real(rb),                     intent(in)  :: invR, invR2
 
     real(rb) :: r2, u, u2, u3, G, WG
 
-    Wij = QiQj*invR
+    Wij = invR
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -148,7 +148,7 @@ contains
       u3 = u*u2
       G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
       WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*model%factor*r2
-      Wij = Wij*G + (Wij + QiQj*model%eshift)*WG
+      Wij = Wij*G + (Wij + model%eshift)*WG
     end if
 
   end subroutine coul_shifted_square_smoothed_virial

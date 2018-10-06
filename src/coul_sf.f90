@@ -58,39 +58,38 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_compute( model, Eij, Wij, invR, invR2, QiQj )
+  subroutine coul_sf_compute( model, Eij, Wij, invR, invR2 )
     class(coul_sf), intent(in)  :: model
     real(rb),       intent(out) :: Eij, Wij
-    real(rb),       intent(in)  :: invR, invR2, QiQj
+    real(rb),       intent(in)  :: invR, invR2
 
-    real(rb) :: rFc, QiQjbyR
+    real(rb) :: rFc
 
-    QiQjbyR = QiQj*invR
-    rFc = QiQj*model%fshift/invR
-    Eij = QiQjbyR + QiQj*model%eshift + rFc
-    Wij = QiQjbyR - rFc
+    rFc = model%fshift/invR
+    Eij = invR + model%eshift + rFc
+    Wij = invR - rFc
 
   end subroutine coul_sf_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_energy( model, Eij, invR, invR2, QiQj )
+  subroutine coul_sf_energy( model, Eij, invR, invR2 )
     class(coul_sf), intent(in)  :: model
     real(rb),       intent(out) :: Eij
-    real(rb),       intent(in)  :: invR, invR2, QiQj
+    real(rb),       intent(in)  :: invR, invR2
 
-    Eij = QiQj*(invR + model%eshift + model%fshift/invR)
+    Eij = invR + model%eshift + model%fshift/invR
 
   end subroutine coul_sf_energy
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_sf_virial( model, Wij, invR, invR2, QiQj )
+  subroutine coul_sf_virial( model, Wij, invR, invR2 )
     class(coul_sf), intent(in)  :: model
     real(rb),       intent(out) :: Wij
-    real(rb),       intent(in)  :: invR, invR2, QiQj
+    real(rb),       intent(in)  :: invR, invR2
 
-    Wij = QiQj*(invR - model%fshift/invR)
+    Wij = invR - model%fshift/invR
 
   end subroutine coul_sf_virial
 

@@ -74,7 +74,7 @@ contains
       ! Compute energies and virials at cutoff:
       invR = one/cutoff
       invR2 = invR*invR
-      call model % compute( E, W, invR, invR2, one )
+      call model % compute( E, W, invR, invR2 )
 
       ! Update van der Waals energy and force shifts:
       if (model%shifted_force) then
@@ -153,29 +153,29 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_compute( model, Eij, Wij, invR, invR2, QiQj )
+  subroutine coul_none_compute( model, Eij, Wij, invR, invR2 )
     class(coul_none), intent(in)  :: model
     real(rb),         intent(out) :: Eij, Wij
-    real(rb),         intent(in)  :: invR, invR2, QiQj
+    real(rb),         intent(in)  :: invR, invR2
     Eij = zero
     Wij = zero
   end subroutine coul_none_compute
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_energy( model, Eij, invR, invR2, QiQj )
+  subroutine coul_none_energy( model, Eij, invR, invR2 )
     class(coul_none), intent(in)  :: model
     real(rb),         intent(out) :: Eij
-    real(rb),         intent(in)  :: invR, invR2, QiQj
+    real(rb),         intent(in)  :: invR, invR2
     Eij = zero
   end subroutine coul_none_energy
 
 !---------------------------------------------------------------------------------------------------
 
-  subroutine coul_none_virial( model, Wij, invR, invR2, QiQj )
+  subroutine coul_none_virial( model, Wij, invR, invR2 )
     class(coul_none), intent(in)  :: model
     real(rb),         intent(out) :: Wij
-    real(rb),         intent(in)  :: invR, invR2, QiQj
+    real(rb),         intent(in)  :: invR, invR2
   end subroutine coul_none_virial
 
 !---------------------------------------------------------------------------------------------------

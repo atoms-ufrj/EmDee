@@ -80,14 +80,14 @@ contains
 ! whose distance is equal to 1/invR. If the Coulomb model requires a kspace solver, then only the
 ! real-space, short-range contribution must be computed here.
 
-  subroutine coul_square_smoothed_compute( model, Eij, Wij, invR, invR2, QiQj )
+  subroutine coul_square_smoothed_compute( model, Eij, Wij, invR, invR2 )
     class(coul_square_smoothed), intent(in)  :: model
     real(rb),             intent(out) :: Eij, Wij
-    real(rb),             intent(in)  :: invR, invR2, QiQj
+    real(rb),             intent(in)  :: invR, invR2
 
     real(rb) :: r2, u, u2, u3, G, WG
 
-    Wij = QiQj*invR
+    Wij = invR
     Eij = Wij
 
     if (invR < model%invRm) then
@@ -106,14 +106,14 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the energy must be computed.
 
-  subroutine coul_square_smoothed_energy( model, Eij, invR, invR2, QiQj )
+  subroutine coul_square_smoothed_energy( model, Eij, invR, invR2 )
     class(coul_square_smoothed), intent(in)  :: model
     real(rb),             intent(out) :: Eij
-    real(rb),             intent(in)  :: invR, invR2, QiQj
+    real(rb),             intent(in)  :: invR, invR2
 
     real(rb) :: r2, u, u2, u3, G
 
-    Eij = QiQj*invR
+    Eij = invR
 
     if (invR < model%invRm) then
       r2 = one/invR2
@@ -129,14 +129,14 @@ contains
 !---------------------------------------------------------------------------------------------------
 ! This subroutine is similar to coulModel_compute, except that only the virial must be computed.
 
-  subroutine coul_square_smoothed_virial( model, Wij, invR, invR2, QiQj )
+  subroutine coul_square_smoothed_virial( model, Wij, invR, invR2 )
     class(coul_square_smoothed), intent(in)  :: model
     real(rb),             intent(out) :: Wij
-    real(rb),             intent(in)  :: invR, invR2, QiQj
+    real(rb),             intent(in)  :: invR, invR2
 
     real(rb) :: r2, u, u2, u3, G, WG
 
-    Wij = QiQj*invR
+    Wij = invR
 
     if (invR < model%invRm) then
       r2 = one/invR2

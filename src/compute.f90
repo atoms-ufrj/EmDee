@@ -64,7 +64,6 @@ block
               Wpair = Wpair + Wij
               Wsum = Wij
               if (ijcharged.and.pair%coulomb) then
-                QiQj = pair%kCoul*Qi*me%charge(j)
                 select type ( model => me%coul(me%layer)%model )
 #                 if defined(compute)
 #                   include "compute_coul.f90"
@@ -72,9 +71,11 @@ block
 #                   include "virial_compute_coul.f90"
 #                 endif
                 end select
+                QiQj = pair%kCoul*Qi*me%charge(j)
 #               if defined(compute)
-                  Ecoul = Ecoul + Eij
+                  Ecoul = Ecoul + QiQj*Eij
 #               endif
+                Wij = QiQj*Wij
                 Wcoul = Wcoul + Wij
                 Wsum = Wsum + Wij
               end if
