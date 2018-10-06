@@ -36,6 +36,7 @@ type, abstract, extends(cModel) :: cPairModel
   integer  :: modifier = NONE
   real(rb) :: eshift = zero
   real(rb) :: fshift = zero
+  real(rb) :: skin = zero
   real(rb) :: Rm = zero
   real(rb) :: RmSq = zero
   real(rb) :: factor = zero
@@ -156,9 +157,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_smoothed( model, Rm ) bind(C,name="EmDee_smoothed")
+  type(c_ptr) function EmDee_smoothed( model, skin ) bind(C,name="EmDee_smoothed")
     type(c_ptr), value :: model
-    real(rb),    value :: Rm
+    real(rb),    value :: skin
 
     type(modelContainer),  pointer :: container
     class(cPairModel), allocatable :: new
@@ -172,7 +173,7 @@ contains
       class is (cPairModel)
         allocate( new, source = pair )
         new%modifier = SMOOTHED
-        new%RmSq = Rm**2
+        new%skin = skin
         EmDee_smoothed = new % deliver()
       class default
         call error( "smoothed potential assignment", "a valid pair model must be provided" )
@@ -182,9 +183,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_shifted_smoothed( model, Rm ) bind(C,name="EmDee_shifted_smoothed")
+  type(c_ptr) function EmDee_shifted_smoothed( model, skin ) bind(C,name="EmDee_shifted_smoothed")
     type(c_ptr), value :: model
-    real(rb),    value :: Rm
+    real(rb),    value :: skin
 
     type(modelContainer),  pointer :: container
     class(cPairModel), allocatable :: new
@@ -198,7 +199,7 @@ contains
       class is (cPairModel)
         allocate( new, source = pair )
         new%modifier = SHIFTED_SMOOTHED
-        new%RmSq = Rm**2
+        new%skin = skin
         EmDee_shifted_smoothed = new % deliver()
       class default
         call error( "shifted-smoothed potential assignment", "a valid pair model must be provided" )
@@ -208,9 +209,9 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
-  type(c_ptr) function EmDee_openmm_smoothed( model, Rm ) bind(C,name="EmDee_openmm_smoothed")
+  type(c_ptr) function EmDee_openmm_smoothed( model, skin ) bind(C,name="EmDee_openmm_smoothed")
     type(c_ptr), value :: model
-    real(rb),    value :: Rm
+    real(rb),    value :: skin
 
     type(modelContainer),  pointer :: container
     class(cPairModel), allocatable :: new
@@ -224,8 +225,7 @@ contains
       class is (cPairModel)
         allocate( new, source = pair )
         new%modifier = OPENMM_SMOOTHED
-        new%Rm = Rm
-        new%RmSq = Rm*Rm
+        new%skin = skin
         EmDee_openmm_smoothed = new % deliver()
       class default
         call error( "openmm-smoothed potential assignment", "a valid pair model must be provided" )
@@ -244,6 +244,10 @@ contains
     ! Zero energy and force shifts:
     model%fshift = zero
     model%eshift = zero
+
+    ! Store cutoff-dependent parameters:
+    model%Rm = cutoff - model%skin
+    model%RmSq = model%Rm**2
 
     select case (model%modifier)
       case (SHIFTED, SHIFTED_FORCE, SHIFTED_SMOOTHED)
