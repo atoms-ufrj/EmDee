@@ -141,7 +141,7 @@ $(OBJDIR)/EmDeeCode.o: $(call src,EmDeeCode) \
 $(OBJDIR)/neighbor_lists.o: $(SRCDIR)/neighbor_lists.f90 $(OBJDIR)/EmDeeData.o
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 
-$(OBJDIR)/EmDeeData.o: $(call src,EmDeeData compute) \
+$(OBJDIR)/EmDeeData.o: $(call src,EmDeeData compute apply_modifier) \
                        $(call obj,ArBee structs models lists math global)
 	$(FORT) $(F_OPTS) -J$(OBJDIR) -c -o $@ $<
 

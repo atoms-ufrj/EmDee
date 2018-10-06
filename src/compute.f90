@@ -18,9 +18,8 @@
 !            Federal University of Rio de Janeiro, Brazil
 
 block
-  use pairModelClass
   integer  :: i, j, k, m, itype, jtype, firstAtom, lastAtom
-  real(rb) :: r2, invR2, invR, Wij, Qi, QiQj, rFc, Eij, r2fac, u, u2, u3, G, WG
+  real(rb) :: r2, invR2, invR, Wij, Wsum, Qi, QiQj, rFc, Eij
   real(rb) :: Rij(3), Ri(3), Fi(3), Fij(3)
   logical  :: icharged, ijcharged
   real(rb), allocatable :: Rvec(:,:)
@@ -51,80 +50,36 @@ block
             associate( pair => partner(jtype) )
               associate ( model => pair%model )
                 select type ( model )
-#if defined(compute)
-                  include "compute_pair.f90"
-#else
-                  include "virial_compute_pair.f90"
-#endif
+#                 if defined(compute)
+#                   include "compute_pair.f90"
+#                 else
+#                   include "virial_compute_pair.f90"
+#                 endif
                 end select
-                select case (model%modifier)
-#if defined(compute)
-                  case (SHIFTED)
-                    Eij = Eij + model%eshift
-#endif
-                  case (SHIFTED_FORCE)
-                    rFc = model%fshift/invR
-                    Wij = Wij - rFc
-#if defined(compute)
-                    Eij = Eij + model%eshift + rFc
-#endif
-                  case (SMOOTHED)
-                    r2fac = model%factor/invR
-                    if (r2fac > model%Rm2fac) then
-#ifndef compute
-                      select type ( model )
-                        include "energy_compute_pair.f90"
-                      end select
-#endif
-                      u = r2fac - model%Rm2fac
-                      u2 = u*u
-                      u3 = u*u2
-                      G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
-                      WG = -60.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*r2fac
-                      Eij = Eij + model%eshift
-                      Wij = Wij*G + Eij*WG
-                      Eij = Eij*G
-                    end if
-                  case (SQUARE_SMOOTHED, SHIFTED_SQUARE_SMOOTHED)
-                    r2fac = r2*L2*model%factor
-                    if (r2fac > model%Rm2fac) then
-#ifndef compute
-                      select type ( model )
-                        include "energy_compute_pair.f90"
-                      end select
-#endif
-                      u = r2fac - model%Rm2fac
-                      u2 = u*u
-                      u3 = u*u2
-                      G = 1.0_rb + u3*(15.0_rb*u - 6.0_rb*u2 - 10.0_rb)
-                      WG = -30.0_rb*u2*(2.0_rb*u - u2 - 1.0_rb)*r2fac
-                      Eij = Eij + model%eshift
-                      Wij = Wij*G + Eij*WG
-                      Eij = Eij*G
-                    end if
-                end select
+#               include "apply_modifier.f90"
               end associate
-#if defined(compute)
-              Epair = Epair + Eij
-#endif
+#             if defined(compute)
+                Epair = Epair + Eij
+#             endif
               Wpair = Wpair + Wij
+              Wsum = Wij
               if (ijcharged.and.pair%coulomb) then
                 QiQj = pair%kCoul*Qi*me%charge(j)
-#if defined(compute)
                 select type ( model => me%coul(me%layer)%model )
-                  include "compute_coul.f90"
+#                 if defined(compute)
+#                   include "compute_coul.f90"
+#                 else
+#                   include "virial_compute_coul.f90"
+#                 endif
                 end select
-                Ecoul = Ecoul + Eij
-#else
-                select type ( model => me%coul(me%layer)%model )
-                  include "virial_compute_coul.f90"
-                end select
-#endif
+#               if defined(compute)
+                  Ecoul = Ecoul + Eij
+#               endif
                 Wcoul = Wcoul + Wij
-                Wij = Wij + Wij
+                Wsum = Wsum + Wij
               end if
             end associate
-            Fij = Wij*invR2*Rij
+            Fij = Wsum*invR2*Rij
             Fi = Fi + Fij
             F(:,j) = F(:,j) - Fij
           end if
