@@ -28,8 +28,9 @@ integer, parameter :: NONE = 0,                    &
                       SHIFTED = 1,                 &
                       SHIFTED_FORCE = 2,           &
                       SMOOTHED = 3,                &
-                      SQUARE_SMOOTHED = 4,         &
-                      SHIFTED_SQUARE_SMOOTHED = 5
+                      SHIFTED_SMOOTHED = 4,        &
+                      SQUARE_SMOOTHED = 5,         &
+                      SHIFTED_SQUARE_SMOOTHED = 6
 
 !> Abstract class for non-bonded interaction models
 type, abstract, extends(cModel) :: cNonBondedModel
@@ -156,6 +157,35 @@ contains
 
 !---------------------------------------------------------------------------------------------------
 
+  type(c_ptr) function EmDee_shifted_smoothed( model, skin ) &
+    bind(C,name="EmDee_shifted_smoothed")
+    type(c_ptr), value :: model
+    real(rb),    value :: skin
+
+    type(modelContainer),  pointer :: container
+    class(cNonBondedModel), allocatable :: new
+
+    if (.not.c_associated(model)) then
+      call error( "shifted-smoothed potential assignment", &
+                  "a valid pair model must be provided" )
+    end if
+    call c_f_pointer( model, container )
+
+    select type ( pair => container%model )
+      class is (cNonBondedModel)
+        allocate( new, source = pair )
+        new%modifier = SHIFTED_SQUARE_SMOOTHED
+        new%skin = skin
+        EmDee_shifted_smoothed = new % deliver()
+      class default
+        call error( "shifted-smoothed potential assignment", &
+                    "a valid pair model must be provided" )
+    end select
+
+  end function EmDee_shifted_smoothed
+
+!---------------------------------------------------------------------------------------------------
+
   type(c_ptr) function EmDee_square_smoothed( model, skin ) &
     bind(C,name="EmDee_square_smoothed")
     type(c_ptr), value :: model
@@ -227,7 +257,7 @@ contains
     model%RmSq = model%Rm**2
 
     select case (model%modifier)
-      case (SHIFTED, SHIFTED_FORCE, SHIFTED_SQUARE_SMOOTHED)
+      case (SHIFTED, SHIFTED_FORCE, SHIFTED_SMOOTHED, SHIFTED_SQUARE_SMOOTHED)
 
         ! Compute energies and virials at cutoff:
         invR = one/cutoff
@@ -241,21 +271,24 @@ contains
         else
           model%fshift = zero
           model%eshift = -E
-          if (model%modifier == SHIFTED_SQUARE_SMOOTHED) then
+          if (model%modifier == SHIFTED_SMOOTHED) then
+            model%factor = one/(cutoff - model%Rm)
+            model%Rm2fac = model%factor*model%Rm
+          else if (model%modifier == SHIFTED_SQUARE_SMOOTHED) then
             model%factor = one/(cutoff**2 - model%RmSq)
             model%Rm2fac = model%factor*model%RmSq
           end if
         end if
 
-      case (SQUARE_SMOOTHED)
-
-        model%factor = one/(cutoff**2 - model%RmSq)
-        model%Rm2fac = model%factor*model%RmSq
-
       case (SMOOTHED)
 
         model%factor = one/(cutoff - model%Rm)
         model%Rm2fac = model%factor*model%Rm
+
+      case (SQUARE_SMOOTHED)
+
+        model%factor = one/(cutoff**2 - model%RmSq)
+        model%Rm2fac = model%factor*model%RmSq
 
     end select
 

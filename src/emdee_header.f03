@@ -264,6 +264,13 @@ interface
     real(c_double), value :: skin
   end function EmDee_smoothed
 
+  type(c_ptr) function EmDee_shifted_smoothed( model, skin ) &
+    bind(C,name="EmDee_shifted_smoothed")
+    import :: c_ptr, c_double
+    type(c_ptr),    value :: model
+    real(c_double), value :: skin
+  end function EmDee_shifted_smoothed
+
   type(c_ptr) function EmDee_square_smoothed( model, skin ) &
     bind(C,name="EmDee_square_smoothed")
     import :: c_ptr, c_double

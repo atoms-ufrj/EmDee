@@ -12,7 +12,7 @@ block
 #     if defined(compute)
         Eij = Eij + model%eshift + rFc
 #     endif
-    case (SMOOTHED)
+    case (SMOOTHED, SHIFTED_SMOOTHED)
       r2fac = model%factor/invR
       if (r2fac > model%Rm2fac) then
 #       ifndef compute
