@@ -257,25 +257,25 @@ interface
     type(c_ptr), value :: model
   end function EmDee_shifted_force
 
-  type(c_ptr) function EmDee_smoothed( model, Rm ) &
+  type(c_ptr) function EmDee_smoothed( model, skin ) &
     bind(C,name="EmDee_smoothed")
     import :: c_ptr, c_double
     type(c_ptr),    value :: model
-    real(c_double), value :: Rm
+    real(c_double), value :: skin
   end function EmDee_smoothed
 
-  type(c_ptr) function EmDee_square_smoothed( model, Rm ) &
+  type(c_ptr) function EmDee_square_smoothed( model, skin ) &
     bind(C,name="EmDee_square_smoothed")
     import :: c_ptr, c_double
     type(c_ptr),    value :: model
-    real(c_double), value :: Rm
+    real(c_double), value :: skin
   end function EmDee_square_smoothed
 
-  type(c_ptr) function EmDee_shifted_square_smoothed( model, Rm ) &
+  type(c_ptr) function EmDee_shifted_square_smoothed( model, skin ) &
     bind(C,name="EmDee_shifted_square_smoothed")
     import :: c_ptr, c_double
     type(c_ptr),    value :: model
-    real(c_double), value :: Rm
+    real(c_double), value :: skin
   end function EmDee_shifted_square_smoothed
 
   ! MODELS:
