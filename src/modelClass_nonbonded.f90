@@ -174,7 +174,7 @@ contains
     select type ( pair => container%model )
       class is (cNonBondedModel)
         allocate( new, source = pair )
-        new%modifier = SHIFTED_SQUARE_SMOOTHED
+        new%modifier = SHIFTED_SMOOTHED
         new%skin = skin
         EmDee_shifted_smoothed = new % deliver()
       class default
