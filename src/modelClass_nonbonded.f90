@@ -246,7 +246,8 @@ contains
     class(cNonBondedModel), intent(inout) :: model
     real(rb),               intent(in)    :: cutoff
 
-    real(rb) :: invR2, E, W, invR
+    real(rb) :: Ec, Wc, Es, Ws
+    logical  :: shifting
 
     ! Zero energy and force shifts:
     model%fshift = zero
@@ -256,37 +257,37 @@ contains
     model%Rm = cutoff - model%skin
     model%RmSq = model%Rm**2
 
+    ! Check if shifting takes place:
+    shifting = any(model%modifier == [ SHIFTED,                &
+                                       SHIFTED_FORCE,          &
+                                       SHIFTED_SMOOTHED,       &
+                                       SHIFTED_SQUARE_SMOOTHED ])
+
+    ! If so, compute energies and virials at cutoff and at switching distance:
+    if (shifting) call model%compute( Ec, Wc, one/cutoff, one/cutoff**2 )
+
+    ! Precompute specific modifier parameters:
     select case (model%modifier)
-      case (SHIFTED, SHIFTED_FORCE, SHIFTED_SMOOTHED, SHIFTED_SQUARE_SMOOTHED)
+      case (SHIFTED)
+          model%eshift = -Ec
 
-        ! Compute energies and virials at cutoff:
-        invR = one/cutoff
-        invR2 = invR*invR
-        call model%compute( E, W, invR, invR2 )
+      case (SHIFTED_FORCE)
+          model%eshift = -(Ec + Wc)
+          model%fshift = Wc/cutoff
 
-        ! Update energy and force shifts:
-        if (model%modifier == SHIFTED_FORCE) then
-          model%eshift = -(E + W)
-          model%fshift = W/cutoff
-        else
-          model%fshift = zero
-          model%eshift = -E
-          if (model%modifier == SHIFTED_SMOOTHED) then
-            model%factor = one/(cutoff - model%Rm)
-            model%Rm2fac = model%factor*model%Rm
-          else if (model%modifier == SHIFTED_SQUARE_SMOOTHED) then
-            model%factor = one/(cutoff**2 - model%RmSq)
-            model%Rm2fac = model%factor*model%RmSq
-          end if
+      case (SMOOTHED, SHIFTED_SMOOTHED)
+        if (shifting) then
+          call model%compute( Es, Ws, one/model%Rm, one/model%RmSq )
+          model%eshift = -half*(Es + Ec)
         end if
-
-      case (SMOOTHED)
-
         model%factor = one/(cutoff - model%Rm)
         model%Rm2fac = model%factor*model%Rm
 
-      case (SQUARE_SMOOTHED)
-
+      case (SQUARE_SMOOTHED, SHIFTED_SQUARE_SMOOTHED)
+        if (shifting) then
+          call model%compute( Es, Ws, one/model%Rm, one/model%RmSq )
+          model%eshift = -half*(Es + Ec)
+        end if
         model%factor = one/(cutoff**2 - model%RmSq)
         model%Rm2fac = model%factor*model%RmSq
 
