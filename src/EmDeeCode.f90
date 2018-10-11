@@ -209,6 +209,33 @@ contains
 
 !===================================================================================================
 
+  type(c_ptr) function EmDee_memory_address( md, option ) bind(C,name="EmDee_memory_address")
+    type(tEmDee),      value      :: md
+    character(c_char), intent(in) :: option(*)
+
+    type(tData),  pointer :: me
+    character(sl) :: item
+
+    call c_f_pointer( md%data, me )
+    item = string(option)
+
+    select case (item)
+      case ("coordinates")
+        EmDee_memory_address = c_loc(me%R(1,1))
+      case ("momenta")
+        EmDee_memory_address = c_loc(me%P(1,1))
+      case ("forces")
+        EmDee_memory_address = c_loc(me%F(1,1))
+      case ("layerForces")
+        EmDee_memory_address = c_loc(me%layerF(1,1,1))
+      case default
+        call error( "memory address retrieving", "invalid option "//trim(item) )
+    end select
+
+  end function EmDee_memory_address
+
+!===================================================================================================
+
   subroutine EmDee_share_phase_space( mdkeep, mdlose ) bind(C,name="EmDee_share_phase_space")
     type(tEmDee), value         :: mdkeep
     type(tEmDee), intent(inout) :: mdlose

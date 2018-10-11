@@ -42,6 +42,8 @@ typedef struct {
 tEmDee EmDee_system( int threads, int layers, double rc, double skin, int N, int* types,
                      double* masses, int* bodies );
 
+void* EmDee_memory_address( tEmDee md, char *option );
+
 void EmDee_share_phase_space( tEmDee mdkeep, tEmDee* mdlose );
 
 void EmDee_layer_based_parameters( tEmDee md, double InternalRc, int* Apply, int* Bonded );

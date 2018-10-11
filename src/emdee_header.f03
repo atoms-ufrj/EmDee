@@ -90,6 +90,13 @@ interface
     type(tEmDee)          :: EmDee_system
   end function EmDee_system
 
+  type(c_ptr) function EmDee_memory_address( md, option ) &
+    bind(C,name="EmDee_memory_address")
+    import :: c_ptr, c_char, tEmDee
+    type(tEmDee),      value      :: md
+    character(c_char), intent(in) :: option(*)
+  end function EmDee_memory_address
+
   subroutine EmDee_share_phase_space( mdkeep, mdlose ) &
     bind(C,name="EmDee_share_phase_space")
     import :: tEmDee
@@ -176,19 +183,19 @@ interface
     type(c_ptr),    value :: model
   end subroutine EmDee_add_dihedral
 
-  subroutine EmDee_download( md, item, address ) &
+  subroutine EmDee_download( md, option, address ) &
     bind(C,name="EmDee_download")
     import :: c_ptr, c_char, tEmDee
     type(tEmDee),      value      :: md
-    character(c_char), intent(in) :: item(*)
+    character(c_char), intent(in) :: option(*)
     type(c_ptr),       value      :: address
   end subroutine EmDee_download
 
-  subroutine EmDee_upload( md, item, address ) &
+  subroutine EmDee_upload( md, option, address ) &
     bind(C,name="EmDee_upload")
     import :: c_ptr, c_char, tEmDee
     type(tEmDee),      intent(inout) :: md
-    character(c_char), intent(in)    :: item(*)
+    character(c_char), intent(in)    :: option(*)
     type(c_ptr),       value         :: address
   end subroutine EmDee_upload
 
