@@ -24,8 +24,6 @@
 
 module EmDeeCode
 
-#define PRINT .false.
-
 use EmDeeData
 use neighbor_lists
 
@@ -33,7 +31,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "10 Oct 2018"
+character(11), parameter :: VERSION = "11 Oct 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -673,8 +671,6 @@ contains
           call download( omp_get_thread_num() + 1, me%F, matrix )
           !$omp end parallel
 
-if (PRINT) print*, "downloaded from layer ", me%layer
-
         case ("centersOfMass")
           call c_f_pointer( address, matrix, [3,me%nbodies+me%nfree] )
           !$omp parallel num_threads(me%nthreads)
@@ -852,8 +848,6 @@ if (PRINT) print*, "downloaded from layer ", me%layer
         call upload( omp_get_thread_num() + 1, Matrix, me%F )
         !$omp end parallel
 
-if (PRINT) print*, "uploaded to layer ", me%layer
-
       case ("charges")
         if (me%initialized) &
           call error( "upload", "cannot set charges after box and coordinates initialization" )
@@ -920,7 +914,6 @@ if (PRINT) print*, "uploaded to layer ", me%layer
         md%Energy = me%layerEnergy(layer)
         md%Virial = me%layerVirial(layer)
         me%F => me%layerF(:,:,layer)
-if (PRINT) print*, "switched to layer ", me%layer
       end if
 
     end subroutine EmDee_switch_model_layer
@@ -1042,8 +1035,6 @@ if (PRINT) print*, "switched to layer ", me%layer
     end if
     md%Kinetic%UpToDate = md%Options%Compute
 
-if (PRINT) print*, "BOOST - layer = ", me%layer, " | dt = ", dt
-
   end subroutine EmDee_boost
 
 !===================================================================================================
@@ -1081,8 +1072,6 @@ if (PRINT) print*, "BOOST - layer = ", me%layer, " | dt = ", dt
     md%Energy%UpToDate = .false.
 
     md%Time%Motion = md%Time%Motion + omp_get_wtime()
-
-if (PRINT) print*, "MOVE dt = ", dt
 
   end subroutine EmDee_displace
 
@@ -1257,8 +1246,6 @@ if (PRINT) print*, "MOVE dt = ", dt
     time = omp_get_wtime()
     md%Time%Pair = md%Time%Pair + time
     md%Time%Total = time - me%startTime
-
-if (PRINT) print*, "FORCE - layer = ", me%layer
 
   end subroutine EmDee_compute_forces
 
