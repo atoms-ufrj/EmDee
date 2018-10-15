@@ -82,7 +82,7 @@ void EmDee_verlet_step( tEmDee* md, double dt );
 
 void EmDee_compute_forces( tEmDee* md );
 
-void EmDee_rdf( tEmDee md, int bins, int pairs, int itype[], int jtype[], double count[] );
+void EmDee_rdf( tEmDee md, int bins, double Rc, int pairs, int itype[], int jtype[], double count[] );
 
 void* EmDee_shifted_force( void* model );
 

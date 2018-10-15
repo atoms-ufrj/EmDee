@@ -242,11 +242,12 @@ interface
     type(tEmDee), intent(inout) :: md
   end subroutine EmDee_compute_forces
 
-  subroutine EmDee_rdf( md, bins, pairs, itype, jtype, g ) &
+  subroutine EmDee_rdf( md, bins, Rc, pairs, itype, jtype, g ) &
     bind(C,name="EmDee_rdf")
     import :: tEmDee, c_int, c_double
     type(tEmDee),   value       :: md
     integer(c_int), value       :: pairs, bins
+    real(c_double), value       :: Rc
     integer(c_int), intent(in)  :: itype(pairs), jtype(pairs)
     real(c_double), intent(out) :: g(bins,pairs)
   end subroutine EmDee_rdf

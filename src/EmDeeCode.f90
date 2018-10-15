@@ -31,7 +31,7 @@ implicit none
 
 private
 
-character(11), parameter :: VERSION = "11 Oct 2018"
+character(11), parameter :: VERSION = "15 Oct 2018"
 
 type, bind(C), public :: tOpts
   logical(lb) :: Translate            ! Flag to activate/deactivate translations
@@ -1278,9 +1278,10 @@ contains
 
 !===================================================================================================
 
-  subroutine EmDee_rdf( md, bins, pairs, itype, jtype, g ) bind(C,name="EmDee_rdf")
+  subroutine EmDee_rdf( md, bins, Rc, pairs, itype, jtype, g ) bind(C,name="EmDee_rdf")
     type(tEmDee), value       :: md
     integer(ib),  value       :: pairs, bins
+    real(rb),     value       :: Rc
     integer(ib),  intent(in)  :: itype(pairs), jtype(pairs)
     real(rb),     intent(out) :: g(bins,pairs)
 
@@ -1348,11 +1349,17 @@ contains
 
         integer  :: firstAtom, lastAtom, k, i, itype, m, j, jtype, pair, bin
         real(rb) :: Rc2, binsByRc, Ri(3), Rij(3), r2
+        integer, pointer :: last(:)
 
-        Rc2 = me%RcSq*invL2
+        Rc2 = Rc*invL2
         binsByRc = bins/(me%Rc*invL)
         pairCount(:,:,thread) = 0
         associate ( neighbor => me%neighbor(thread) )
+          if (Rc < 1.0001_rb*me%InRc) then
+            last => neighbor%middle
+          else
+            last => neighbor%last
+          end if
           firstAtom = me%cellAtom%first(me%threadCell%first(thread))
           lastAtom = me%cellAtom%last(me%threadCell%last(thread))
           do k = firstAtom, lastAtom
@@ -1360,7 +1367,7 @@ contains
             itype = me%atomType(i)
             if (hasPair(itype)) then
               Ri = Rs(:,i)
-              do m = neighbor%first(i), neighbor%last(i)
+              do m = neighbor%first(i), last(i)
                 j = neighbor%item(m)
                 jtype = me%atomType(j)
                 if (pairOn(itype,jtype)) then
