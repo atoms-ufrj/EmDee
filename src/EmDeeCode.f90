@@ -1327,7 +1327,7 @@ contains
     end block
     !$omp end parallel
 
-    rdf = sum(pairCount,3)/(Pi4_3*(me%Rc*invL/bins)**3)
+    rdf = sum(pairCount,3)/(Pi4_3*(Rc*invL/bins)**3)
     forall (bin=1:bins) rdf(bin,:) = rdf(bin,:)/(3*bin*(bin - 1) + 1)
     allocate( N(maxtype) )
     forall(i=1:maxtype, hasPair(i)) N(i) = count(me%atomType == i)
@@ -1351,8 +1351,8 @@ contains
         real(rb) :: Rc2, binsByRc, Ri(3), Rij(3), r2
         integer, pointer :: last(:)
 
-        Rc2 = Rc*invL2
-        binsByRc = bins/(me%Rc*invL)
+        Rc2 = Rc**2*invL2
+        binsByRc = bins/(Rc*invL)
         pairCount(:,:,thread) = 0
         associate ( neighbor => me%neighbor(thread) )
           if (Rc < 1.0001_rb*me%InRc) then
